@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    url: ${TEST_DB_URL:jdbc:mysql://127.0.0.1:3306/sundry_test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${TEST_DB_USERNAME:root}
+    password: ${TEST_DB_PASSWORD:}
+  data:
+    redis:
+      database: 15
+
+app:
+  jwt:
+    secret: c3VuZHJ5LXRlc3Qtb25seS1qd3Qtc2VjcmV0LWtleS0yMDI2
+  sms:
+    provider: capturing
