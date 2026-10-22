@@ -16,8 +16,8 @@
 | 存储 | MinIO `sundry-minio`（9000 API / 9001 控制台），公开桶 `sundry-public` |
 | 商品图 | `POST /api/admin/files/images`，≤5MB，JPEG/PNG/WebP，随机 key |
 | 商品 | 分类（秒杀券/软件/实物）、商品 CRUD、上下架、商城列表/详情 |
-| 数字商品 | 私有桶、2GB 分片直传 MinIO、商品绑定 DIGITAL 文件；下载未做 |
-| 测试 | 35 个集成测试，`mvn test` 全绿 |
+| 数字商品 | 私有桶、2GB 分片直传 MinIO、商品绑定 DIGITAL 文件、取消/删除清理；下载未做 |
+| 测试 | 38 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop`、`main` 均在 `7b1a0b1`，`origin/main` 已同步 |
 | 未完成 | 商品、SKU、库存、购物车、订单、支付、发货、售后、通知公告 |
 
@@ -347,9 +347,19 @@
   - 私有桶对象匿名 GET 返回 403
 - 8081 实例已停止
 
+**补充：取消与清理（同日）**
+
+- 前端取消上传：abort 所有 XHR 并调用 abort 接口，取消 multipart、删除 Redis 会话
+- 移除已上传文件：新增 `DELETE /api/admin/uploads/digital/{id}`，确认未被商品引用后删除 MinIO 对象和 `file_object`
+- 文件仍被商品引用时返回 409 `FILE_IN_USE`，避免误删在售商品的文件
+- 关闭页面：`pagehide` 时用 `fetch keepalive` 自动取消未完成上传
+- 编辑商品更换或移除数字文件：商品保存成功后清理旧文件
+- 验证：38 个测试通过；真实链路删除后数据库记录为 0，被引用文件返回 409
+
 **提交**
 
 - `a13afe8` feat: 新增数字文件分片直传与商品绑定
+- `57eaa75` feat: 支持取消上传与删除数字文件
 
 ---
 
