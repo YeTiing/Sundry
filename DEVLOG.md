@@ -15,7 +15,8 @@
 | 权限 | SUPER_ADMIN / ADMIN / USER；超级管理员由 `app.security.super-admin-phone` 指定 |
 | 存储 | MinIO `sundry-minio`（9000 API / 9001 控制台），公开桶 `sundry-public` |
 | 商品图 | `POST /api/admin/files/images`，≤5MB，JPEG/PNG/WebP，随机 key |
-| 测试 | 22 个集成测试，`mvn test` 全绿 |
+| 商品 | 分类（秒杀券/软件/实物）、商品 CRUD、上下架、商城列表/详情 |
+| 测试 | 28 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop`、`main` 均在 `7b1a0b1`，`origin/main` 已同步 |
 | 未完成 | 商品、SKU、库存、购物车、订单、支付、发货、售后、通知公告 |
 
@@ -257,9 +258,56 @@
 
 ---
 
+## 2026-10-22 · 商品与分类展示
+
+**做了什么**
+
+- Flyway V3：
+  - `category` 表，种子分类：秒杀券、软件、实物
+  - `product` 表：名称、描述、价格 `DECIMAL(10,2)`、封面 `file_object.id`、分类、状态
+  - 状态：`DRAFT` / `ON_SALE` / `OFF_SHELF`，暂无 SKU 和库存
+- 公开接口：
+  - `GET /api/categories`
+  - `GET /api/products?categoryId=&page=&size=`，只返回 `ON_SALE`，支持分类筛选和分页
+  - `GET /api/products/{id}`，非上架返回 404
+- 管理接口（ADMIN / SUPER_ADMIN）：
+  - `GET /api/admin/products`，可看全部状态、分页
+  - `POST /api/admin/products`、`PUT /api/admin/products/{id}`
+  - `PATCH /api/admin/products/{id}/status` 上下架
+- 封面复用图片上传：存 `file_object.id`，读取时按存储配置拼 URL
+- 前端：
+  - `/` 改为商城列表：分类筛选、分页、商品卡片
+  - `/products/:id` 商品详情
+  - `/account` 账户页
+  - `/admin/products` 商品管理：新建/编辑、封面上传、上下架、分页
+  - 顶部导航随登录状态和角色变化
+
+**遇到问题**
+
+- 编辑商品时要保留原封面，`ProductView` 原先只返回 `coverUrl`，补了 `coverFileId`
+- Windows Git Bash 直接传中文 JSON 会因终端编码导致 Jackson 解析失败；改用 UTF-8 文件 `--data-binary` 验证通过。浏览器 `fetch` 本身按 UTF-8 发送，不受影响
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 28 个用例全部通过（新增商品 6 个）
+- 前端 `npm run build` 通过
+- 8081 真实链路：
+  - 超级管理员创建 `ON_SALE` 商品
+  - 公开列表和详情都返回分类名、价格、封面 URL
+  - 中文名称和多行描述写入、读取正常
+  - 封面对应的 MinIO URL 返回 200 `image/png`
+- 8081 实例已停止
+
+**提交**
+
+- `fd2e606` feat: 新增商品分类与商城展示
+
+---
+
 ## 待办 / 下一步
 
-- 商品与 SKU、库存（条件更新防超卖）
+- 分类管理（新增/排序/停用；目前只有迁移种子）
+- 库存扣减与并发（条件更新防超卖）
 - 购物车、下单、订单状态机
 - 支付渠道接入（商户资质是前置）
 - 发货、确认收货、退款售后
@@ -274,6 +322,7 @@
 - 前端构建产物尚未接入 Spring 静态托管，生产部署方案未定
 - 无 CI；测试依赖本机 MySQL 和 Redis
 - 业务前置：支付商户号、ICP 备案、经营主体尚未确认
+- 分类目前只有迁移种子，后台还不能增删改；商品暂无库存字段，下单前必须补
 
 ---
 
