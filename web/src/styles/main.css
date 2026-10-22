@@ -435,8 +435,10 @@ a:hover {
 .result img {
   width: 120px;
   height: 120px;
+  padding: 4px;
   border: 1px solid var(--rule);
-  object-fit: cover;
+  background: #f3f1ea;
+  object-fit: contain;
 }
 
 .result code {
