@@ -9,6 +9,9 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.HexFormat;
 
+/**
+ * refresh token 是随机串，不是 JWT；Redis 里只存它的 SHA-256，即使 Redis 数据泄露也拿不到原值。
+ */
 @Service
 public class RefreshTokenService {
 
@@ -24,6 +27,7 @@ public class RefreshTokenService {
     }
 
     public String issue(Long userId) {
+        // 32 字节随机数 → Base64URL，不带填充；随机性足够，不需要再加密
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -35,6 +39,7 @@ public class RefreshTokenService {
      * 取出并立即作废，保证 refresh token 只能使用一次。
      */
     public Long consume(String token) {
+        // getAndDelete 是原子操作：取出的同时删除，保证 refresh token 只能成功用一次
         String value = redis.opsForValue().getAndDelete(KEY_PREFIX + hash(token));
         return value == null ? null : Long.valueOf(value);
     }

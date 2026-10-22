@@ -8,6 +8,10 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 测试用短信通道：不发短信，把验证码留在内存里供断言。
+ * @Profile("test") 只在 test profile 下装配，与 LoggingSmsSender 互斥。
+ */
 @Component
 @Profile("test")
 public class CapturingSmsSender implements SmsSender {

@@ -25,6 +25,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * @SpringBootTest 启动完整 Spring 容器（真实 MySQL + Redis）；
+ * @AutoConfigureMockMvc 提供 MockMvc，不用真的起 HTTP 端口；
+ * @ActiveProfiles("test") 读取 application-test.yml（sundry_test 库 + Redis 15 号库）。
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -45,6 +50,7 @@ class AuthFlowIntegrationTest {
     @Autowired
     private CapturingSmsSender smsSender;
 
+    // 每个测试前清库、清 Redis，保证用例之间互不影响
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("DELETE FROM app_user");

@@ -34,6 +34,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
 
+/**
+ * 认证接口。@RestController = @Controller + @ResponseBody，返回值直接序列化成 JSON；
+ * @RequestMapping 给这一组接口加上 /api/auth 前缀。
+ */
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -48,6 +52,8 @@ public class AuthController {
         this.jwtProperties = jwtProperties;
     }
 
+    // @PostMapping 限定 POST；@ResponseStatus 固定返回 204（无响应体）
+    // @Valid 触发 DTO 上的校验注解；@RequestBody 把 JSON 请求体反序列化成对象
     @PostMapping("/sms-code")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void sendCode(@Valid @RequestBody SendCodeRequest request) {
@@ -72,11 +78,13 @@ public class AuthController {
         return tokenResponse(authService.loginByPassword(request), response);
     }
 
+    // refresh token 从 HttpOnly Cookie 读取，前端拿不到明文
     @PostMapping("/refresh")
     public ResponseEntity<TokenResponse> refresh(HttpServletRequest request, HttpServletResponse response) {
         return tokenResponse(authService.refresh(readRefreshCookie(request)), response);
     }
 
+    // 退出允许不带令牌调用（已在安全配置里放行），方便清理过期会话
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
                                        HttpServletRequest request, HttpServletResponse response) {
@@ -89,6 +97,7 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
+    // Authentication 由 Spring Security 注入：JWT 请求里是 AuthenticatedUser，密码登录时是 UserPrincipal
     @GetMapping("/me")
     public UserView me(Authentication authentication) {
         Long userId;
@@ -110,6 +119,10 @@ public class AuthController {
         return ResponseEntity.ok(body);
     }
 
+    /**
+     * HttpOnly：JavaScript 读不到，降低 XSS 窃取风险；
+     * SameSite=Lax：跨站 POST 不携带；Path=/api/auth：只在认证接口发送。
+     */
     private ResponseCookie refreshCookie(String value) {
         return ResponseCookie.from(jwtProperties.getRefreshCookieName(), value)
                 .httpOnly(true)

@@ -8,7 +8,8 @@ import org.springframework.stereotype.Component;
 /**
  * 开发环境短信通道：只把验证码写日志。生产必须切换为真实通道。
  */
-@Component
+@Component // 注册为 Spring Bean，SmsCodeService 按 SmsSender 接口注入
+// 条件装配：只有 app.sms.provider=log（或未配置）时才创建这个实现
 @ConditionalOnProperty(name = "app.sms.provider", havingValue = "log", matchIfMissing = true)
 public class LoggingSmsSender implements SmsSender {
 

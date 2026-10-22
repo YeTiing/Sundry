@@ -11,11 +11,16 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+/**
+ * 全局异常出口。@RestControllerAdvice 让这些 @ExceptionHandler 对所有 Controller 生效，
+ * 返回的对象会被直接序列化成 JSON。
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    // 业务异常携带 ErrorCode，直接决定 HTTP 状态码和文案
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiError> handleBusiness(BusinessException ex) {
         ErrorCode code = ex.getErrorCode();
@@ -23,6 +28,7 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(code.name(), ex.getMessage()));
     }
 
+    // @Valid 校验失败时 Spring 抛这个异常；只取第一条字段错误返回
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex) {
         String message = ex.getBindingResult().getFieldErrors().stream()
@@ -64,6 +70,7 @@ public class GlobalExceptionHandler {
                         ErrorCode.UNAUTHORIZED.message()));
     }
 
+    // 兜底：未预料的异常只返回通用文案，堆栈仅写服务端日志，不泄露给客户端
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
         log.error("unhandled exception", ex);

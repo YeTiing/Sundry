@@ -7,6 +7,10 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.List;
 
+/**
+ * UserDetails 是 Spring Security 对“登录用户”的抽象；这里用 record 实现。
+ * 密码只在这一层交给框架比对，不会出现在任何接口响应里。
+ */
 public record UserPrincipal(Long id, String phone, String passwordHash, boolean active) implements UserDetails {
 
     public static UserPrincipal from(User user) {
@@ -43,6 +47,7 @@ public record UserPrincipal(Long id, String phone, String passwordHash, boolean 
         return true;
     }
 
+    // 返回 false 时 Spring Security 会抛 DisabledException，登录直接失败
     @Override
     public boolean isEnabled() {
         return active;

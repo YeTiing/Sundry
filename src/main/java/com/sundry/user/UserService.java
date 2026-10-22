@@ -5,6 +5,9 @@ import com.sundry.common.exception.ErrorCode;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+/**
+ * 用户读写。@Service 把这个类注册成 Spring Bean，构造器参数由容器自动注入。
+ */
 @Service
 public class UserService {
 
@@ -38,6 +41,7 @@ public class UserService {
         try {
             userMapper.insert(user);
         } catch (DuplicateKeyException ex) {
+            // phone 唯一索引冲突：并发注册时兜底，防止两个请求同时通过前面的存在性检查
             throw new BusinessException(ErrorCode.PHONE_ALREADY_REGISTERED);
         }
         return user;

@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- namespace 必须等于 Mapper 接口的全限定名；每个标签的 id 对应接口方法名 -->
 <mapper namespace="com.sundry.user.UserMapper">
 
+    <!-- #{phone} 是预编译参数，不是字符串拼接，能防 SQL 注入 -->
     <select id="findByPhone" resultType="com.sundry.user.User">
         SELECT id, phone, password_hash, status, created_at, updated_at
         FROM app_user
@@ -15,6 +17,7 @@
         WHERE id = #{id}
     </select>
 
+    <!-- useGeneratedKeys + keyProperty：把 MySQL 自增主键回填到 user.id -->
     <insert id="insert" parameterType="com.sundry.user.User"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO app_user (phone, password_hash, status)

@@ -21,6 +21,10 @@ import java.util.Base64;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 签发和校验 access token。@Service 注册为 Bean；使用 Spring Security 自带的 Nimbus 实现，
+ * 对称签名算法 HS256（同一个密钥签发和校验，单体应用够用）。
+ */
 @Service
 public class JwtService {
 
@@ -35,6 +39,7 @@ public class JwtService {
         this.properties = properties;
         this.redis = redis;
 
+        // 启动时就校验密钥：必须是 Base64，且至少 32 字节（HS256 要求 256 位）
         String secret = properties.getSecret();
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException("app.jwt.secret 未配置");
@@ -54,12 +59,14 @@ public class JwtService {
         this.decoder = NimbusJwtDecoder.withSecretKey(key)
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
+        // 默认会校验签名和 exp，这里再要求 iss（签发者）匹配
         this.decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(properties.getIssuer()));
     }
 
     public IssuedAccessToken issueAccessToken(Long userId) {
         Instant now = Instant.now();
         Instant expiresAt = now.plus(properties.getAccessTtl());
+        // jti 是令牌唯一 ID，退出登录时用它把令牌加入黑名单
         String jti = UUID.randomUUID().toString();
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
@@ -83,6 +90,7 @@ public class JwtService {
         if (jti == null || expiresAt == null) {
             return;
         }
+        // 黑名单只需保留到令牌自然过期，过期后校验本身就通不过
         Duration ttl = Duration.between(Instant.now(), expiresAt);
         if (ttl.isNegative() || ttl.isZero()) {
             return;

@@ -2,6 +2,9 @@ package com.sundry.common.exception;
 
 import org.springframework.http.HttpStatus;
 
+/**
+ * 业务错误码：每个枚举同时携带 HTTP 状态和默认文案，异常处理器直接用它组装响应。
+ */
 public enum ErrorCode {
 
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "请求参数不合法"),
