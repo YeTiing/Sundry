@@ -674,7 +674,7 @@ a:hover {
 }
 
 .product-card__media {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -754,7 +754,7 @@ a:hover {
 }
 
 .product-detail__media {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -848,7 +848,7 @@ a:hover {
 
 .cover-preview {
   width: 150px;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
   overflow: hidden;
