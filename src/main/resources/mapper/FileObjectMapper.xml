@@ -11,4 +11,11 @@
                 #{sizeBytes}, #{kind}, #{uploaderId}, #{status})
     </insert>
 
+    <select id="findById" resultType="com.sundry.file.FileObject">
+        SELECT id, bucket, object_key, original_name, content_type,
+               size_bytes, kind, uploader_id, status, created_at
+        FROM file_object
+        WHERE id = #{id}
+    </select>
+
 </mapper>

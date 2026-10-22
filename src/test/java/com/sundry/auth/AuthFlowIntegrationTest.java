@@ -54,6 +54,7 @@ class AuthFlowIntegrationTest {
     @BeforeEach
     void setUp() {
         // 先删子表，file_object 对 app_user 有外键
+        jdbcTemplate.update("DELETE FROM product");
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");
         Set<String> keys = redis.keys("auth:*");

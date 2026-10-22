@@ -163,7 +163,8 @@ onBeforeUnmount(() => {
           <h1 class="admin-title">商品图上传</h1>
         </div>
         <nav class="admin-nav">
-          <RouterLink to="/">返回账户</RouterLink>
+          <RouterLink to="/">商城</RouterLink>
+          <RouterLink to="/admin/products">商品管理</RouterLink>
           <button class="link-button" type="button" @click="logout">退出登录</button>
         </nav>
       </header>

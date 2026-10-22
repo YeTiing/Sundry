@@ -103,4 +103,7 @@ export const http = {
   patch<T>(path: string, body: unknown): Promise<T> {
     return request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }, true)
   },
+  put<T>(path: string, body: unknown): Promise<T> {
+    return request<T>(path, { method: 'PUT', body: JSON.stringify(body) }, true)
+  },
 }

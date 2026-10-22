@@ -25,7 +25,7 @@ async function logout(): Promise<void> {
 </script>
 
 <template>
-  <AuthSheet title="账户" lede="登录成功。商城与订单页面后续再做，这里先放账号信息。">
+  <AuthSheet title="账户" lede="这里查看账号与角色。商品、订单和售后后续继续做。">
     <dl class="account-list">
       <div class="account-row">
         <dt>手机号</dt>
@@ -40,6 +40,8 @@ async function logout(): Promise<void> {
         <dd>{{ roleLabel }}</dd>
       </div>
     </dl>
+
+    <RouterLink class="quiet-button home-admin-link" to="/">返回商城</RouterLink>
 
     <RouterLink v-if="auth.isAdmin" class="primary-button home-admin-link" to="/admin">
       进入管理后台

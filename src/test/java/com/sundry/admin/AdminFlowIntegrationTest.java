@@ -61,6 +61,7 @@ class AdminFlowIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM product");
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");
         Set<String> keys = redis.keys("auth:*");

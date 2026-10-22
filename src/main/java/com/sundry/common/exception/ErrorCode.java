@@ -28,6 +28,9 @@ public enum ErrorCode {
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "图片不能超过 5MB"),
     UNSUPPORTED_FILE_TYPE(HttpStatus.BAD_REQUEST, "只支持 JPEG、PNG、WebP 图片"),
     FILE_UPLOAD_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "文件上传失败，请稍后重试"),
+    PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "商品不存在或未上架"),
+    CATEGORY_NOT_FOUND(HttpStatus.BAD_REQUEST, "分类不存在或已停用"),
+    COVER_NOT_FOUND(HttpStatus.BAD_REQUEST, "封面图片不存在"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "服务器内部错误");
 
     private final HttpStatus status;

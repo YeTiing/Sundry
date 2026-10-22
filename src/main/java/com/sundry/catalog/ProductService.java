@@ -1,0 +1,138 @@
+package com.sundry.catalog;
+
+import com.sundry.catalog.dto.CategoryView;
+import com.sundry.catalog.dto.ProductView;
+import com.sundry.catalog.dto.SaveProductRequest;
+import com.sundry.common.api.PageResponse;
+import com.sundry.common.exception.BusinessException;
+import com.sundry.common.exception.ErrorCode;
+import com.sundry.file.FileKind;
+import com.sundry.file.FileObject;
+import com.sundry.file.FileObjectMapper;
+import com.sundry.storage.ObjectStorage;
+import org.springframework.stereotype.Service;
+
+import java.math.RoundingMode;
+import java.util.List;
+
+/**
+ * 商品读写。前台只读已上架；管理端可以读写全部状态。
+ */
+@Service
+public class ProductService {
+
+    private final ProductMapper productMapper;
+    private final CategoryMapper categoryMapper;
+    private final FileObjectMapper fileObjectMapper;
+    private final ObjectStorage storage;
+
+    public ProductService(ProductMapper productMapper, CategoryMapper categoryMapper,
+                          FileObjectMapper fileObjectMapper, ObjectStorage storage) {
+        this.productMapper = productMapper;
+        this.categoryMapper = categoryMapper;
+        this.fileObjectMapper = fileObjectMapper;
+        this.storage = storage;
+    }
+
+    public List<CategoryView> categories() {
+        return categoryMapper.findActive().stream().map(CategoryView::from).toList();
+    }
+
+    public PageResponse<ProductView> findPublicPage(Long categoryId, int page, int size) {
+        long offset = (long) (page - 1) * size;
+        List<ProductView> items = productMapper.findPagePublic(categoryId, offset, size)
+                .stream().map(this::toView).toList();
+        return new PageResponse<>(items, productMapper.countPublic(categoryId), page, size);
+    }
+
+    public PageResponse<ProductView> findAdminPage(ProductStatus status, int page, int size) {
+        long offset = (long) (page - 1) * size;
+        List<ProductView> items = productMapper.findPageAdmin(status, offset, size)
+                .stream().map(this::toView).toList();
+        return new PageResponse<>(items, productMapper.countAdmin(status), page, size);
+    }
+
+    public ProductView findPublic(Long id) {
+        Product product = productMapper.findPublicById(id);
+        if (product == null) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        return toView(product);
+    }
+
+    public ProductView findAdmin(Long id) {
+        Product product = productMapper.findById(id);
+        if (product == null) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        return toView(product);
+    }
+
+    public ProductView create(SaveProductRequest request) {
+        requireCategory(request.categoryId());
+        requireCover(request.coverFileId());
+
+        Product product = new Product();
+        apply(product, request);
+        product.setStatus(request.status() == null ? ProductStatus.DRAFT : request.status());
+        productMapper.insert(product);
+        return toView(productMapper.findById(product.getId()));
+    }
+
+    public ProductView update(Long id, SaveProductRequest request) {
+        if (productMapper.findById(id) == null) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        requireCategory(request.categoryId());
+        requireCover(request.coverFileId());
+
+        Product product = new Product();
+        product.setId(id);
+        apply(product, request);
+        productMapper.update(product);
+        return toView(productMapper.findById(id));
+    }
+
+    public ProductView changeStatus(Long id, ProductStatus status) {
+        if (productMapper.findById(id) == null) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        productMapper.updateStatus(id, status);
+        return toView(productMapper.findById(id));
+    }
+
+    private void apply(Product product, SaveProductRequest request) {
+        product.setCategoryId(request.categoryId());
+        product.setName(request.name().trim());
+        product.setDescription(request.description().trim());
+        product.setPrice(request.price().setScale(2, RoundingMode.HALF_UP));
+        product.setCoverFileId(request.coverFileId());
+    }
+
+    private void requireCategory(Long categoryId) {
+        Category category = categoryMapper.findById(categoryId);
+        if (category == null || category.getStatus() == null || category.getStatus() != 1) {
+            throw new BusinessException(ErrorCode.CATEGORY_NOT_FOUND);
+        }
+    }
+
+    private void requireCover(Long coverFileId) {
+        if (coverFileId == null) {
+            return;
+        }
+        FileObject file = fileObjectMapper.findById(coverFileId);
+        if (file == null || file.getKind() != FileKind.IMAGE) {
+            throw new BusinessException(ErrorCode.COVER_NOT_FOUND);
+        }
+    }
+
+    private ProductView toView(Product product) {
+        String coverUrl = null;
+        if (product.getCoverBucket() != null && product.getCoverObjectKey() != null) {
+            coverUrl = storage.publicUrl(product.getCoverBucket(), product.getCoverObjectKey());
+        }
+        return new ProductView(product.getId(), product.getName(), product.getDescription(),
+                product.getPrice(), product.getCategoryId(), product.getCategoryName(),
+                product.getCoverFileId(), coverUrl, product.getStatus(), product.getCreatedAt());
+    }
+}

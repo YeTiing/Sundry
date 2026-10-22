@@ -42,3 +42,24 @@ export interface FileView {
   size: number
   contentType: string
 }
+
+export type ProductStatus = 'DRAFT' | 'ON_SALE' | 'OFF_SHELF'
+
+export interface Category {
+  id: number
+  name: string
+  sortOrder: number
+}
+
+export interface Product {
+  id: number
+  name: string
+  description: string
+  price: number
+  categoryId: number
+  categoryName: string
+  coverFileId: number | null
+  coverUrl: string | null
+  status: ProductStatus
+  createdAt: string
+}

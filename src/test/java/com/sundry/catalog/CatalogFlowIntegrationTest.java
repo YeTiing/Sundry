@@ -1,0 +1,267 @@
+package com.sundry.catalog;
+
+import com.jayway.jsonpath.JsonPath;
+import com.sundry.auth.CapturingSmsSender;
+import com.sundry.auth.sms.SmsScene;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * 商品展示链路：草稿不可见、上架可见、下架隐藏、分类筛选、权限和分页。
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class CatalogFlowIntegrationTest {
+
+    private static final String SUPER_PHONE = "13900000000";
+    private static final String USER_PHONE = "13800138001";
+    private static final String PASSWORD = "secret123";
+    private static final byte[] TINY_PNG = Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PzWvWQAAAABJRU5ErkJggg==");
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private StringRedisTemplate redis;
+
+    @Autowired
+    private CapturingSmsSender smsSender;
+
+    @BeforeEach
+    void setUp() {
+        jdbcTemplate.update("DELETE FROM product");
+        jdbcTemplate.update("DELETE FROM file_object");
+        jdbcTemplate.update("DELETE FROM app_user");
+        Set<String> keys = redis.keys("auth:*");
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
+        smsSender.clear();
+    }
+
+    @Test
+    void categoriesAreSeeded() throws Exception {
+        mockMvc.perform(get("/api/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].name").value("秒杀券"))
+                .andExpect(jsonPath("$[1].name").value("软件"))
+                .andExpect(jsonPath("$[2].name").value("实物"));
+    }
+
+    @Test
+    void draftProductIsHiddenUntilOnSale() throws Exception {
+        Session admin = register(SUPER_PHONE);
+        Long categoryId = categoryId("软件");
+
+        MvcResult created = createProduct(admin.token(), "草稿商品", "99.90", categoryId, "DRAFT", null);
+        long productId = ((Number) JsonPath.read(body(created), "$.id")).longValue();
+
+        mockMvc.perform(get("/api/products"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+
+        mockMvc.perform(get("/api/products/{id}", productId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
+
+        mockMvc.perform(patch("/api/admin/products/{id}/status", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"ON_SALE"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ON_SALE"));
+
+        mockMvc.perform(get("/api/products"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("草稿商品"))
+                .andExpect(jsonPath("$.items[0].price").value(99.90));
+
+        mockMvc.perform(get("/api/products/{id}", productId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.categoryName").value("软件"));
+
+        mockMvc.perform(patch("/api/admin/products/{id}/status", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"OFF_SHELF"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/products"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+    }
+
+    @Test
+    void publicListSupportsCategoryFilterAndPagination() throws Exception {
+        Session admin = register(SUPER_PHONE);
+        Long softwareId = categoryId("软件");
+        Long couponId = categoryId("秒杀券");
+
+        createProduct(admin.token(), "软件一", "10.00", softwareId, "ON_SALE", null);
+        createProduct(admin.token(), "软件二", "20.00", softwareId, "ON_SALE", null);
+        createProduct(admin.token(), "软件三", "30.00", softwareId, "ON_SALE", null);
+        createProduct(admin.token(), "秒杀券一", "1.00", couponId, "ON_SALE", null);
+
+        mockMvc.perform(get("/api/products").param("page", "1").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(4))
+                .andExpect(jsonPath("$.items.length()").value(2));
+
+        mockMvc.perform(get("/api/products").param("categoryId", softwareId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.items[0].categoryName").value("软件"));
+    }
+
+    @Test
+    void normalUserCannotManageProducts() throws Exception {
+        Session user = register(USER_PHONE);
+        Long categoryId = categoryId("实物");
+
+        mockMvc.perform(get("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(productJson("越权商品", "1.00", categoryId, null, null)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void invalidCategoryAndPriceAreRejected() throws Exception {
+        Session admin = register(SUPER_PHONE);
+        Long categoryId = categoryId("软件");
+
+        mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(productJson("无效分类", "1.00", 999999L, null, null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CATEGORY_NOT_FOUND"));
+
+        mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(productJson("负价格", "-1.00", categoryId, null, null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void coverImageUrlIsReturned() throws Exception {
+        Session admin = register(SUPER_PHONE);
+        Long categoryId = categoryId("软件");
+
+        MvcResult uploaded = mockMvc.perform(multipart("/api/admin/files/images")
+                        .file(new MockMultipartFile("file", "cover.png", "image/png", TINY_PNG))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        String uploadedBody = body(uploaded);
+        long fileId = ((Number) JsonPath.read(uploadedBody, "$.id")).longValue();
+        String expectedUrl = JsonPath.read(uploadedBody, "$.url");
+
+        mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(productJson("带封面商品", "88.00", categoryId, "ON_SALE", fileId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.coverUrl").value(expectedUrl));
+    }
+
+    private Session register(String phone) throws Exception {
+        redis.delete("auth:sms:cooldown:" + phone);
+        mockMvc.perform(post("/api/auth/sms-code")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"%s","scene":"REGISTER"}
+                                """.formatted(phone)))
+                .andExpect(status().isNoContent());
+
+        String code = smsSender.code(SmsScene.REGISTER, phone);
+        assertThat(code).as("验证码应已发送").isNotNull();
+
+        MvcResult result = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"%s","code":"%s","password":"%s"}
+                                """.formatted(phone, code, PASSWORD)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = body(result);
+        String token = JsonPath.read(body, "$.accessToken");
+        Number id = JsonPath.read(body, "$.user.id");
+        return new Session(token, id.longValue());
+    }
+
+    private MvcResult createProduct(String token, String name, String price, Long categoryId,
+                                    String status, Long coverFileId) throws Exception {
+        return mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(productJson(name, price, categoryId, status, coverFileId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").isNumber())
+                .andReturn();
+    }
+
+    private String productJson(String name, String price, Long categoryId, String status, Long coverFileId) {
+        String cover = coverFileId == null ? "null" : coverFileId.toString();
+        String statusPart = status == null ? "" : ",\"status\":\"" + status + "\"";
+        return """
+                {"name":"%s","description":"测试商品描述","price":%s,"categoryId":%d,"coverFileId":%s%s}
+                """.formatted(name, price, categoryId, cover, statusPart);
+    }
+
+    private Long categoryId(String name) {
+        return jdbcTemplate.queryForObject("SELECT id FROM category WHERE name = ?", Long.class, name);
+    }
+
+    private String bearer(String token) {
+        return "Bearer " + token;
+    }
+
+    private String body(MvcResult result) throws Exception {
+        return result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    private record Session(String token, Long id) {
+    }
+}
