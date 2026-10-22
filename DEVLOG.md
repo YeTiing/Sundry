@@ -12,17 +12,22 @@
 | 数据库 | MySQL 8.0.31（本机 3306），业务库 `sundry`，测试库 `sundry_test` |
 | Redis | Docker 容器 `sundry-redis`（6379，AOF + 命名卷 `sundry-redis-data`） |
 | 认证 | 手机号验证码注册、验证码/密码登录、JWT + refresh 轮换、退出黑名单 |
-| 测试 | 10 个集成测试，`mvn test` 全绿 |
+| 权限 | SUPER_ADMIN / ADMIN / USER；超级管理员由 `app.security.super-admin-phone` 指定 |
+| 存储 | MinIO `sundry-minio`（9000 API / 9001 控制台），公开桶 `sundry-public` |
+| 商品图 | `POST /api/admin/files/images`，≤5MB，JPEG/PNG/WebP，随机 key |
+| 测试 | 22 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop`、`main` 均在 `7b1a0b1`，`origin/main` 已同步 |
 | 未完成 | 商品、SKU、库存、购物车、订单、支付、发货、售后、通知公告 |
 
 ### 本地启动
 
-1. MySQL 3306、Redis 6379 在跑（Redis 容器没起时：`docker start sundry-redis`）
+1. MySQL 3306、Redis 6379、MinIO 9000 在跑（容器没起时：`docker start sundry-redis sundry-minio`）
 2. IDEA：JDK 17，Active profiles 填 `local`，或 VM options 加 `-Dspring.profiles.active=local`
 3. 运行 `SundryApplication`，健康检查 `http://localhost:8080/actuator/health`
 4. 前端：`cd web && npm install && npm run dev`，访问 `http://localhost:5173`
 5. 测试：`TEST_DB_PASSWORD=123456 mvn test`
+
+超级管理员手机号在 `application-local.yml` 的 `app.security.super-admin-phone`。改成自己的号并重启，用该号注册即成为超级管理员。MinIO 控制台：`http://localhost:9001`（账号 `sundry`）。
 
 开发环境短信不发真短信，验证码看后端日志：`[dev-sms] phone=... code=xxxxxx`。
 
@@ -196,18 +201,75 @@
 
 ---
 
+## 2026-10-22 · 角色权限与商品图上传
+
+**做了什么**
+
+- Flyway V2：`app_user` 增加 `role`，新增 `file_object` 表
+- 角色三层：`SUPER_ADMIN` / `ADMIN` / `USER`
+  - 超级管理员由 `app.security.super-admin-phone` 指定
+  - 该手机号注册时直接赋 `SUPER_ADMIN`；启动时若账号已存在则提升
+- JWT 过滤器每次按用户 ID 读库，把 `ROLE_*` 写入权限列表
+  - 提升/降级立即生效，不用等令牌过期
+  - 被禁用用户直接不放行
+- 开启 `@EnableMethodSecurity`，管理接口用 `@PreAuthorize`
+- 用户管理（仅超级管理员）：
+  - `GET /api/admin/users?page=1&size=20`，size 上限 100
+  - `PATCH /api/admin/users/{id}/role`，只能设为 ADMIN 或 USER
+  - SQL 带 `role <> 'SUPER_ADMIN'` 前置条件，超级管理员不可被接口改掉
+- MinIO：
+  - 容器 `sundry-minio`，9000 API / 9001 控制台，命名卷 `sundry-minio-data`
+  - 启动时自动建公开桶 `sundry-public` 并设置只读策略
+- 图片上传：
+  - `POST /api/admin/files/images`，multipart
+  - 校验大小、魔数（JPEG/PNG/WebP），不信任客户端 Content-Type
+  - key 为 `products/yyyy/MM/{uuid}.{ext}`，原始文件名只入库展示
+  - 写 MinIO 后记录 `file_object`；数据库失败时删除对象
+- 前端 `/admin`：
+  - 图片选择/拖拽、预览、上传、复制链接
+  - 超级管理员可见用户列表、角色调整、分页
+  - 路由守卫按角色限制
+
+**遇到问题**
+
+- MinIO Java SDK 9.0.3 依赖 OkHttp 5 的 KMP 包，Maven 下载到的 `okhttp` jar 只有元数据，编译报 `okhttp3.HttpUrl` 不存在
+- 解决：降到 8.5.17（依赖 OkHttp 4.12 普通 JVM jar）
+- `MissingServletRequestPartException` 包路径写错，应为 `org.springframework.web.multipart.support`
+- Windows 下 Git Bash 的 `/tmp` 路径传给 Windows curl 会报 26（无法读取文件），改用 `D:/...` 路径
+- Spring multipart 超限时还没进业务层，补 `MaxUploadSizeExceededException` 处理
+- `@PreAuthorize` 拒绝默认会被兜底成 500，补 `AccessDeniedException` → 403
+- 前端 `fetch` 上传 FormData 时不能手动设 `Content-Type`，否则丢 multipart 边界
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 22 个用例全部通过（原 10 + 新增 12）
+- 前端 `npm run build` 通过
+- 8081 临时实例跑真实链路：
+  - 注册配置手机号 → 返回 `role: SUPER_ADMIN`
+  - 上传 70B PNG → 返回 MinIO URL
+  - 直接访问该 URL → 200，`image/png`
+  - `file_object` 写入记录
+- 8081 实例已停止，未影响 8080
+
+**提交**
+
+- `c3c2ef4` feat: 新增角色权限与商品图上传
+
+---
+
 ## 待办 / 下一步
 
 - 商品与 SKU、库存（条件更新防超卖）
 - 购物车、下单、订单状态机
 - 支付渠道接入（商户资质是前置）
 - 发货、确认收货、退款售后
+- 数字商品：私有桶、2GB 级分片直传、购买后授权下载（允许重复下载）
 - 站内通知、公告已读
 
 ## 已知风险 / 上线前必须处理
 
 - 短信仍是日志通道，生产需接阿里云 / 腾讯云并配置签名和模板
-- JWT 密钥、数据库密码在本机 `application-local.yml`（已 gitignore），生产走环境变量或密钥管理
+- JWT 密钥、数据库密码、MinIO 凭据在本机 `application-local.yml`（已 gitignore），生产走环境变量或密钥管理
 - `refreshCookieSecure=false` 仅适合 HTTP 开发；生产 HTTPS 必须设为 `true`
 - 前端构建产物尚未接入 Spring 静态托管，生产部署方案未定
 - 无 CI；测试依赖本机 MySQL 和 Redis
