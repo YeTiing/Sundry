@@ -16,7 +16,8 @@
 | 存储 | MinIO `sundry-minio`（9000 API / 9001 控制台），公开桶 `sundry-public` |
 | 商品图 | `POST /api/admin/files/images`，≤5MB，JPEG/PNG/WebP，随机 key |
 | 商品 | 分类（秒杀券/软件/实物）、商品 CRUD、上下架、商城列表/详情 |
-| 测试 | 28 个集成测试，`mvn test` 全绿 |
+| 数字商品 | 私有桶、2GB 分片直传 MinIO、商品绑定 DIGITAL 文件；下载未做 |
+| 测试 | 35 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop`、`main` 均在 `7b1a0b1`，`origin/main` 已同步 |
 | 未完成 | 商品、SKU、库存、购物车、订单、支付、发货、售后、通知公告 |
 
@@ -304,6 +305,54 @@
 
 ---
 
+## 2026-10-22 · 数字文件分片直传
+
+**做了什么**
+
+- 引入 AWS SDK v2 S3（MinIO Java SDK 8.5 不提供显式 create/complete multipart）
+- 私有桶 `sundry-private`，启动时自动创建；不设置公开策略
+- 上传接口（ADMIN / SUPER_ADMIN）：
+  - `POST /api/admin/uploads/digital/init`：校验 2GB 上限，创建 multipart，返回每个分片的预签名 PUT URL
+  - `POST /api/admin/uploads/digital/complete`：后端 ListParts 获取 ETag 完成上传，HeadObject 校验大小，写 `file_object(kind=DIGITAL)`
+  - `POST /api/admin/uploads/digital/abort`：取消并清理
+- Redis 保存上传会话（uploaderId / key / size / partCount），防止伪造完成
+- 失败补偿：完成失败、大小不符、数据库写入失败都会删除对象或取消 multipart
+- 商品 V4：
+  - `product.type`：`PHYSICAL` / `DIGITAL`
+  - `product.digital_file_id` → `file_object`
+  - 数字商品必须绑定 DIGITAL 文件；实物商品不能绑定
+- 前端：
+  - 商品表单增加商品类型
+  - `DigitalFileUploader`：选文件、3 并发分片直传、进度、取消、移除
+  - 商品列表显示类型
+  - 私有文件不在公开商品接口里暴露地址
+
+**遇到问题**
+
+- MinIO 不支持 `PutBucketCors`，AWS SDK 调用返回 501，应用启动失败
+- 解决：不再依赖 CORS 暴露 ETag；浏览器只负责 PUT 分片，完成时后端 `ListParts` 拿 ETag 再完成 multipart
+- MinIO Java SDK 没有显式 multipart API
+- 解决：引入 AWS SDK v2 S3，只用于分片创建/签名/完成
+- `partNumberMarker` 参数要求 Integer，不是 String
+- AWS SDK 默认校验和可能影响预签名，客户端设置 `RequestChecksumCalculation.WHEN_REQUIRED`
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 35 个用例全部通过（新增数字上传 7 个）
+- 前端 `npm run build` 通过
+- 8081 真实链路：
+  - 20MB 文件切成 2 片，两片 PUT 均返回 200
+  - complete 返回 `sizeBytes=20971520`
+  - 创建 DIGITAL 商品并绑定 file_object
+  - 私有桶对象匿名 GET 返回 403
+- 8081 实例已停止
+
+**提交**
+
+- `a13afe8` feat: 新增数字文件分片直传与商品绑定
+
+---
+
 ## 待办 / 下一步
 
 - 分类管理（新增/排序/停用；目前只有迁移种子）
@@ -311,7 +360,7 @@
 - 购物车、下单、订单状态机
 - 支付渠道接入（商户资质是前置）
 - 发货、确认收货、退款售后
-- 数字商品：私有桶、2GB 级分片直传、购买后授权下载（允许重复下载）
+- 数字商品下载授权（订单支付后签发短时预签名地址，允许重复下载）
 - 站内通知、公告已读
 
 ## 已知风险 / 上线前必须处理
@@ -323,6 +372,7 @@
 - 无 CI；测试依赖本机 MySQL 和 Redis
 - 业务前置：支付商户号、ICP 备案、经营主体尚未确认
 - 分类目前只有迁移种子，后台还不能增删改；商品暂无库存字段，下单前必须补
+- 数字文件已能上传，但下载还没做：必须等订单和支付完成后再签发下载地址
 
 ---
 
