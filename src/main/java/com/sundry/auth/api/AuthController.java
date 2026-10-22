@@ -110,7 +110,7 @@ public class AuthController {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
         User user = userService.requireById(userId);
-        return new UserView(user.getId(), user.getPhone());
+        return new UserView(user.getId(), user.getPhone(), user.getRole());
     }
 
     private ResponseEntity<TokenResponse> tokenResponse(IssuedTokens tokens, HttpServletResponse response) {

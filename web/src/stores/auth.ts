@@ -8,6 +8,10 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<UserView | null>(null)
   const ready = ref(false)
   const isAuthenticated = computed(() => user.value !== null)
+  const isAdmin = computed(
+    () => user.value?.role === 'ADMIN' || user.value?.role === 'SUPER_ADMIN',
+  )
+  const isSuperAdmin = computed(() => user.value?.role === 'SUPER_ADMIN')
 
   function applySession(session: TokenResponse): void {
     setAccessToken(session.accessToken)
@@ -61,6 +65,8 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     ready,
     isAuthenticated,
+    isAdmin,
+    isSuperAdmin,
     bootstrap,
     loginByCode,
     loginByPassword,

@@ -4,10 +4,12 @@ import com.sundry.auth.dto.CodeLoginRequest;
 import com.sundry.auth.dto.PasswordLoginRequest;
 import com.sundry.auth.dto.RegisterRequest;
 import com.sundry.auth.dto.UserView;
+import com.sundry.auth.security.SecurityProperties;
 import com.sundry.auth.security.UserPrincipal;
 import com.sundry.auth.sms.SmsScene;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
+import com.sundry.user.Role;
 import com.sundry.user.User;
 import com.sundry.user.UserService;
 import org.slf4j.Logger;
@@ -34,6 +36,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final JwtProperties jwtProperties;
+    private final SecurityProperties securityProperties;
 
     public AuthService(UserService userService,
                        SmsCodeService smsCodeService,
@@ -41,7 +44,8 @@ public class AuthService {
                        AuthenticationManager authenticationManager,
                        JwtService jwtService,
                        RefreshTokenService refreshTokenService,
-                       JwtProperties jwtProperties) {
+                       JwtProperties jwtProperties,
+                       SecurityProperties securityProperties) {
         this.userService = userService;
         this.smsCodeService = smsCodeService;
         this.passwordEncoder = passwordEncoder;
@@ -49,6 +53,7 @@ public class AuthService {
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
         this.jwtProperties = jwtProperties;
+        this.securityProperties = securityProperties;
     }
 
     public void sendCode(String phone, SmsScene scene) {
@@ -71,7 +76,10 @@ public class AuthService {
         }
         smsCodeService.verifyAndConsume(request.phone(), SmsScene.REGISTER, request.code());
         // 密码只存 BCrypt 哈希；encode 每次都会带随机盐，相同密码的哈希也不同
-        User user = userService.create(request.phone(), passwordEncoder.encode(request.password()));
+        Role role = request.phone().equals(securityProperties.getSuperAdminPhone())
+                ? Role.SUPER_ADMIN
+                : Role.USER;
+        User user = userService.create(request.phone(), passwordEncoder.encode(request.password()), role);
         return issueTokens(user);
     }
 
@@ -138,6 +146,6 @@ public class AuthService {
         String refreshToken = refreshTokenService.issue(user.getId());
         long expiresIn = jwtProperties.getAccessTtl().toSeconds();
         return new IssuedTokens(accessToken.token(), expiresIn, refreshToken,
-                new UserView(user.getId(), user.getPhone()));
+                new UserView(user.getId(), user.getPhone(), user.getRole()));
     }
 }

@@ -6,22 +6,43 @@
 
     <!-- #{phone} 是预编译参数，不是字符串拼接，能防 SQL 注入 -->
     <select id="findByPhone" resultType="com.sundry.user.User">
-        SELECT id, phone, password_hash, status, created_at, updated_at
+        SELECT id, phone, password_hash, status, role, created_at, updated_at
         FROM app_user
         WHERE phone = #{phone}
     </select>
 
     <select id="findById" resultType="com.sundry.user.User">
-        SELECT id, phone, password_hash, status, created_at, updated_at
+        SELECT id, phone, password_hash, status, role, created_at, updated_at
         FROM app_user
         WHERE id = #{id}
     </select>
 
+    <!-- 后台用户列表，必须分页；offset 由 Service 计算 -->
+    <select id="findPage" resultType="com.sundry.user.User">
+        SELECT id, phone, password_hash, status, role, created_at, updated_at
+        FROM app_user
+        ORDER BY id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*)
+        FROM app_user
+    </select>
+
+    <!-- 前置条件保证超级管理员不会被接口改掉；返回 0 表示未更新 -->
+    <update id="updateRole">
+        UPDATE app_user
+        SET role = #{role}
+        WHERE id = #{id}
+          AND role &lt;&gt; 'SUPER_ADMIN'
+    </update>
+
     <!-- useGeneratedKeys + keyProperty：把 MySQL 自增主键回填到 user.id -->
     <insert id="insert" parameterType="com.sundry.user.User"
             useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO app_user (phone, password_hash, status)
-        VALUES (#{phone}, #{passwordHash}, #{status})
+        INSERT INTO app_user (phone, password_hash, status, role)
+        VALUES (#{phone}, #{passwordHash}, #{status}, #{role})
     </insert>
 
 </mapper>

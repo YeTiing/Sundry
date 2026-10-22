@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import AdminView from '@/views/AdminView.vue'
 import HomeView from '@/views/HomeView.vue'
 import LoginView from '@/views/LoginView.vue'
 import RegisterView from '@/views/RegisterView.vue'
@@ -12,6 +13,12 @@ const router = createRouter({
       name: 'home',
       component: HomeView,
       meta: { requiresAuth: true },
+    },
+    {
+      path: '/admin',
+      name: 'admin',
+      component: AdminView,
+      meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
       path: '/login',
@@ -37,6 +44,9 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.requiresAuth === true && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.meta.requiresAdmin === true && !auth.isAdmin) {
+    return { name: 'home' }
   }
   if (to.meta.requiresAuth !== true && auth.isAuthenticated) {
     return { name: 'home' }

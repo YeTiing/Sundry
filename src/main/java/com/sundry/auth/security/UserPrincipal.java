@@ -1,7 +1,9 @@
 package com.sundry.auth.security;
 
+import com.sundry.user.Role;
 import com.sundry.user.User;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
@@ -11,15 +13,18 @@ import java.util.List;
  * UserDetails 是 Spring Security 对“登录用户”的抽象；这里用 record 实现。
  * 密码只在这一层交给框架比对，不会出现在任何接口响应里。
  */
-public record UserPrincipal(Long id, String phone, String passwordHash, boolean active) implements UserDetails {
+public record UserPrincipal(Long id, String phone, String passwordHash, boolean active, Role role)
+        implements UserDetails {
 
     public static UserPrincipal from(User user) {
-        return new UserPrincipal(user.getId(), user.getPhone(), user.getPasswordHash(), user.isActive());
+        return new UserPrincipal(user.getId(), user.getPhone(), user.getPasswordHash(),
+                user.isActive(), user.getRole());
     }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of();
+        // Spring Security 的 hasRole('ADMIN') 会自动补 ROLE_ 前缀
+        return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
     }
 
     @Override

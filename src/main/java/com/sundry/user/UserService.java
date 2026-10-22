@@ -5,6 +5,8 @@ import com.sundry.common.exception.ErrorCode;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
  * 用户读写。@Service 把这个类注册成 Spring Bean，构造器参数由容器自动注入。
  */
@@ -33,11 +35,12 @@ public class UserService {
         return user;
     }
 
-    public User create(String phone, String passwordHash) {
+    public User create(String phone, String passwordHash, Role role) {
         User user = new User();
         user.setPhone(phone);
         user.setPasswordHash(passwordHash);
         user.setStatus(1);
+        user.setRole(role);
         try {
             userMapper.insert(user);
         } catch (DuplicateKeyException ex) {
@@ -45,5 +48,23 @@ public class UserService {
             throw new BusinessException(ErrorCode.PHONE_ALREADY_REGISTERED);
         }
         return user;
+    }
+
+    public Page<User> findPage(int page, int size) {
+        int offset = (page - 1) * size;
+        return new Page<>(userMapper.findPage(offset, size), userMapper.countAll());
+    }
+
+    /**
+     * 修改角色；超级管理员受 SQL 前置条件保护。返回是否真的更新了。
+     */
+    public boolean changeRole(User target, Role role) {
+        if (target.getRole() == Role.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.ROLE_CHANGE_FORBIDDEN);
+        }
+        return userMapper.updateRole(target.getId(), role) > 0;
+    }
+
+    public record Page<T>(List<T> items, long total) {
     }
 }

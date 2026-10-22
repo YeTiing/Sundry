@@ -20,6 +20,8 @@
     <properties>
         <java.version>17</java.version>
         <mybatis-spring-boot.version>4.1.0</mybatis-spring-boot.version>
+        <!-- 8.5.x 用 OkHttp 4（普通 JVM jar）；9.x 依赖 OkHttp 5 的 KMP 包，Maven 下会缺类 -->
+        <minio.version>8.5.17</minio.version>
     </properties>
 
     <dependencies>
@@ -52,6 +54,11 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>${minio.version}</version>
         </dependency>
 
         <dependency>

@@ -3,6 +3,8 @@ package com.sundry.user;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.List;
+
 /**
  * MyBatis 映射接口。@Mapper 让 MyBatis 生成实现类，方法与 UserMapper.xml 里的 id 一一对应。
  */
@@ -15,4 +17,11 @@ public interface UserMapper {
     User findById(@Param("id") Long id);
 
     int insert(User user);
+
+    List<User> findPage(@Param("offset") int offset, @Param("size") int size);
+
+    long countAll();
+
+    // 带前置条件：超级管理员不能被这个 SQL 改掉
+    int updateRole(@Param("id") Long id, @Param("role") Role role);
 }

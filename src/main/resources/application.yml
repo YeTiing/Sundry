@@ -1,6 +1,10 @@
 spring:
   application:
     name: sundry
+  servlet:
+    multipart:
+      max-file-size: 6MB
+      max-request-size: 7MB
   datasource:
     url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/sundry?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${DB_USERNAME:root}
@@ -35,6 +39,15 @@ management:
         include: health
 
 app:
+  security:
+    super-admin-phone: ${SUPER_ADMIN_PHONE:}
+  storage:
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${MINIO_ACCESS_KEY:}
+    secret-key: ${MINIO_SECRET_KEY:}
+    public-bucket: ${MINIO_PUBLIC_BUCKET:sundry-public}
+    public-base-url: ${MINIO_PUBLIC_URL:http://localhost:9000}
+    max-image-bytes: 5242880
   jwt:
     secret: ${JWT_SECRET:}
     issuer: sundry

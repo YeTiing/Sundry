@@ -8,6 +8,10 @@ spring:
       database: 15
 
 app:
+  security:
+    super-admin-phone: "13900000000"
+  storage:
+    max-image-bytes: 5242880
   jwt:
     secret: c3VuZHJ5LXRlc3Qtb25seS1qd3Qtc2VjcmV0LWtleS0yMDI2
   sms:

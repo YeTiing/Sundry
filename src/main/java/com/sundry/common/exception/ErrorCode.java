@@ -20,6 +20,14 @@ public enum ErrorCode {
     ACCOUNT_DISABLED(HttpStatus.FORBIDDEN, "账号已被禁用"),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "未登录或登录已过期"),
     INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "登录已过期，请重新登录"),
+    FORBIDDEN(HttpStatus.FORBIDDEN, "没有访问权限"),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "用户不存在"),
+    ROLE_CHANGE_FORBIDDEN(HttpStatus.CONFLICT, "不能修改超级管理员的角色"),
+    INVALID_ROLE(HttpStatus.BAD_REQUEST, "角色不合法"),
+    FILE_EMPTY(HttpStatus.BAD_REQUEST, "文件不能为空"),
+    FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "图片不能超过 5MB"),
+    UNSUPPORTED_FILE_TYPE(HttpStatus.BAD_REQUEST, "只支持 JPEG、PNG、WebP 图片"),
+    FILE_UPLOAD_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "文件上传失败，请稍后重试"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "服务器内部错误");
 
     private final HttpStatus status;

@@ -1,6 +1,8 @@
 package com.sundry.auth.security;
 
 import com.sundry.auth.service.JwtService;
+import com.sundry.user.User;
+import com.sundry.user.UserService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -9,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -30,9 +33,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtService jwtService;
+    private final UserService userService;
 
-    public JwtAuthenticationFilter(JwtService jwtService) {
+    public JwtAuthenticationFilter(JwtService jwtService, UserService userService) {
         this.jwtService = jwtService;
+        this.userService = userService;
     }
 
     @Override
@@ -47,12 +52,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 Jwt jwt = jwtService.decode(token);
                 if (!jwtService.isBlacklisted(jwt.getId())) {
                     Long userId = Long.valueOf(jwt.getSubject());
-                    // 认证对象只带用户 ID；权限列表为空（目前还没有角色体系）
-                    UsernamePasswordAuthenticationToken authentication =
-                            UsernamePasswordAuthenticationToken.authenticated(new AuthenticatedUser(userId), null, List.of());
-                    SecurityContext context = SecurityContextHolder.createEmptyContext();
-                    context.setAuthentication(authentication);
-                    SecurityContextHolder.setContext(context);
+                    // 角色每次从数据库读，保证提升/降级立即生效；禁用用户直接不放行
+                    User user = userService.findById(userId);
+                    if (user != null && user.isActive()) {
+                        UsernamePasswordAuthenticationToken authentication =
+                                UsernamePasswordAuthenticationToken.authenticated(
+                                        new AuthenticatedUser(userId, user.getRole()),
+                                        null,
+                                        List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name())));
+                        SecurityContext context = SecurityContextHolder.createEmptyContext();
+                        context.setAuthentication(authentication);
+                        SecurityContextHolder.setContext(context);
+                    }
                 }
             } catch (JwtException | IllegalArgumentException ex) {
                 // 令牌无效不在这里抛异常，清空上下文后交给入口点统一返回 401

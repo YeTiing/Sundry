@@ -12,6 +12,7 @@ public class User {
     private String phone;
     private String passwordHash;
     private Integer status;          // 1=正常，0=禁用
+    private Role role;               // MyBatis 默认按枚举名映射 VARCHAR
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -45,6 +46,14 @@ public class User {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public Role getRole() {
+        return role;
+    }
+
+    public void setRole(Role role) {
+        this.role = role;
     }
 
     public LocalDateTime getCreatedAt() {

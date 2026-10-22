@@ -38,7 +38,8 @@ function refreshOnce(): Promise<boolean> {
 
 async function request<T>(path: string, init: RequestInit, allowRetry: boolean): Promise<T> {
   const headers = new Headers(init.headers)
-  if (init.body !== undefined && !headers.has('Content-Type')) {
+  // FormData 由浏览器自己带 multipart 边界，不能手动设 Content-Type
+  if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
   if (accessToken) {
@@ -95,5 +96,11 @@ export const http = {
       },
       true,
     )
+  },
+  postForm<T>(path: string, form: FormData): Promise<T> {
+    return request<T>(path, { method: 'POST', body: form }, true)
+  },
+  patch<T>(path: string, body: unknown): Promise<T> {
+    return request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }, true)
   },
 }

@@ -53,6 +53,8 @@ class AuthFlowIntegrationTest {
     // 每个测试前清库、清 Redis，保证用例之间互不影响
     @BeforeEach
     void setUp() {
+        // 先删子表，file_object 对 app_user 有外键
+        jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");
         Set<String> keys = redis.keys("auth:*");
         if (keys != null && !keys.isEmpty()) {

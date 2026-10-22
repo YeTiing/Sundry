@@ -1,8 +1,10 @@
 package com.sundry.auth.security;
 
+import com.sundry.user.Role;
+
 /**
- * JWT 过滤器写入 SecurityContext 的最小身份，只含用户 ID。
- * 需要更多信息时按 ID 查库，不信任令牌里的其他字段。
+ * JWT 过滤器写入 SecurityContext 的最小身份。
+ * 角色来自数据库（不是令牌），所以管理员被降级后立即生效。
  */
-public record AuthenticatedUser(Long id) {
+public record AuthenticatedUser(Long id, Role role) {
 }

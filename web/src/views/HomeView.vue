@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AuthSheet from '@/components/AuthSheet.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -7,6 +7,10 @@ import { useAuthStore } from '@/stores/auth'
 const auth = useAuthStore()
 const router = useRouter()
 const leaving = ref(false)
+const roleLabel = computed(() => {
+  const role = auth.user?.role
+  return role === 'SUPER_ADMIN' ? '超级管理员' : role === 'ADMIN' ? '管理员' : '普通用户'
+})
 
 async function logout(): Promise<void> {
   if (leaving.value) return
@@ -31,7 +35,15 @@ async function logout(): Promise<void> {
         <dt>用户编号</dt>
         <dd>{{ auth.user?.id }}</dd>
       </div>
+      <div class="account-row">
+        <dt>角色</dt>
+        <dd>{{ roleLabel }}</dd>
+      </div>
     </dl>
+
+    <RouterLink v-if="auth.isAdmin" class="primary-button home-admin-link" to="/admin">
+      进入管理后台
+    </RouterLink>
 
     <button class="quiet-button" type="button" :disabled="leaving" @click="logout">
       {{ leaving ? '退出中…' : '退出登录' }}

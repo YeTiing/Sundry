@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.file.FileObjectMapper">
+
+    <insert id="insert" parameterType="com.sundry.file.FileObject"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO file_object (bucket, object_key, original_name, content_type,
+                                 size_bytes, kind, uploader_id, status)
+        VALUES (#{bucket}, #{objectKey}, #{originalName}, #{contentType},
+                #{sizeBytes}, #{kind}, #{uploaderId}, #{status})
+    </insert>
+
+</mapper>
