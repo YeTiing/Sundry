@@ -5,8 +5,8 @@
 
     <!-- 联表带出分类名和封面对象信息，避免列表 N+1 查询 -->
     <sql id="productColumns">
-        p.id, p.category_id, p.name, p.description, p.price, p.cover_file_id,
-        p.status, p.created_at, p.updated_at,
+        p.id, p.category_id, p.name, p.description, p.type, p.price, p.cover_file_id,
+        p.digital_file_id, p.status, p.created_at, p.updated_at,
         c.name AS category_name,
         f.bucket AS cover_bucket,
         f.object_key AS cover_object_key
@@ -20,17 +20,19 @@
 
     <insert id="insert" parameterType="com.sundry.catalog.Product"
             useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO product (category_id, name, description, price, cover_file_id, status)
-        VALUES (#{categoryId}, #{name}, #{description}, #{price}, #{coverFileId}, #{status})
+        INSERT INTO product (category_id, name, description, type, price, cover_file_id, digital_file_id, status)
+        VALUES (#{categoryId}, #{name}, #{description}, #{type}, #{price}, #{coverFileId}, #{digitalFileId}, #{status})
     </insert>
 
     <update id="update" parameterType="com.sundry.catalog.Product">
         UPDATE product
-        SET category_id   = #{categoryId},
-            name          = #{name},
-            description   = #{description},
-            price         = #{price},
-            cover_file_id = #{coverFileId}
+        SET category_id     = #{categoryId},
+            name            = #{name},
+            description     = #{description},
+            type            = #{type},
+            price           = #{price},
+            cover_file_id   = #{coverFileId},
+            digital_file_id = #{digitalFileId}
         WHERE id = #{id}
     </update>
 

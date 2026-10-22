@@ -1,6 +1,7 @@
 package com.sundry.catalog.dto;
 
 import com.sundry.catalog.ProductStatus;
+import com.sundry.catalog.ProductType;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
@@ -30,6 +31,11 @@ public record SaveProductRequest(
         Long categoryId,
 
         Long coverFileId,
+
+        // 不传默认 PHYSICAL；DIGITAL 必须绑定 digitalFileId
+        ProductType type,
+
+        Long digitalFileId,
 
         // 只在新建时生效；编辑时忽略，状态走单独的上下架接口
         ProductStatus status) {

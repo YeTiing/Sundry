@@ -22,6 +22,7 @@
         <mybatis-spring-boot.version>4.1.0</mybatis-spring-boot.version>
         <!-- 8.5.x 用 OkHttp 4（普通 JVM jar）；9.x 依赖 OkHttp 5 的 KMP 包，Maven 下会缺类 -->
         <minio.version>8.5.17</minio.version>
+        <awssdk.version>2.57.2</awssdk.version>
     </properties>
 
     <dependencies>
@@ -59,6 +60,17 @@
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
             <version>${minio.version}</version>
+        </dependency>
+        <!-- 浏览器分片直传需要 S3 预签名；MinIO SDK 不提供 create/complete multipart -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>${awssdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
+            <version>${awssdk.version}</version>
         </dependency>
 
         <dependency>

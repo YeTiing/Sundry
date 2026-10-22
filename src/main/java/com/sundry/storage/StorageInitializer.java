@@ -31,11 +31,16 @@ public class StorageInitializer implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         String bucket = properties.getPublicBucket();
+        String privateBucket = properties.getPrivateBucket();
         try {
             boolean exists = client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
             if (!exists) {
                 client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
                 log.info("已创建 MinIO 公开桶: {}", bucket);
+            }
+            if (!client.bucketExists(BucketExistsArgs.builder().bucket(privateBucket).build())) {
+                client.makeBucket(MakeBucketArgs.builder().bucket(privateBucket).build());
+                log.info("已创建 MinIO 私有桶: {}", privateBucket);
             }
             String policy = """
                     {
@@ -52,6 +57,7 @@ public class StorageInitializer implements ApplicationRunner {
                     """.formatted(bucket);
             client.setBucketPolicy(SetBucketPolicyArgs.builder().bucket(bucket).config(policy).build());
             log.info("MinIO 公开读策略已就绪: {}", bucket);
+            // ETag 由后端 ListParts 获取，不依赖 CORS 暴露；MinIO 默认 CORS 已允许浏览器 PUT
         } catch (Exception ex) {
             throw new IllegalStateException("MinIO 初始化失败，请检查 app.storage.* 配置和容器状态", ex);
         }

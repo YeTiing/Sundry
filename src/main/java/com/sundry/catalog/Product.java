@@ -12,8 +12,10 @@ public class Product {
     private Long categoryId;
     private String name;
     private String description;
+    private ProductType type;
     private BigDecimal price;
     private Long coverFileId;
+    private Long digitalFileId;
     private ProductStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -54,6 +56,14 @@ public class Product {
         this.description = description;
     }
 
+    public ProductType getType() {
+        return type;
+    }
+
+    public void setType(ProductType type) {
+        this.type = type;
+    }
+
     public BigDecimal getPrice() {
         return price;
     }
@@ -68,6 +78,14 @@ public class Product {
 
     public void setCoverFileId(Long coverFileId) {
         this.coverFileId = coverFileId;
+    }
+
+    public Long getDigitalFileId() {
+        return digitalFileId;
+    }
+
+    public void setDigitalFileId(Long digitalFileId) {
+        this.digitalFileId = digitalFileId;
     }
 
     public ProductStatus getStatus() {

@@ -54,7 +54,9 @@ watch(() => route.params.id, load, { immediate: true })
         </div>
 
         <div class="product-detail__body">
-          <span class="product-card__category">{{ product.categoryName }}</span>
+          <span class="product-card__category">
+            {{ product.categoryName }} · {{ product.type === 'DIGITAL' ? '数字商品' : '实物商品' }}
+          </span>
           <h1 class="product-detail__name">{{ product.name }}</h1>
           <p class="product-detail__price">{{ formatPrice(product.price) }}</p>
           <p class="product-detail__desc">{{ product.description }}</p>

@@ -3,7 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi, type SaveProductPayload } from '@/api/admin'
 import { catalogApi } from '@/api/catalog'
-import type { Category, Product, ProductStatus } from '@/api/types'
+import type { Category, Product, ProductStatus, ProductType } from '@/api/types'
+import DigitalFileUploader from '@/components/DigitalFileUploader.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const PAGE_SIZE = 10
@@ -28,6 +29,9 @@ const priceInput = ref('')
 const categoryId = ref<number | null>(null)
 const coverFileId = ref<number | null>(null)
 const coverUrl = ref('')
+const type = ref<ProductType>('PHYSICAL')
+const digitalFileId = ref<number | null>(null)
+const digitalUploading = ref(false)
 const createStatus = ref<ProductStatus>('DRAFT')
 const uploadingCover = ref(false)
 const saving = ref(false)
@@ -79,6 +83,9 @@ function resetForm(): void {
   categoryId.value = categories.value[0]?.id ?? null
   coverFileId.value = null
   coverUrl.value = ''
+  type.value = 'PHYSICAL'
+  digitalFileId.value = null
+  digitalUploading.value = false
   createStatus.value = 'DRAFT'
   formError.value = ''
 }
@@ -97,6 +104,8 @@ function startEdit(product: Product): void {
   categoryId.value = product.categoryId
   coverFileId.value = product.coverFileId
   coverUrl.value = product.coverUrl ?? ''
+  type.value = product.type
+  digitalFileId.value = product.digitalFileId
   formError.value = ''
   notice.value = ''
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -109,7 +118,15 @@ function validateForm(): string {
     return '价格格式不正确，最多 8 位整数和 2 位小数'
   }
   if (categoryId.value === null) return '请选择分类'
+  if (digitalUploading.value) return '数字文件还在上传中，请稍候'
+  if (type.value === 'DIGITAL' && digitalFileId.value === null) return '请先上传数字文件'
   return ''
+}
+
+function onTypeChange(): void {
+  if (type.value === 'PHYSICAL') {
+    digitalFileId.value = null
+  }
 }
 
 async function save(): Promise<void> {
@@ -125,6 +142,8 @@ async function save(): Promise<void> {
       price: priceInput.value.trim(),
       categoryId: categoryId.value!,
       coverFileId: coverFileId.value,
+      type: type.value,
+      digitalFileId: type.value === 'DIGITAL' ? digitalFileId.value : null,
     }
     if (isEditing.value) {
       await adminApi.updateProduct(editingId.value!, payload)
@@ -255,6 +274,14 @@ onMounted(async () => {
                 </select>
               </label>
 
+              <label class="field">
+                <span class="field__label">商品类型</span>
+                <select v-model="type" @change="onTypeChange">
+                  <option value="PHYSICAL">实物商品</option>
+                  <option value="DIGITAL">数字商品（付款后下载）</option>
+                </select>
+              </label>
+
               <label v-if="!isEditing" class="field">
                 <span class="field__label">创建后状态</span>
                 <select v-model="createStatus">
@@ -273,6 +300,14 @@ onMounted(async () => {
                 placeholder="写清楚商品内容、交付方式等"
               />
             </label>
+
+            <div v-if="type === 'DIGITAL'" class="field">
+              <span class="field__label">数字文件</span>
+              <DigitalFileUploader
+                v-model="digitalFileId"
+                @update:uploading="digitalUploading = $event"
+              />
+            </div>
 
             <div class="cover-row">
               <div class="cover-preview">
@@ -302,7 +337,11 @@ onMounted(async () => {
             </div>
 
             <div class="admin-actions">
-              <button class="primary-button admin-action" type="submit" :disabled="saving">
+              <button
+                class="primary-button admin-action"
+                type="submit"
+                :disabled="saving || digitalUploading"
+              >
                 {{ saving ? '保存中…' : isEditing ? '保存修改' : '创建商品' }}
               </button>
             </div>
@@ -331,6 +370,7 @@ onMounted(async () => {
               <tr>
                 <th>ID</th>
                 <th>名称</th>
+                <th>类型</th>
                 <th>分类</th>
                 <th>价格</th>
                 <th>状态</th>
@@ -341,6 +381,7 @@ onMounted(async () => {
               <tr v-for="product in products" :key="product.id">
                 <td class="mono">{{ product.id }}</td>
                 <td>{{ product.name }}</td>
+                <td>{{ product.type === 'DIGITAL' ? '数字' : '实物' }}</td>
                 <td>{{ product.categoryName }}</td>
                 <td class="mono">{{ formatPrice(product.price) }}</td>
                 <td>
@@ -360,7 +401,7 @@ onMounted(async () => {
                 </td>
               </tr>
               <tr v-if="!listLoading && products.length === 0">
-                <td colspan="6" class="panel-note">还没有商品</td>
+                <td colspan="7" class="panel-note">还没有商品</td>
               </tr>
             </tbody>
           </table>

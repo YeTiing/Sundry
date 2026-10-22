@@ -14,8 +14,12 @@ public class StorageProperties {
     private String accessKey;
     private String secretKey;
     private String publicBucket = "sundry-public";
+    private String privateBucket = "sundry-private";
     private String publicBaseUrl = "http://localhost:9000";
     private long maxImageBytes = 5 * 1024 * 1024;
+    private long maxDigitalBytes = 2L * 1024 * 1024 * 1024;
+    private long partSizeBytes = 16L * 1024 * 1024;
+    private java.time.Duration uploadUrlTtl = java.time.Duration.ofHours(6);
 
     public String getEndpoint() {
         return endpoint;
@@ -63,5 +67,37 @@ public class StorageProperties {
 
     public void setMaxImageBytes(long maxImageBytes) {
         this.maxImageBytes = maxImageBytes;
+    }
+
+    public String getPrivateBucket() {
+        return privateBucket;
+    }
+
+    public void setPrivateBucket(String privateBucket) {
+        this.privateBucket = privateBucket;
+    }
+
+    public long getMaxDigitalBytes() {
+        return maxDigitalBytes;
+    }
+
+    public void setMaxDigitalBytes(long maxDigitalBytes) {
+        this.maxDigitalBytes = maxDigitalBytes;
+    }
+
+    public long getPartSizeBytes() {
+        return partSizeBytes;
+    }
+
+    public void setPartSizeBytes(long partSizeBytes) {
+        this.partSizeBytes = partSizeBytes;
+    }
+
+    public java.time.Duration getUploadUrlTtl() {
+        return uploadUrlTtl;
+    }
+
+    public void setUploadUrlTtl(java.time.Duration uploadUrlTtl) {
+        this.uploadUrlTtl = uploadUrlTtl;
     }
 }

@@ -1,10 +1,13 @@
 import { http } from './http'
 import type {
   AdminUser,
+  DigitalFile,
+  DigitalUploadInit,
   FileView,
   PageResponse,
   Product,
   ProductStatus,
+  ProductType,
   Role,
 } from './types'
 
@@ -14,6 +17,8 @@ export interface SaveProductPayload {
   price: string
   categoryId: number
   coverFileId: number | null
+  type: ProductType
+  digitalFileId: number | null
   status?: ProductStatus
 }
 
@@ -58,5 +63,21 @@ export const adminApi = {
 
   changeProductStatus(id: number, status: ProductStatus): Promise<Product> {
     return http.patch<Product>(`/admin/products/${id}/status`, { status })
+  },
+
+  initDigitalUpload(payload: {
+    fileName: string
+    contentType: string
+    sizeBytes: number
+  }): Promise<DigitalUploadInit> {
+    return http.post<DigitalUploadInit>('/admin/uploads/digital/init', payload)
+  },
+
+  completeDigitalUpload(payload: { uploadId: string; key: string }): Promise<DigitalFile> {
+    return http.post<DigitalFile>('/admin/uploads/digital/complete', payload)
+  },
+
+  abortDigitalUpload(payload: { uploadId: string; key: string }): Promise<void> {
+    return http.post<void>('/admin/uploads/digital/abort', payload)
   },
 }

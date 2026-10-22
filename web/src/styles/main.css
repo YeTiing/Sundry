@@ -887,6 +887,42 @@ a:hover {
   cursor: pointer;
 }
 
+.digital-uploader {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px dashed var(--rule-strong);
+  background: #f7f6f1;
+}
+
+.digital-uploader__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.digital-uploader__file {
+  margin: 0;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.upload-progress {
+  height: 8px;
+  overflow: hidden;
+  background: var(--rule);
+}
+
+.upload-progress span {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  transition: width 0.15s linear;
+}
+
 .filter-select {
   padding: 8px 10px;
   border: 1px solid var(--rule-strong);

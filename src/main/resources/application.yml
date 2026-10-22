@@ -46,8 +46,12 @@ app:
     access-key: ${MINIO_ACCESS_KEY:}
     secret-key: ${MINIO_SECRET_KEY:}
     public-bucket: ${MINIO_PUBLIC_BUCKET:sundry-public}
+    private-bucket: ${MINIO_PRIVATE_BUCKET:sundry-private}
     public-base-url: ${MINIO_PUBLIC_URL:http://localhost:9000}
     max-image-bytes: 5242880
+    max-digital-bytes: 2147483648
+    part-size-bytes: 16777216
+    upload-url-ttl: 6h
   jwt:
     secret: ${JWT_SECRET:}
     issuer: sundry

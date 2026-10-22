@@ -71,6 +71,7 @@ public class ProductService {
     public ProductView create(SaveProductRequest request) {
         requireCategory(request.categoryId());
         requireCover(request.coverFileId());
+        requireDigitalFile(request.type(), request.digitalFileId());
 
         Product product = new Product();
         apply(product, request);
@@ -85,6 +86,7 @@ public class ProductService {
         }
         requireCategory(request.categoryId());
         requireCover(request.coverFileId());
+        requireDigitalFile(request.type(), request.digitalFileId());
 
         Product product = new Product();
         product.setId(id);
@@ -105,8 +107,25 @@ public class ProductService {
         product.setCategoryId(request.categoryId());
         product.setName(request.name().trim());
         product.setDescription(request.description().trim());
+        product.setType(request.type() == null ? ProductType.PHYSICAL : request.type());
         product.setPrice(request.price().setScale(2, RoundingMode.HALF_UP));
         product.setCoverFileId(request.coverFileId());
+        product.setDigitalFileId(request.digitalFileId());
+    }
+
+    private void requireDigitalFile(ProductType type, Long digitalFileId) {
+        ProductType resolved = type == null ? ProductType.PHYSICAL : type;
+        if (resolved == ProductType.DIGITAL) {
+            if (digitalFileId == null) {
+                throw new BusinessException(ErrorCode.DIGITAL_FILE_REQUIRED);
+            }
+            FileObject file = fileObjectMapper.findById(digitalFileId);
+            if (file == null || file.getKind() != FileKind.DIGITAL) {
+                throw new BusinessException(ErrorCode.DIGITAL_FILE_INVALID);
+            }
+        } else if (digitalFileId != null) {
+            throw new BusinessException(ErrorCode.DIGITAL_FILE_INVALID);
+        }
     }
 
     private void requireCategory(Long categoryId) {
@@ -132,7 +151,8 @@ public class ProductService {
             coverUrl = storage.publicUrl(product.getCoverBucket(), product.getCoverObjectKey());
         }
         return new ProductView(product.getId(), product.getName(), product.getDescription(),
-                product.getPrice(), product.getCategoryId(), product.getCategoryName(),
-                product.getCoverFileId(), coverUrl, product.getStatus(), product.getCreatedAt());
+                product.getType(), product.getPrice(), product.getCategoryId(), product.getCategoryName(),
+                product.getCoverFileId(), coverUrl, product.getDigitalFileId(),
+                product.getStatus(), product.getCreatedAt());
     }
 }

@@ -44,6 +44,7 @@ export interface FileView {
 }
 
 export type ProductStatus = 'DRAFT' | 'ON_SALE' | 'OFF_SHELF'
+export type ProductType = 'PHYSICAL' | 'DIGITAL'
 
 export interface Category {
   id: number
@@ -55,11 +56,34 @@ export interface Product {
   id: number
   name: string
   description: string
+  type: ProductType
   price: number
   categoryId: number
   categoryName: string
   coverFileId: number | null
   coverUrl: string | null
+  digitalFileId: number | null
   status: ProductStatus
   createdAt: string
+}
+
+export interface DigitalPart {
+  partNumber: number
+  url: string
+}
+
+export interface DigitalUploadInit {
+  uploadId: string
+  key: string
+  partSize: number
+  partCount: number
+  parts: DigitalPart[]
+}
+
+export interface DigitalFile {
+  id: number
+  key: string
+  originalName: string
+  sizeBytes: number
+  contentType: string
 }
