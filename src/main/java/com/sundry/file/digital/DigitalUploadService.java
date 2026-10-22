@@ -1,11 +1,13 @@
 package com.sundry.file.digital;
 
+import com.sundry.catalog.ProductMapper;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
 import com.sundry.file.FileKind;
 import com.sundry.file.FileObject;
 import com.sundry.file.FileObjectMapper;
 import com.sundry.storage.StorageProperties;
+import com.sundry.user.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -37,13 +39,16 @@ public class DigitalUploadService {
     private final DigitalUploadGateway gateway;
     private final StorageProperties properties;
     private final FileObjectMapper fileObjectMapper;
+    private final ProductMapper productMapper;
     private final StringRedisTemplate redis;
 
     public DigitalUploadService(DigitalUploadGateway gateway, StorageProperties properties,
-                                FileObjectMapper fileObjectMapper, StringRedisTemplate redis) {
+                                FileObjectMapper fileObjectMapper, ProductMapper productMapper,
+                                StringRedisTemplate redis) {
         this.gateway = gateway;
         this.properties = properties;
         this.fileObjectMapper = fileObjectMapper;
+        this.productMapper = productMapper;
         this.redis = redis;
     }
 
@@ -151,6 +156,31 @@ public class DigitalUploadService {
             redis.delete(stateKey(request.uploadId()));
             throw ex;
         }
+    }
+
+    /**
+     * 删除已上传但未使用的数字文件：先确认没有任何商品引用，再删对象和数据库记录。
+     */
+    public void delete(Long operatorId, Role operatorRole, Long fileId) {
+        FileObject file = fileObjectMapper.findById(fileId);
+        if (file == null
+                || file.getKind() != FileKind.DIGITAL
+                || !properties.getPrivateBucket().equals(file.getBucket())) {
+            throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
+        }
+        if (!file.getUploaderId().equals(operatorId) && operatorRole != Role.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        if (productMapper.countByDigitalFileId(fileId) > 0) {
+            throw new BusinessException(ErrorCode.FILE_IN_USE);
+        }
+        try {
+            gateway.deleteObject(file.getObjectKey());
+        } catch (RuntimeException ex) {
+            log.error("failed to delete digital object, key={}", file.getObjectKey(), ex);
+            throw new BusinessException(ErrorCode.FILE_DELETE_FAILED);
+        }
+        fileObjectMapper.deleteById(fileId);
     }
 
     public void abort(Long uploaderId, AbortDigitalUploadRequest request) {

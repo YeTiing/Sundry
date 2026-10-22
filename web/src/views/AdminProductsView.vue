@@ -31,6 +31,7 @@ const coverFileId = ref<number | null>(null)
 const coverUrl = ref('')
 const type = ref<ProductType>('PHYSICAL')
 const digitalFileId = ref<number | null>(null)
+const originalDigitalFileId = ref<number | null>(null)
 const digitalUploading = ref(false)
 const createStatus = ref<ProductStatus>('DRAFT')
 const uploadingCover = ref(false)
@@ -85,6 +86,7 @@ function resetForm(): void {
   coverUrl.value = ''
   type.value = 'PHYSICAL'
   digitalFileId.value = null
+  originalDigitalFileId.value = null
   digitalUploading.value = false
   createStatus.value = 'DRAFT'
   formError.value = ''
@@ -106,6 +108,7 @@ function startEdit(product: Product): void {
   coverUrl.value = product.coverUrl ?? ''
   type.value = product.type
   digitalFileId.value = product.digitalFileId
+  originalDigitalFileId.value = product.digitalFileId
   formError.value = ''
   notice.value = ''
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -146,7 +149,16 @@ async function save(): Promise<void> {
       digitalFileId: type.value === 'DIGITAL' ? digitalFileId.value : null,
     }
     if (isEditing.value) {
+      const previousFileId = originalDigitalFileId.value
       await adminApi.updateProduct(editingId.value!, payload)
+      // 换了或移除了数字文件，商品保存后再清理旧文件
+      if (previousFileId !== null && previousFileId !== payload.digitalFileId) {
+        try {
+          await adminApi.deleteDigitalFile(previousFileId)
+        } catch {
+          // 仍被其他商品引用时保留，不影响本次保存
+        }
+      }
       notice.value = '商品已更新'
     } else {
       payload.status = createStatus.value

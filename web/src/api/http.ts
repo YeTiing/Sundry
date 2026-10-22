@@ -20,6 +20,10 @@ export function setAccessToken(token: string | null): void {
   accessToken = token
 }
 
+export function getAccessToken(): string | null {
+  return accessToken
+}
+
 export function setRefreshHandler(handler: (() => Promise<boolean>) | null): void {
   refreshHandler = handler
 }
@@ -105,5 +109,8 @@ export const http = {
   },
   put<T>(path: string, body: unknown): Promise<T> {
     return request<T>(path, { method: 'PUT', body: JSON.stringify(body) }, true)
+  },
+  delete<T>(path: string): Promise<T> {
+    return request<T>(path, { method: 'DELETE' }, true)
   },
 }

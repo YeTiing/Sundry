@@ -32,4 +32,6 @@ public interface ProductMapper {
                                  @Param("size") int size);
 
     long countPublic(@Param("categoryId") Long categoryId);
+
+    long countByDigitalFileId(@Param("fileId") Long fileId);
 }

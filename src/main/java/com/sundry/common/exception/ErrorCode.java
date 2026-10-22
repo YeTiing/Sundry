@@ -36,6 +36,9 @@ public enum ErrorCode {
     UPLOAD_PART_INVALID(HttpStatus.BAD_REQUEST, "上传分片不完整"),
     DIGITAL_FILE_REQUIRED(HttpStatus.BAD_REQUEST, "数字商品必须绑定文件"),
     DIGITAL_FILE_INVALID(HttpStatus.BAD_REQUEST, "数字文件不存在或类型不正确"),
+    FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "文件不存在"),
+    FILE_IN_USE(HttpStatus.CONFLICT, "文件已被商品使用，先解除绑定"),
+    FILE_DELETE_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "文件删除失败，请稍后重试"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "服务器内部错误");
 
     private final HttpStatus status;

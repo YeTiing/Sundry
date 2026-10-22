@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -227,6 +228,58 @@ class DigitalUploadIntegrationTest {
                                 """.formatted(categoryId, fileId)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("DIGITAL_FILE_INVALID"));
+    }
+
+    @Test
+    void adminCanDeleteUnusedDigitalFile() throws Exception {
+        String token = register(SUPER_PHONE);
+        String[] init = initUpload(token, 1024);
+        MvcResult completed = completeUpload(token, init[0], init[1]);
+        String completedBody = body(completed);
+        long fileId = ((Number) JsonPath.read(completedBody, "$.id")).longValue();
+        String key = JsonPath.read(completedBody, "$.key");
+
+        mockMvc.perform(delete("/api/admin/uploads/digital/{id}", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isNoContent());
+
+        assertThat(gateway.exists(key)).isFalse();
+        Long remaining = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM file_object WHERE id = ?", Long.class, fileId);
+        assertThat(remaining).isZero();
+    }
+
+    @Test
+    void cannotDeleteFileUsedByProduct() throws Exception {
+        String token = register(SUPER_PHONE);
+        String[] init = initUpload(token, 1024);
+        MvcResult completed = completeUpload(token, init[0], init[1]);
+        long fileId = ((Number) JsonPath.read(body(completed), "$.id")).longValue();
+        Long categoryId = jdbcTemplate.queryForObject(
+                "SELECT id FROM category WHERE name = '软件'", Long.class);
+
+        mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"已绑定商品","description":"x","price":1.00,
+                                 "categoryId":%d,"type":"DIGITAL","digitalFileId":%d}
+                                """.formatted(categoryId, fileId)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(delete("/api/admin/uploads/digital/{id}", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("FILE_IN_USE"));
+    }
+
+    @Test
+    void normalUserCannotDeleteDigitalFile() throws Exception {
+        String token = register(USER_PHONE);
+
+        mockMvc.perform(delete("/api/admin/uploads/digital/{id}", 1)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isForbidden());
     }
 
     private String register(String phone) throws Exception {

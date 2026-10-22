@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { adminApi } from '@/api/admin'
+import { getAccessToken } from '@/api/http'
 import type { DigitalFile, DigitalPart } from '@/api/types'
 
 const props = withDefaults(
@@ -21,6 +22,7 @@ const uploading = ref(false)
 const progress = ref(0)
 const error = ref('')
 const uploadedFile = ref<DigitalFile | null>(null)
+const uploadedThisSession = ref(false)
 const activeUploadId = ref<string | null>(null)
 const activeKey = ref<string | null>(null)
 const xhrs = new Set<XMLHttpRequest>()
@@ -37,6 +39,7 @@ function onFileChange(event: Event): void {
   const selected = input.files?.[0] ?? null
   error.value = ''
   uploadedFile.value = null
+  uploadedThisSession.value = false
   progress.value = 0
   file.value = null
 
@@ -130,6 +133,7 @@ async function startUpload(): Promise<void> {
       key: init.key,
     })
     uploadedFile.value = done
+    uploadedThisSession.value = true
     progress.value = 100
     emit('update:modelValue', done.id)
   } catch (err) {
@@ -173,20 +177,77 @@ async function cancel(): Promise<void> {
   error.value = '已取消上传'
 }
 
-function remove(): void {
+async function remove(): Promise<void> {
   if (uploading.value) {
-    void cancel()
+    await cancel()
+  }
+  // 本次会话刚上传、还未保存到商品的文件：直接删对象和数据库记录
+  if (uploadedThisSession.value && props.modelValue !== null) {
+    try {
+      await adminApi.deleteDigitalFile(props.modelValue)
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '删除文件失败'
+      return
+    }
   }
   file.value = null
   uploadedFile.value = null
+  uploadedThisSession.value = false
   progress.value = 0
   error.value = ''
   emit('update:modelValue', null)
 }
 
-onBeforeUnmount(() => {
+function abortOnServer(): void {
+  if (!activeUploadId.value || !activeKey.value) return
+  const token = getAccessToken()
+  void fetch('/api/admin/uploads/digital/abort', {
+    method: 'POST',
+    keepalive: true,
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      uploadId: activeUploadId.value,
+      key: activeKey.value,
+    }),
+  }).catch(() => {
+    // 页面关闭阶段失败无法提示
+  })
+}
+
+function handlePageHide(): void {
+  if (!uploading.value) return
   for (const xhr of xhrs) xhr.abort()
   xhrs.clear()
+  abortOnServer()
+}
+
+watch(
+  () => props.modelValue,
+  (value) => {
+    if (value === null) {
+      file.value = null
+      uploadedFile.value = null
+      uploadedThisSession.value = false
+      progress.value = 0
+    }
+  },
+)
+
+onMounted(() => {
+  window.addEventListener('pagehide', handlePageHide)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', handlePageHide)
+  for (const xhr of xhrs) xhr.abort()
+  xhrs.clear()
+  if (uploading.value) {
+    abortOnServer()
+  }
 })
 </script>
 

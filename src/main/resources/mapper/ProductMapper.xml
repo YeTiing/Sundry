@@ -97,4 +97,10 @@
         </if>
     </select>
 
+    <select id="countByDigitalFileId" resultType="long">
+        SELECT COUNT(*)
+        FROM product
+        WHERE digital_file_id = #{fileId}
+    </select>
+
 </mapper>

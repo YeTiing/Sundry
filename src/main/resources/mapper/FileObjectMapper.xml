@@ -18,4 +18,8 @@
         WHERE id = #{id}
     </select>
 
+    <delete id="deleteById">
+        DELETE FROM file_object WHERE id = #{id}
+    </delete>
+
 </mapper>

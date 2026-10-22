@@ -12,4 +12,6 @@ public interface FileObjectMapper {
     int insert(FileObject fileObject);
 
     FileObject findById(@Param("id") Long id);
+
+    int deleteById(@Param("id") Long id);
 }

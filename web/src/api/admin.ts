@@ -80,4 +80,8 @@ export const adminApi = {
   abortDigitalUpload(payload: { uploadId: string; key: string }): Promise<void> {
     return http.post<void>('/admin/uploads/digital/abort', payload)
   },
+
+  deleteDigitalFile(id: number): Promise<void> {
+    return http.delete<void>(`/admin/uploads/digital/${id}`)
+  },
 }
