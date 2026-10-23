@@ -150,6 +150,9 @@ function onTypeChange(): void {
 }
 
 async function save(): Promise<void> {
+  // 双保险：按钮禁用之外，函数本身也拒绝并发进入
+  if (saving.value) return
+
   formError.value = validateForm()
   if (formError.value) return
 
