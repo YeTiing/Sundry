@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi } from '@/api/admin'
+import { shopApi } from '@/api/shop'
 import type { AdminUser, FileView, Role } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 
@@ -31,6 +32,16 @@ const loadingUsers = ref(false)
 const userError = ref('')
 const savingId = ref<number | null>(null)
 const notice = ref('')
+
+const shopName = ref('')
+const shopDescription = ref('')
+const shopContact = ref('')
+const shopLogoFileId = ref<number | null>(null)
+const shopLogoUrl = ref('')
+const shopSaving = ref(false)
+const uploadingShopLogo = ref(false)
+const shopError = ref('')
+const shopNotice = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
@@ -159,6 +170,74 @@ async function saveRole(user: AdminUserRow): Promise<void> {
   }
 }
 
+async function loadShop(): Promise<void> {
+  shopError.value = ''
+  try {
+    const shop = await shopApi.adminGet()
+    shopName.value = shop.shopName
+    shopDescription.value = shop.description ?? ''
+    shopContact.value = shop.contact ?? ''
+    shopLogoFileId.value = shop.logoFileId
+    shopLogoUrl.value = shop.logoUrl ?? ''
+  } catch (error) {
+    shopError.value = messageOf(error)
+  }
+}
+
+async function onShopLogoChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const selected = input.files?.[0]
+  if (!selected) return
+
+  uploadingShopLogo.value = true
+  shopError.value = ''
+  try {
+    const uploaded = await adminApi.uploadImage(selected)
+    shopLogoFileId.value = uploaded.id
+    shopLogoUrl.value = uploaded.url
+  } catch (error) {
+    shopError.value = messageOf(error)
+  } finally {
+    uploadingShopLogo.value = false
+    input.value = ''
+  }
+}
+
+function clearShopLogo(): void {
+  shopLogoFileId.value = null
+  shopLogoUrl.value = ''
+}
+
+async function saveShop(): Promise<void> {
+  if (shopSaving.value) return
+  if (!shopName.value.trim()) {
+    shopError.value = '店名不能为空'
+    return
+  }
+
+  shopSaving.value = true
+  shopError.value = ''
+  shopNotice.value = ''
+  try {
+    const updated = await shopApi.update({
+      shopName: shopName.value.trim(),
+      description: shopDescription.value.trim(),
+      contact: shopContact.value.trim(),
+      logoFileId: shopLogoFileId.value,
+    })
+    shopName.value = updated.shopName
+    shopDescription.value = updated.description ?? ''
+    shopContact.value = updated.contact ?? ''
+    shopLogoFileId.value = updated.logoFileId
+    shopLogoUrl.value = updated.logoUrl ?? ''
+    shopNotice.value = '店铺资料已保存'
+  } catch (error) {
+    shopError.value = messageOf(error)
+  } finally {
+    shopSaving.value = false
+  }
+}
+
 async function logout(): Promise<void> {
   await auth.logout()
   await router.replace('/login')
@@ -167,6 +246,7 @@ async function logout(): Promise<void> {
 onMounted(() => {
   if (auth.isSuperAdmin) {
     void loadUsers(1)
+    void loadShop()
   }
 })
 
@@ -246,6 +326,75 @@ onBeforeUnmount(() => {
                 {{ result.originalName }} · {{ Math.round(result.size / 1024) }} KB
               </span>
             </div>
+          </div>
+        </section>
+
+        <section v-if="auth.isSuperAdmin" class="admin-panel">
+          <h2>店铺资料</h2>
+          <p class="panel-note">商品详情页会展示这张店铺名片；只有超级管理员能修改。</p>
+
+          <div class="shop-admin">
+            <div class="shop-admin__logo">
+              <img v-if="shopLogoUrl" :src="shopLogoUrl" alt="店铺 Logo" />
+              <span v-else class="product-card__placeholder">Logo</span>
+              <label class="secondary-button upload-label">
+                {{ uploadingShopLogo ? '上传中…' : '上传 Logo' }}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  :disabled="uploadingShopLogo"
+                  @change="onShopLogoChange"
+                />
+              </label>
+              <button
+                v-if="shopLogoUrl"
+                class="secondary-button"
+                type="button"
+                @click="clearShopLogo"
+              >
+                移除 Logo
+              </button>
+            </div>
+
+            <div class="shop-admin__fields admin-form__grid">
+              <label class="field">
+                <span class="field__label">店名</span>
+                <input v-model.trim="shopName" type="text" maxlength="100" placeholder="店铺名称" />
+              </label>
+              <label class="field">
+                <span class="field__label">联系方式</span>
+                <input
+                  v-model.trim="shopContact"
+                  type="text"
+                  maxlength="200"
+                  placeholder="微信 / 邮箱 / 电话"
+                />
+              </label>
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="field__label">店铺简介</span>
+            <textarea
+              v-model.trim="shopDescription"
+              rows="3"
+              maxlength="500"
+              placeholder="店铺介绍"
+            />
+          </label>
+
+          <p v-if="shopError" class="form-error">{{ shopError }}</p>
+          <p v-if="shopNotice" class="notice">{{ shopNotice }}</p>
+
+          <div class="admin-actions">
+            <button
+              class="primary-button admin-action"
+              type="button"
+              :disabled="shopSaving"
+              @click="saveShop"
+            >
+              {{ shopSaving ? '保存中…' : '保存店铺资料' }}
+            </button>
           </div>
         </section>
 

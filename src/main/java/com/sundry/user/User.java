@@ -10,11 +10,18 @@ public class User {
 
     private Long id;
     private String phone;
+    private String nickname;
+    private Long avatarFileId;
+    private String bio;
     private String passwordHash;
     private Integer status;          // 1=正常，0=禁用
     private Role role;               // MyBatis 默认按枚举名映射 VARCHAR
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    // 联表查询带出的头像对象信息，不对应 app_user 表字段
+    private String avatarBucket;
+    private String avatarObjectKey;
 
     public Long getId() {
         return id;
@@ -30,6 +37,46 @@ public class User {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getNickname() {
+        return nickname;
+    }
+
+    public void setNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    public Long getAvatarFileId() {
+        return avatarFileId;
+    }
+
+    public void setAvatarFileId(Long avatarFileId) {
+        this.avatarFileId = avatarFileId;
+    }
+
+    public String getBio() {
+        return bio;
+    }
+
+    public void setBio(String bio) {
+        this.bio = bio;
+    }
+
+    public String getAvatarBucket() {
+        return avatarBucket;
+    }
+
+    public void setAvatarBucket(String avatarBucket) {
+        this.avatarBucket = avatarBucket;
+    }
+
+    public String getAvatarObjectKey() {
+        return avatarObjectKey;
+    }
+
+    public void setAvatarObjectKey(String avatarObjectKey) {
+        this.avatarObjectKey = avatarObjectKey;
     }
 
     public String getPasswordHash() {

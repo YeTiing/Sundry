@@ -6,22 +6,31 @@
 
     <!-- #{phone} 是预编译参数，不是字符串拼接，能防 SQL 注入 -->
     <select id="findByPhone" resultType="com.sundry.user.User">
-        SELECT id, phone, password_hash, status, role, created_at, updated_at
-        FROM app_user
-        WHERE phone = #{phone}
+        SELECT u.id, u.phone, u.nickname, u.avatar_file_id, u.bio, u.password_hash,
+               u.status, u.role, u.created_at, u.updated_at,
+               f.bucket AS avatar_bucket, f.object_key AS avatar_object_key
+        FROM app_user u
+        LEFT JOIN file_object f ON f.id = u.avatar_file_id
+        WHERE u.phone = #{phone}
     </select>
 
     <select id="findById" resultType="com.sundry.user.User">
-        SELECT id, phone, password_hash, status, role, created_at, updated_at
-        FROM app_user
-        WHERE id = #{id}
+        SELECT u.id, u.phone, u.nickname, u.avatar_file_id, u.bio, u.password_hash,
+               u.status, u.role, u.created_at, u.updated_at,
+               f.bucket AS avatar_bucket, f.object_key AS avatar_object_key
+        FROM app_user u
+        LEFT JOIN file_object f ON f.id = u.avatar_file_id
+        WHERE u.id = #{id}
     </select>
 
     <!-- 后台用户列表，必须分页；offset 由 Service 计算 -->
     <select id="findPage" resultType="com.sundry.user.User">
-        SELECT id, phone, password_hash, status, role, created_at, updated_at
-        FROM app_user
-        ORDER BY id DESC
+        SELECT u.id, u.phone, u.nickname, u.avatar_file_id, u.bio, u.password_hash,
+               u.status, u.role, u.created_at, u.updated_at,
+               f.bucket AS avatar_bucket, f.object_key AS avatar_object_key
+        FROM app_user u
+        LEFT JOIN file_object f ON f.id = u.avatar_file_id
+        ORDER BY u.id DESC
         LIMIT #{offset}, #{size}
     </select>
 
@@ -36,6 +45,18 @@
         SET role = #{role}
         WHERE id = #{id}
           AND role &lt;&gt; 'SUPER_ADMIN'
+    </update>
+
+    <update id="updateProfile">
+        UPDATE app_user
+        SET nickname = #{nickname}, bio = #{bio}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateAvatar">
+        UPDATE app_user
+        SET avatar_file_id = #{avatarFileId}
+        WHERE id = #{id}
     </update>
 
     <!-- useGeneratedKeys + keyProperty：把 MySQL 自增主键回填到 user.id -->

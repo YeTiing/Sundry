@@ -4,6 +4,17 @@ export interface UserView {
   id: number
   phone: string
   role: Role
+  nickname: string | null
+  avatarUrl: string | null
+  bio: string | null
+}
+
+export interface ShopView {
+  shopName: string
+  logoUrl: string | null
+  logoFileId: number | null
+  description: string | null
+  contact: string | null
 }
 
 export interface TokenResponse {

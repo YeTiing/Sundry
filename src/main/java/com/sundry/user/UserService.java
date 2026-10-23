@@ -50,6 +50,26 @@ public class UserService {
         return user;
     }
 
+    public User updateProfile(Long id, String nickname, String bio) {
+        String cleanNickname = normalize(nickname);
+        String cleanBio = normalize(bio);
+        userMapper.updateProfile(id, cleanNickname, cleanBio);
+        return requireById(id);
+    }
+
+    public User updateAvatar(Long id, Long avatarFileId) {
+        userMapper.updateAvatar(id, avatarFileId);
+        return requireById(id);
+    }
+
+    private String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     public Page<User> findPage(int page, int size) {
         int offset = (page - 1) * size;
         return new Page<>(userMapper.findPage(offset, size), userMapper.countAll());

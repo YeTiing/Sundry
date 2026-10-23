@@ -24,4 +24,10 @@ public interface UserMapper {
 
     // 带前置条件：超级管理员不能被这个 SQL 改掉
     int updateRole(@Param("id") Long id, @Param("role") Role role);
+
+    int updateProfile(@Param("id") Long id,
+                      @Param("nickname") String nickname,
+                      @Param("bio") String bio);
+
+    int updateAvatar(@Param("id") Long id, @Param("avatarFileId") Long avatarFileId);
 }

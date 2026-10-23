@@ -15,6 +15,7 @@ import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
 import com.sundry.user.User;
 import com.sundry.user.UserService;
+import com.sundry.user.UserViewFactory;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -45,11 +46,14 @@ public class AuthController {
     private final AuthService authService;
     private final UserService userService;
     private final JwtProperties jwtProperties;
+    private final UserViewFactory userViewFactory;
 
-    public AuthController(AuthService authService, UserService userService, JwtProperties jwtProperties) {
+    public AuthController(AuthService authService, UserService userService,
+                          JwtProperties jwtProperties, UserViewFactory userViewFactory) {
         this.authService = authService;
         this.userService = userService;
         this.jwtProperties = jwtProperties;
+        this.userViewFactory = userViewFactory;
     }
 
     // @PostMapping 限定 POST；@ResponseStatus 固定返回 204（无响应体）
@@ -110,7 +114,7 @@ public class AuthController {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
         User user = userService.requireById(userId);
-        return new UserView(user.getId(), user.getPhone(), user.getRole());
+        return userViewFactory.from(user);
     }
 
     private ResponseEntity<TokenResponse> tokenResponse(IssuedTokens tokens, HttpServletResponse response) {

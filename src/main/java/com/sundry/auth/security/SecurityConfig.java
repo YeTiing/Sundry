@@ -63,6 +63,7 @@ public class SecurityConfig {
                                 "/api/auth/logout",
                                 "/api/products/**",
                                 "/api/categories",
+                                "/api/shop",
                                 "/actuator/health")
                         .permitAll()
                         .anyRequest().authenticated())

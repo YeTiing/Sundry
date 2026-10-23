@@ -22,6 +22,20 @@ export const authApi = {
     return http.get<UserView>('/auth/me')
   },
 
+  getProfile(): Promise<UserView> {
+    return http.get<UserView>('/profile')
+  },
+
+  updateProfile(payload: { nickname: string; bio: string }): Promise<UserView> {
+    return http.put<UserView>('/profile', payload)
+  },
+
+  uploadAvatar(file: File): Promise<UserView> {
+    const form = new FormData()
+    form.append('file', file)
+    return http.postForm<UserView>('/profile/avatar', form)
+  },
+
   logout(): Promise<void> {
     return http.post<void>('/auth/logout')
   },

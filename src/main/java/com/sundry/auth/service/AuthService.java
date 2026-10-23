@@ -12,6 +12,7 @@ import com.sundry.common.exception.ErrorCode;
 import com.sundry.user.Role;
 import com.sundry.user.User;
 import com.sundry.user.UserService;
+import com.sundry.user.UserViewFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -37,6 +38,7 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
     private final JwtProperties jwtProperties;
     private final SecurityProperties securityProperties;
+    private final UserViewFactory userViewFactory;
 
     public AuthService(UserService userService,
                        SmsCodeService smsCodeService,
@@ -45,7 +47,8 @@ public class AuthService {
                        JwtService jwtService,
                        RefreshTokenService refreshTokenService,
                        JwtProperties jwtProperties,
-                       SecurityProperties securityProperties) {
+                       SecurityProperties securityProperties,
+                       UserViewFactory userViewFactory) {
         this.userService = userService;
         this.smsCodeService = smsCodeService;
         this.passwordEncoder = passwordEncoder;
@@ -54,6 +57,7 @@ public class AuthService {
         this.refreshTokenService = refreshTokenService;
         this.jwtProperties = jwtProperties;
         this.securityProperties = securityProperties;
+        this.userViewFactory = userViewFactory;
     }
 
     public void sendCode(String phone, SmsScene scene) {
@@ -146,6 +150,6 @@ public class AuthService {
         String refreshToken = refreshTokenService.issue(user.getId());
         long expiresIn = jwtProperties.getAccessTtl().toSeconds();
         return new IssuedTokens(accessToken.token(), expiresIn, refreshToken,
-                new UserView(user.getId(), user.getPhone(), user.getRole()));
+                userViewFactory.from(user));
     }
 }

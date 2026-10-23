@@ -23,6 +23,10 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
   }
 
+  function setUser(next: UserView): void {
+    user.value = next
+  }
+
   async function refresh(): Promise<boolean> {
     try {
       applySession(await authApi.refresh())
@@ -72,5 +76,6 @@ export const useAuthStore = defineStore('auth', () => {
     loginByPassword,
     register,
     logout,
+    setUser,
   }
 })

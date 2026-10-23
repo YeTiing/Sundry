@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import SiteHeader from '@/components/SiteHeader.vue'
 import { catalogApi } from '@/api/catalog'
-import type { Product } from '@/api/types'
+import { shopApi } from '@/api/shop'
+import type { Product, ShopView } from '@/api/types'
 
 const route = useRoute()
 const product = ref<Product | null>(null)
+const shop = ref<ShopView | null>(null)
 const loading = ref(true)
 const error = ref('')
 
@@ -35,6 +37,14 @@ async function load(): Promise<void> {
 }
 
 watch(() => route.params.id, load, { immediate: true })
+
+onMounted(async () => {
+  try {
+    shop.value = await shopApi.get()
+  } catch {
+    // 店铺名片加载失败不影响商品详情
+  }
+})
 </script>
 
 <template>
@@ -62,6 +72,18 @@ watch(() => route.params.id, load, { immediate: true })
           <p class="product-detail__desc">{{ product.description }}</p>
         </div>
       </article>
+
+      <section v-if="shop" class="shop-card">
+        <img v-if="shop.logoUrl" class="shop-card__logo" :src="shop.logoUrl" alt="店铺 Logo" />
+        <span v-else class="shop-card__logo shop-card__logo--text">
+          {{ shop.shopName.slice(0, 1) }}
+        </span>
+        <div class="shop-card__body">
+          <h2>{{ shop.shopName }}</h2>
+          <p v-if="shop.description">{{ shop.description }}</p>
+          <p v-if="shop.contact" class="shop-card__contact">{{ shop.contact }}</p>
+        </div>
+      </section>
     </main>
   </div>
 </template>

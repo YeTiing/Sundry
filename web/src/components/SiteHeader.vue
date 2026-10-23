@@ -16,7 +16,18 @@ async function logout(): Promise<void> {
     <RouterLink class="site-brand" to="/">Sundry</RouterLink>
     <nav class="site-nav">
       <RouterLink to="/">商品</RouterLink>
-      <RouterLink v-if="auth.isAuthenticated" to="/account">账户</RouterLink>
+      <RouterLink v-if="auth.isAuthenticated" class="site-user" to="/account">
+        <img
+          v-if="auth.user?.avatarUrl"
+          class="site-user__avatar"
+          :src="auth.user.avatarUrl"
+          alt=""
+        />
+        <span v-else class="site-user__avatar site-user__avatar--text">
+          {{ (auth.user?.nickname || auth.user?.phone || '?').slice(0, 1) }}
+        </span>
+        <span class="site-user__name">{{ auth.user?.nickname || auth.user?.phone }}</span>
+      </RouterLink>
       <RouterLink v-if="auth.isAdmin" to="/admin/products">管理后台</RouterLink>
       <RouterLink v-if="!auth.isAuthenticated" to="/login">登录</RouterLink>
       <button v-else class="link-button" type="button" @click="logout">退出</button>
