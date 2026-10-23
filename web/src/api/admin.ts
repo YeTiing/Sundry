@@ -55,8 +55,12 @@ export const adminApi = {
     return http.get<Product>(`/admin/products/${id}`)
   },
 
-  createProduct(payload: SaveProductPayload): Promise<Product> {
-    return http.post<Product>('/admin/products', payload)
+  createProduct(payload: SaveProductPayload, idempotencyKey?: string): Promise<Product> {
+    return http.post<Product>(
+      '/admin/products',
+      payload,
+      idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    )
   },
 
   updateProduct(id: number, payload: SaveProductPayload): Promise<Product> {

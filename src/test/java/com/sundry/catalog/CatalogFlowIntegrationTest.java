@@ -344,6 +344,62 @@ class CatalogFlowIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void createProductIsIdempotentWithSameKey() throws Exception {
+        Session admin = register(SUPER_PHONE);
+        Long categoryId = categoryId("软件");
+        String payload = productJson("幂等商品", "1.00", categoryId, "DRAFT", null);
+
+        MvcResult first = mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .header("Idempotency-Key", "idem-create-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long firstId = ((Number) JsonPath.read(body(first), "$.id")).longValue();
+
+        MvcResult second = mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .header("Idempotency-Key", "idem-create-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long secondId = ((Number) JsonPath.read(body(second), "$.id")).longValue();
+
+        assertThat(secondId).isEqualTo(firstId);
+        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM product", Long.class);
+        assertThat(count).isEqualTo(1);
+
+        // 不同 key 代表新的创建意图
+        MvcResult third = mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .header("Idempotency-Key", "idem-create-2")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long thirdId = ((Number) JsonPath.read(body(third), "$.id")).longValue();
+        assertThat(thirdId).isNotEqualTo(firstId);
+        Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM product", Long.class);
+        assertThat(total).isEqualTo(2);
+    }
+
+    @Test
+    void idempotencyKeyTooLongIsRejected() throws Exception {
+        Session admin = register(SUPER_PHONE);
+        Long categoryId = categoryId("软件");
+
+        mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .header("Idempotency-Key", "x".repeat(65))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(productJson("key 太长", "1.00", categoryId, "DRAFT", null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
     private Session register(String phone) throws Exception {
         redis.delete("auth:sms:cooldown:" + phone);
         mockMvc.perform(post("/api/auth/sms-code")

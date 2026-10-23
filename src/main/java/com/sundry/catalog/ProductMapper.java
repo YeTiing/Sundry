@@ -28,6 +28,8 @@ public interface ProductMapper {
 
     Product findById(@Param("id") Long id);
 
+    Product findByRequestId(@Param("requestId") String requestId);
+
     Product findPublicById(@Param("id") Long id);
 
     List<Product> findPageAdmin(@Param("status") ProductStatus status,

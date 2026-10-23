@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 public class Product {
 
     private Long id;
+    private String requestId;
     private Long categoryId;
     private String name;
     private String description;
@@ -31,6 +32,14 @@ public class Product {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(String requestId) {
+        this.requestId = requestId;
     }
 
     public Long getCategoryId() {

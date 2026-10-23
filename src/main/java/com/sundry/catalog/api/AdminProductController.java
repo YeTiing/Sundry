@@ -9,6 +9,7 @@ import com.sundry.common.api.PageResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -59,8 +61,10 @@ public class AdminProductController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ProductView create(@Valid @RequestBody SaveProductRequest request) {
-        return productService.create(request);
+    public ProductView create(
+            @RequestHeader(value = "Idempotency-Key", required = false) @Size(max = 64) String idempotencyKey,
+            @Valid @RequestBody SaveProductRequest request) {
+        return productService.create(request, idempotencyKey);
     }
 
     @PutMapping("/{id}")

@@ -40,6 +40,7 @@ const digitalUploading = ref(false)
 const createStatus = ref<ProductStatus>('DRAFT')
 const uploadingCover = ref(false)
 const saving = ref(false)
+const createRequestId = ref<string | null>(null)
 const formError = ref('')
 
 const isEditing = computed(() => editingId.value !== null)
@@ -55,6 +56,13 @@ function statusLabel(status: ProductStatus): string {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败，请稍后重试'
+}
+
+function newRequestId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 async function loadCategories(): Promise<void> {
@@ -97,6 +105,7 @@ function resetForm(): void {
   originalDigitalFileId.value = null
   digitalUploading.value = false
   createStatus.value = 'DRAFT'
+  createRequestId.value = null
   formError.value = ''
 }
 
@@ -169,8 +178,11 @@ async function save(): Promise<void> {
       }
       notice.value = '商品已更新'
     } else {
+      // 同一次创建意图复用同一个 key；网络超时后重试不会重复建商品
+      const requestId = createRequestId.value ?? newRequestId()
+      createRequestId.value = requestId
       payload.status = createStatus.value
-      await adminApi.createProduct(payload)
+      await adminApi.createProduct(payload, requestId)
       notice.value = '商品已创建'
     }
     resetForm()

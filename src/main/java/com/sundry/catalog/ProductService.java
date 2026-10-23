@@ -10,6 +10,7 @@ import com.sundry.file.FileKind;
 import com.sundry.file.FileObject;
 import com.sundry.file.FileObjectMapper;
 import com.sundry.storage.ObjectStorage;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.math.RoundingMode;
@@ -68,16 +69,47 @@ public class ProductService {
         return toView(product);
     }
 
-    public ProductView create(SaveProductRequest request) {
+    /**
+     * 创建商品。Idempotency-Key 相同且该商品已创建时，直接返回首次结果；
+     * 数据库唯一索引兜住并发重试。
+     */
+    public ProductView create(SaveProductRequest request, String requestId) {
+        String idempotencyKey = normalizeRequestId(requestId);
+        if (idempotencyKey != null) {
+            Product existing = productMapper.findByRequestId(idempotencyKey);
+            if (existing != null) {
+                return toView(existing);
+            }
+        }
+
         requireCategory(request.categoryId());
         requireCover(request.coverFileId());
         requireDigitalFile(request.type(), request.digitalFileId());
 
         Product product = new Product();
+        product.setRequestId(idempotencyKey);
         apply(product, request);
         product.setStatus(request.status() == null ? ProductStatus.DRAFT : request.status());
-        productMapper.insert(product);
+        try {
+            productMapper.insert(product);
+        } catch (DuplicateKeyException ex) {
+            if (idempotencyKey != null) {
+                Product existing = productMapper.findByRequestId(idempotencyKey);
+                if (existing != null) {
+                    return toView(existing);
+                }
+            }
+            throw ex;
+        }
         return toView(productMapper.findById(product.getId()));
+    }
+
+    private String normalizeRequestId(String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            return null;
+        }
+        String trimmed = requestId.trim();
+        return trimmed.length() > 64 ? trimmed.substring(0, 64) : trimmed;
     }
 
     public ProductView update(Long id, SaveProductRequest request) {
