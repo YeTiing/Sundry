@@ -40,6 +40,8 @@ public enum ErrorCode {
     INVALID_ORDER_STATUS(HttpStatus.CONFLICT, "当前订单状态不允许此操作"),
     TRACKING_REQUIRED(HttpStatus.BAD_REQUEST, "发货必须填写快递单号"),
     ORDER_NOT_PAID(HttpStatus.FORBIDDEN, "订单未支付，不能下载"),
+    ORDER_REFUNDED(HttpStatus.FORBIDDEN, "订单已退款，不能下载"),
+    REFUND_NOT_ALLOWED(HttpStatus.CONFLICT, "当前订单不支持退款"),
     DIGITAL_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "数字商品文件不存在"),
     CATEGORY_NOT_FOUND(HttpStatus.BAD_REQUEST, "分类不存在或已停用"),
     COVER_NOT_FOUND(HttpStatus.BAD_REQUEST, "封面图片不存在"),

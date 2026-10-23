@@ -22,6 +22,8 @@ public class Order {
     private LocalDateTime shippedAt;
     private LocalDateTime completedAt;
     private LocalDateTime cancelledAt;
+    private LocalDateTime refundedAt;
+    private BigDecimal refundAmount;
 
     public Long getId() {
         return id;
@@ -157,5 +159,21 @@ public class Order {
 
     public void setCancelledAt(LocalDateTime cancelledAt) {
         this.cancelledAt = cancelledAt;
+    }
+
+    public LocalDateTime getRefundedAt() {
+        return refundedAt;
+    }
+
+    public void setRefundedAt(LocalDateTime refundedAt) {
+        this.refundedAt = refundedAt;
+    }
+
+    public BigDecimal getRefundAmount() {
+        return refundAmount;
+    }
+
+    public void setRefundAmount(BigDecimal refundAmount) {
+        this.refundAmount = refundAmount;
     }
 }

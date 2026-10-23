@@ -7,6 +7,7 @@ import com.sundry.common.exception.ErrorCode;
 import com.sundry.order.dto.CreateOrderRequest;
 import com.sundry.order.dto.DownloadView;
 import com.sundry.order.dto.OrderView;
+import com.sundry.order.dto.RefundRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -77,6 +78,19 @@ public class OrderController {
     public OrderView confirm(@PathVariable String orderNo,
                              @AuthenticationPrincipal AuthenticatedUser user) {
         return orderService.confirm(requireUser(user), orderNo);
+    }
+
+    @PostMapping("/{orderNo}/refund")
+    public OrderView applyRefund(@PathVariable String orderNo,
+                                 @Valid @RequestBody RefundRequest request,
+                                 @AuthenticationPrincipal AuthenticatedUser user) {
+        return orderService.applyRefund(requireUser(user), orderNo, request.reason());
+    }
+
+    @PostMapping("/{orderNo}/refund/withdraw")
+    public OrderView withdrawRefund(@PathVariable String orderNo,
+                                    @AuthenticationPrincipal AuthenticatedUser user) {
+        return orderService.withdrawRefund(requireUser(user), orderNo);
     }
 
     @GetMapping("/{orderNo}/items/{itemId}/download")

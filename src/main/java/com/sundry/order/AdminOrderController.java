@@ -1,12 +1,16 @@
 package com.sundry.order;
 
+import com.sundry.auth.security.AuthenticatedUser;
 import com.sundry.common.api.PageResponse;
 import com.sundry.order.dto.OrderView;
+import com.sundry.order.dto.RefundApproveRequest;
+import com.sundry.order.dto.RefundRejectRequest;
 import com.sundry.order.dto.UpdateTrackingRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -53,5 +57,20 @@ public class AdminOrderController {
     public OrderView ship(@PathVariable String orderNo,
                           @Valid @RequestBody UpdateTrackingRequest request) {
         return orderService.ship(orderNo, request.trackingNo());
+    }
+
+    @PostMapping("/{orderNo}/refund/approve")
+    public OrderView approveRefund(@PathVariable String orderNo,
+                                   @Valid @RequestBody(required = false) RefundApproveRequest request,
+                                   @AuthenticationPrincipal AuthenticatedUser user) {
+        String remark = request == null ? null : request.remark();
+        return orderService.approveRefund(orderNo, user.id(), remark);
+    }
+
+    @PostMapping("/{orderNo}/refund/reject")
+    public OrderView rejectRefund(@PathVariable String orderNo,
+                                  @Valid @RequestBody RefundRejectRequest request,
+                                  @AuthenticationPrincipal AuthenticatedUser user) {
+        return orderService.rejectRefund(orderNo, user.id(), request.reason());
     }
 }

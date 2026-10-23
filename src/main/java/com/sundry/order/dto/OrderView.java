@@ -1,6 +1,7 @@
 package com.sundry.order.dto;
 
 import com.sundry.order.OrderStatus;
+import com.sundry.order.RefundStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -11,5 +12,9 @@ public record OrderView(String orderNo, OrderStatus status, BigDecimal totalAmou
                         String receiverAddress, String trackingNo,
                         LocalDateTime createdAt, LocalDateTime paidAt, LocalDateTime packedAt,
                         LocalDateTime shippedAt, LocalDateTime completedAt, LocalDateTime cancelledAt,
+                        LocalDateTime refundedAt, BigDecimal refundAmount,
+                        RefundStatus refundStatus, String refundReason,
+                        LocalDateTime refundRequestedAt, LocalDateTime refundReviewedAt,
+                        String refundReviewRemark,
                         List<OrderItemView> items) {
 }

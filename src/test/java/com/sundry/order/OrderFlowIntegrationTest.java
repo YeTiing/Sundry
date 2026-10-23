@@ -19,7 +19,14 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -58,6 +65,7 @@ class OrderFlowIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM order_refund");
         jdbcTemplate.update("DELETE FROM order_item");
         jdbcTemplate.update("DELETE FROM orders");
         jdbcTemplate.update("DELETE FROM cart_item");
@@ -269,6 +277,461 @@ class OrderFlowIntegrationTest {
                 "SELECT status FROM orders WHERE order_no = ?", String.class, orderNo);
         assertThat(status).isEqualTo("CANCELLED");
         assertThat(stockOf(productId)).isEqualTo(4);
+    }
+
+    @Test
+    void refundRequiresApprovalAndRestoresStock() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "退款实物", 5);
+        long cartItemId = addToCart(user.token(), productId, 2);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "refund-approve-key");
+        pay(user.token(), orderNo);
+
+        mockMvc.perform(post("/api/orders/{orderNo}/refund", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"不想要了"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUND_REQUESTED"))
+                .andExpect(jsonPath("$.refundStatus").value("PENDING"))
+                .andExpect(jsonPath("$.refundReason").value("不想要了"))
+                .andExpect(jsonPath("$.refundAmount").value(20.00));
+        // 审核期间不动库存
+        assertThat(stockOf(productId)).isEqualTo(3);
+
+        // 审核期间不能打包，也不能确认收货
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/pack", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+        mockMvc.perform(post("/api/orders/{orderNo}/confirm", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+
+        mockMvc.perform(get("/api/admin/orders")
+                        .param("status", "REFUND_REQUESTED")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1));
+
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/refund/approve", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUNDED"))
+                .andExpect(jsonPath("$.refundStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.refundAmount").value(20.00))
+                .andExpect(jsonPath("$.refundedAt").isNotEmpty());
+        assertThat(stockOf(productId)).isEqualTo(5);
+        assertThat(reviewerOf(orderNo)).isEqualTo(userIdOf(ADMIN_PHONE));
+
+        // 重复通过幂等，库存不重复回补
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/refund/approve", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUNDED"));
+        assertThat(stockOf(productId)).isEqualTo(5);
+        assertThat(refundCount(orderNo)).isEqualTo(1);
+    }
+
+    @Test
+    void refundRejectionReturnsToPreviousStatus() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "拒绝退款", 5);
+        long cartItemId = addToCart(user.token(), productId, 2);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "refund-reject-key");
+        pay(user.token(), orderNo);
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/pack", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk());
+
+        applyRefund(user.token(), orderNo, "买错了");
+
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/refund/reject", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"商品已打包，请收到后再申请"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PACKING"))
+                .andExpect(jsonPath("$.refundStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.refundReviewRemark").value("商品已打包，请收到后再申请"));
+        assertThat(stockOf(productId)).isEqualTo(3);
+
+        // 拒绝后可以继续发货
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/ship", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"trackingNo":"SF999"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SHIPPED"));
+    }
+
+    @Test
+    void rejectedRefundCanBeAppliedAgain() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "再次申请", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "refund-again-key");
+        pay(user.token(), orderNo);
+
+        applyRefund(user.token(), orderNo, "第一次");
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/refund/reject", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"照片不清晰"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"));
+
+        mockMvc.perform(post("/api/orders/{orderNo}/refund", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"第二次"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUND_REQUESTED"))
+                .andExpect(jsonPath("$.refundReason").value("第二次"));
+
+        // 被拒记录保留，新申请是新的一行
+        assertThat(refundCount(orderNo)).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM order_refund r JOIN orders o ON o.id = r.order_id
+                WHERE o.order_no = ? AND r.status = 'REJECTED'
+                """, Long.class, orderNo)).isEqualTo(1);
+    }
+
+    @Test
+    void withdrawRefundReturnsToPreviousStatus() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "撤销退款", 5);
+        long cartItemId = addToCart(user.token(), productId, 2);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "refund-withdraw-key");
+        pay(user.token(), orderNo);
+
+        applyRefund(user.token(), orderNo, "先不退了");
+        mockMvc.perform(post("/api/orders/{orderNo}/refund/withdraw", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.refundStatus").value("WITHDRAWN"));
+        assertThat(stockOf(productId)).isEqualTo(3);
+
+        // 重复撤销幂等
+        mockMvc.perform(post("/api/orders/{orderNo}/refund/withdraw", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"));
+    }
+
+    @Test
+    void refundRejectsPendingPaymentAndDigitalOrders() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+
+        long physicalId = createPhysicalProduct(admin.token(), "待支付退款", 5);
+        long cartItemId = addToCart(user.token(), physicalId, 1);
+        long addressId = createAddress(user.token());
+        String pendingOrderNo = createOrder(user.token(), cartItemId, addressId, "refund-pending-key");
+
+        mockMvc.perform(post("/api/orders/{orderNo}/refund", pendingOrderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"未支付"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+
+        long digitalId = createDigitalProduct(admin.token(), "数字不可退");
+        long digitalCartItemId = addToCart(user.token(), digitalId, 1);
+        String digitalOrderNo = createOrderWithoutAddress(user.token(), digitalCartItemId, "refund-digital-key");
+        pay(user.token(), digitalOrderNo);
+
+        mockMvc.perform(post("/api/orders/{orderNo}/refund", digitalOrderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"数字商品"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("REFUND_NOT_ALLOWED"));
+    }
+
+    @Test
+    void shippedAndCompletedOrdersCannotRefund() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "已发货不可退", 10);
+        long addressId = createAddress(user.token());
+
+        long firstCart = addToCart(user.token(), productId, 1);
+        String shippedOrderNo = createOrder(user.token(), firstCart, addressId, "refund-shipped-key");
+        pay(user.token(), shippedOrderNo);
+        packAndShip(admin.token(), shippedOrderNo, "SF100");
+
+        mockMvc.perform(post("/api/orders/{orderNo}/refund", shippedOrderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"已发货"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+
+        long secondCart = addToCart(user.token(), productId, 1);
+        String completedOrderNo = createOrder(user.token(), secondCart, addressId, "refund-completed-key");
+        pay(user.token(), completedOrderNo);
+        packAndShip(admin.token(), completedOrderNo, "SF101");
+        mockMvc.perform(post("/api/orders/{orderNo}/confirm", completedOrderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/orders/{orderNo}/refund", completedOrderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"已完成"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void refundEndpointsRespectOwnershipAndRoles() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        Session other = register(OTHER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "权限测试", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "refund-permission-key");
+        pay(user.token(), orderNo);
+
+        // 不是自己的订单
+        mockMvc.perform(post("/api/orders/{orderNo}/refund", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"别人的订单"}
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
+
+        // 原因为空
+        mockMvc.perform(post("/api/orders/{orderNo}/refund", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":" "}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        // 普通用户不能审核
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/refund/approve", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isForbidden());
+
+        // 没有待审核申请时审核失败
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/refund/approve", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/refund/reject", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"无申请"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void refundedOrderCannotDownloadDigitalItem() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long physicalId = createPhysicalProduct(admin.token(), "混合实物", 5);
+        long digitalId = createDigitalProduct(admin.token(), "混合数字");
+        long physicalCart = addToCart(user.token(), physicalId, 1);
+        long digitalCart = addToCart(user.token(), digitalId, 1);
+        long addressId = createAddress(user.token());
+
+        String orderNo = createOrder(user.token(), physicalCart, List.of(digitalCart), addressId,
+                "refund-mixed-key");
+        pay(user.token(), orderNo);
+
+        MvcResult detail = mockMvc.perform(get("/api/orders/{orderNo}", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        String body = detail.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        List<Integer> ids = JsonPath.read(body, "$.items[*].id");
+        List<String> types = JsonPath.read(body, "$.items[*].productType");
+        long digitalItemId = ids.get(types.indexOf("DIGITAL"));
+
+        // 退款前可以下载
+        mockMvc.perform(get("/api/orders/{orderNo}/items/{itemId}/download", orderNo, digitalItemId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk());
+
+        applyRefund(user.token(), orderNo, "整单退款");
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/refund/approve", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUNDED"));
+
+        mockMvc.perform(get("/api/orders/{orderNo}/items/{itemId}/download", orderNo, digitalItemId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ORDER_REFUNDED"));
+    }
+
+    @Test
+    void concurrentRefundApplicationCreatesSinglePendingRecord() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "并发申请", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "refund-concurrent-apply");
+        pay(user.token(), orderNo);
+        Long userId = userIdOf(USER_PHONE);
+
+        runConcurrently(() -> orderService.applyRefund(userId, orderNo, "并发申请"));
+
+        assertThat(orderStatus(orderNo)).isEqualTo("REFUND_REQUESTED");
+        assertThat(refundCount(orderNo)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentRefundApprovalRestoresStockOnce() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "并发审核", 5);
+        long cartItemId = addToCart(user.token(), productId, 2);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "refund-concurrent-approve");
+        pay(user.token(), orderNo);
+        applyRefund(user.token(), orderNo, "并发审核");
+        Long adminId = userIdOf(ADMIN_PHONE);
+
+        runConcurrently(() -> orderService.approveRefund(orderNo, adminId, null));
+
+        assertThat(orderStatus(orderNo)).isEqualTo("REFUNDED");
+        assertThat(stockOf(productId)).isEqualTo(5);
+        assertThat(refundCount(orderNo)).isEqualTo(1);
+    }
+
+    private void runConcurrently(Runnable task) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<?>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < 2; i++) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    task.run();
+                    return null;
+                }));
+            }
+            ready.await(5, TimeUnit.SECONDS);
+            start.countDown();
+            for (Future<?> future : futures) {
+                future.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private void pay(String token, String orderNo) throws Exception {
+        mockMvc.perform(post("/api/orders/{orderNo}/pay", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk());
+    }
+
+    private void packAndShip(String adminToken, String orderNo, String trackingNo) throws Exception {
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/pack", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/ship", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"trackingNo":"%s"}
+                                """.formatted(trackingNo)))
+                .andExpect(status().isOk());
+    }
+
+    private void applyRefund(String token, String orderNo, String reason) throws Exception {
+        mockMvc.perform(post("/api/orders/{orderNo}/refund", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"%s"}
+                                """.formatted(reason)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUND_REQUESTED"));
+    }
+
+    private String createOrder(String token, long cartItemId, List<Long> extraCartItemIds,
+                               long addressId, String key) throws Exception {
+        List<Long> all = new ArrayList<>();
+        all.add(cartItemId);
+        all.addAll(extraCartItemIds);
+        String ids = all.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("");
+        MvcResult result = mockMvc.perform(post("/api/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cartItemIds":[%s],"addressId":%d}
+                                """.formatted(ids, addressId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return JsonPath.read(result.getResponse().getContentAsString(StandardCharsets.UTF_8), "$.orderNo");
+    }
+
+    private String orderStatus(String orderNo) {
+        return jdbcTemplate.queryForObject(
+                "SELECT status FROM orders WHERE order_no = ?", String.class, orderNo);
+    }
+
+    private long refundCount(String orderNo) {
+        return jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM order_refund r JOIN orders o ON o.id = r.order_id
+                WHERE o.order_no = ?
+                """, Long.class, orderNo);
+    }
+
+    private Long reviewerOf(String orderNo) {
+        return jdbcTemplate.queryForObject("""
+                SELECT r.reviewer_id FROM order_refund r JOIN orders o ON o.id = r.order_id
+                WHERE o.order_no = ? ORDER BY r.id DESC LIMIT 1
+                """, Long.class, orderNo);
+    }
+
+    private Long userIdOf(String phone) {
+        return jdbcTemplate.queryForObject("SELECT id FROM app_user WHERE phone = ?", Long.class, phone);
     }
 
     private long createPhysicalProduct(String token, String name, int stock) throws Exception {

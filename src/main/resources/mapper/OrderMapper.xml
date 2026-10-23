@@ -6,7 +6,8 @@
     <sql id="orderColumns">
         id, order_no, request_id, user_id, status, total_amount, has_physical,
         receiver_name, receiver_phone, receiver_address, tracking_no,
-        created_at, paid_at, packed_at, shipped_at, completed_at, cancelled_at
+        created_at, paid_at, packed_at, shipped_at, completed_at, cancelled_at,
+        refunded_at, refund_amount
     </sql>
 
     <insert id="insert" parameterType="com.sundry.order.Order"
@@ -112,6 +113,28 @@
         UPDATE orders
         SET status = 'CANCELLED', cancelled_at = NOW(3)
         WHERE id = #{id} AND status = 'PENDING_PAYMENT'
+    </update>
+
+    <!-- 用户申请退款：只允许已支付/打包中且含实物的订单 -->
+    <update id="requestRefund">
+        UPDATE orders
+        SET status = 'REFUND_REQUESTED'
+        WHERE order_no = #{orderNo} AND user_id = #{userId}
+          AND status IN ('PAID', 'PACKING') AND has_physical = 1
+    </update>
+
+    <!-- 商家通过：状态和金额一起落库，库存回补在同一事务里 -->
+    <update id="approveRefund">
+        UPDATE orders
+        SET status = 'REFUNDED', refunded_at = NOW(3), refund_amount = total_amount
+        WHERE order_no = #{orderNo} AND status = 'REFUND_REQUESTED'
+    </update>
+
+    <!-- 商家拒绝或用户撤销：回到申请前状态 -->
+    <update id="revertRefund">
+        UPDATE orders
+        SET status = #{status}
+        WHERE order_no = #{orderNo} AND status = 'REFUND_REQUESTED'
     </update>
 
 </mapper>

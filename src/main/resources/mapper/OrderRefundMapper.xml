@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.order.OrderRefundMapper">
+
+    <sql id="refundColumns">
+        id, order_id, user_id, amount, reason, status, prev_status,
+        applied_at, reviewed_at, reviewer_id, review_remark
+    </sql>
+
+    <insert id="insert" parameterType="com.sundry.order.OrderRefund"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO order_refund (order_id, user_id, amount, reason, status, prev_status)
+        VALUES (#{orderId}, #{userId}, #{amount}, #{reason}, #{status}, #{prevStatus})
+    </insert>
+
+    <select id="findLatestByOrderId" resultType="com.sundry.order.OrderRefund">
+        SELECT <include refid="refundColumns"/>
+        FROM order_refund
+        WHERE order_id = #{orderId}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <update id="approve">
+        UPDATE order_refund
+        SET status = 'APPROVED', reviewed_at = NOW(3),
+            reviewer_id = #{reviewerId}, review_remark = #{remark}
+        WHERE id = #{id} AND status = 'PENDING'
+    </update>
+
+    <update id="reject">
+        UPDATE order_refund
+        SET status = 'REJECTED', reviewed_at = NOW(3),
+            reviewer_id = #{reviewerId}, review_remark = #{remark}
+        WHERE id = #{id} AND status = 'PENDING'
+    </update>
+
+    <update id="withdraw">
+        UPDATE order_refund
+        SET status = 'WITHDRAWN', reviewed_at = NOW(3)
+        WHERE id = #{id} AND user_id = #{userId} AND status = 'PENDING'
+    </update>
+
+</mapper>

@@ -46,6 +46,7 @@ public class OrderService {
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
+    private final OrderRefundMapper refundMapper;
     private final CartItemMapper cartItemMapper;
     private final ProductMapper productMapper;
     private final UserAddressMapper addressMapper;
@@ -56,12 +57,14 @@ public class OrderService {
     private final OrderProperties properties;
 
     public OrderService(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
+                        OrderRefundMapper refundMapper,
                         CartItemMapper cartItemMapper, ProductMapper productMapper,
                         UserAddressMapper addressMapper, ObjectStorage storage,
                         FileObjectMapper fileObjectMapper, DigitalUploadGateway digitalGateway,
                         TransactionTemplate transactionTemplate, OrderProperties properties) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
+        this.refundMapper = refundMapper;
         this.cartItemMapper = cartItemMapper;
         this.productMapper = productMapper;
         this.addressMapper = addressMapper;
@@ -216,6 +219,123 @@ public class OrderService {
         return toView(refreshed);
     }
 
+    /**
+     * 用户申请退款：只有已支付/打包中且含实物的订单能申请。
+     * 条件更新成功才写申请流水，并发重复申请按幂等返回当前订单。
+     */
+    public OrderView applyRefund(Long userId, String orderNo, String reason) {
+        Order order = requireUserOrder(userId, orderNo);
+        if (order.getStatus() == OrderStatus.REFUND_REQUESTED
+                || order.getStatus() == OrderStatus.REFUNDED) {
+            return toView(order);
+        }
+        if (order.getHasPhysical() == null || order.getHasPhysical() != 1) {
+            throw new BusinessException(ErrorCode.REFUND_NOT_ALLOWED);
+        }
+        if (order.getStatus() != OrderStatus.PAID && order.getStatus() != OrderStatus.PACKING) {
+            throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+        OrderStatus prevStatus = order.getStatus();
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                if (orderMapper.requestRefund(orderNo, userId) == 0) {
+                    throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+                }
+                OrderRefund refund = new OrderRefund();
+                refund.setOrderId(order.getId());
+                refund.setUserId(userId);
+                refund.setAmount(order.getTotalAmount());
+                refund.setReason(reason.trim());
+                refund.setStatus(RefundStatus.PENDING);
+                refund.setPrevStatus(prevStatus);
+                refundMapper.insert(refund);
+            });
+        } catch (BusinessException ex) {
+            // 并发下另一个请求可能已申请成功，重查后按幂等处理
+            Order refreshed = requireUserOrder(userId, orderNo);
+            if (refreshed.getStatus() == OrderStatus.REFUND_REQUESTED
+                    || refreshed.getStatus() == OrderStatus.REFUNDED) {
+                return toView(refreshed);
+            }
+            throw ex;
+        }
+        return toView(requireUserOrder(userId, orderNo));
+    }
+
+    /**
+     * 用户撤销审核前的退款申请，订单回到申请前状态。
+     */
+    public OrderView withdrawRefund(Long userId, String orderNo) {
+        Order order = requireUserOrder(userId, orderNo);
+        OrderRefund latest = refundMapper.findLatestByOrderId(order.getId());
+        if (order.getStatus() != OrderStatus.REFUND_REQUESTED) {
+            if (latest != null && latest.getStatus() == RefundStatus.WITHDRAWN) {
+                return toView(order);
+            }
+            throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+        if (latest == null || latest.getStatus() != RefundStatus.PENDING) {
+            throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+        transactionTemplate.executeWithoutResult(status -> {
+            if (orderMapper.revertRefund(orderNo, latest.getPrevStatus()) == 0
+                    || refundMapper.withdraw(latest.getId(), userId) == 0) {
+                throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+            }
+        });
+        return toView(requireUserOrder(userId, orderNo));
+    }
+
+    /**
+     * 商家通过退款：状态流转与库存回补同一事务，条件更新保证只回补一次。
+     */
+    public OrderView approveRefund(String orderNo, Long reviewerId, String remark) {
+        Order order = requireOrder(orderNo);
+        if (order.getStatus() == OrderStatus.REFUNDED) {
+            return toView(order);
+        }
+        if (order.getStatus() != OrderStatus.REFUND_REQUESTED) {
+            throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+        OrderRefund refund = requirePendingRefund(order.getId());
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                if (orderMapper.approveRefund(orderNo) == 0) {
+                    throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+                }
+                restoreStock(order);
+                if (refundMapper.approve(refund.getId(), reviewerId, trimToNull(remark)) == 0) {
+                    throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+                }
+            });
+        } catch (BusinessException ex) {
+            Order refreshed = requireOrder(orderNo);
+            if (refreshed.getStatus() == OrderStatus.REFUNDED) {
+                return toView(refreshed);
+            }
+            throw ex;
+        }
+        return toView(requireOrder(orderNo));
+    }
+
+    /**
+     * 商家拒绝退款：订单回到申请前状态，库存不动。
+     */
+    public OrderView rejectRefund(String orderNo, Long reviewerId, String reason) {
+        Order order = requireOrder(orderNo);
+        if (order.getStatus() != OrderStatus.REFUND_REQUESTED) {
+            throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+        OrderRefund refund = requirePendingRefund(order.getId());
+        transactionTemplate.executeWithoutResult(status -> {
+            if (orderMapper.revertRefund(orderNo, refund.getPrevStatus()) == 0
+                    || refundMapper.reject(refund.getId(), reviewerId, reason.trim()) == 0) {
+                throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+            }
+        });
+        return toView(requireOrder(orderNo));
+    }
+
     public OrderView confirm(Long userId, String orderNo) {
         Order order = requireUserOrder(userId, orderNo);
         if (order.getStatus() == OrderStatus.COMPLETED) {
@@ -285,6 +405,9 @@ public class OrderService {
 
     public DownloadView download(Long userId, String orderNo, Long itemId) {
         Order order = requireUserOrder(userId, orderNo);
+        if (order.getStatus() == OrderStatus.REFUNDED) {
+            throw new BusinessException(ErrorCode.ORDER_REFUNDED);
+        }
         if (order.getStatus() == OrderStatus.PENDING_PAYMENT
                 || order.getStatus() == OrderStatus.CANCELLED) {
             throw new BusinessException(ErrorCode.ORDER_NOT_PAID);
@@ -319,6 +442,22 @@ public class OrderService {
                 // 单个订单失败不影响其他订单，下一轮还会重试
             }
         }
+    }
+
+    private OrderRefund requirePendingRefund(Long orderId) {
+        OrderRefund refund = refundMapper.findLatestByOrderId(orderId);
+        if (refund == null || refund.getStatus() != RefundStatus.PENDING) {
+            throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+        return refund;
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private void restoreStock(Order order) {
@@ -376,10 +515,21 @@ public class OrderService {
                         item.getProductType(), item.getPrice(), item.getQuantity(),
                         item.getCoverUrl(), item.getDigitalFileId()))
                 .toList();
+        OrderRefund refund = refundMapper.findLatestByOrderId(order.getId());
+        BigDecimal refundAmount = order.getRefundAmount() != null
+                ? order.getRefundAmount()
+                : (refund == null ? null : refund.getAmount());
         return new OrderView(order.getOrderNo(), order.getStatus(), order.getTotalAmount(),
                 order.getHasPhysical() != null && order.getHasPhysical() == 1,
                 order.getReceiverName(), order.getReceiverPhone(), order.getReceiverAddress(),
                 order.getTrackingNo(), order.getCreatedAt(), order.getPaidAt(), order.getPackedAt(),
-                order.getShippedAt(), order.getCompletedAt(), order.getCancelledAt(), items);
+                order.getShippedAt(), order.getCompletedAt(), order.getCancelledAt(),
+                order.getRefundedAt(), refundAmount,
+                refund == null ? null : refund.getStatus(),
+                refund == null ? null : refund.getReason(),
+                refund == null ? null : refund.getAppliedAt(),
+                refund == null ? null : refund.getReviewedAt(),
+                refund == null ? null : refund.getReviewRemark(),
+                items);
     }
 }
