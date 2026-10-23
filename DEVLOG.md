@@ -22,8 +22,9 @@
 | 数字商品 | 私有桶、2GB 分片直传 MinIO、商品绑定 DIGITAL 文件；支持后台直接复用已上传文件；下载未做 |
 | 文件清理 | 手动删除为软删除；每天 3 点清理，数字 7 天 / 图片 1 天宽限；ETag 去重 |
 | 幂等 | 商品创建支持 `Idempotency-Key`，数据库唯一键兜底并发重试 |
-| 测试 | 58 个集成测试，`mvn test` 全绿 |
-| 分支 | `develop` 最新 `db32898`；`main` / `origin/main` 停在 `9ba1d16` |
+| 名片 | 用户昵称/头像/简介；单商户店铺名片（店名/Logo/简介/联系方式） |
+| 测试 | 63 个集成测试，`mvn test` 全绿 |
+| 分支 | `develop` 最新 `e5403c6`；`main` / `origin/main` 停在 `138078b` |
 | 未完成 | 库存、购物车、订单、支付、发货、售后、通知公告 |
 
 ### 本地启动
@@ -546,6 +547,45 @@ ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
 
 - `db32898` feat: 商品创建幂等
 - `839f765` fix: 创建商品增加并发进入保护
+
+---
+
+## 2026-10-23 · 用户名片与店铺名片
+
+**做了什么**
+
+- V8：
+  - `app_user` 增加 `nickname`、`avatar_file_id`、`bio`
+  - 新增 `shop_profile` 单行表（店名、Logo、简介、联系方式）
+- 用户名片：
+  - `GET /api/profile`、`PUT /api/profile`
+  - `POST /api/profile/avatar`，2MB 以内，JPEG/PNG/WebP
+  - 登录、刷新、`/api/auth/me` 返回昵称、头像 URL、简介
+- 店铺名片：
+  - `GET /api/shop` 公开
+  - `GET/PUT /api/admin/shop` 仅超级管理员
+  - 商品详情页展示店铺卡：Logo、店名、简介、联系方式
+- 前端：
+  - 账户页编辑昵称/简介、上传头像
+  - 顶部导航显示头像 + 昵称
+  - 后台新增「店铺资料」编辑
+- 单商户模型：
+  - 所有商品同一卖家，**不给 product 加 seller_id**
+  - 卖家信息用店铺名片统一展示
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 63 个用例全部通过
+  - 昵称/简介更新并回显
+  - 头像上传、2MB 限制
+  - 店铺公开读取、超级管理员编辑、普通用户 403
+  - 店铺 Logo 上传并回显
+- 前端 `npm run build` 通过
+- 8081 + 真实 MinIO：中文昵称/简介、头像、店铺 Logo、公开店铺接口均验证通过；测试数据已恢复
+
+**提交**
+
+- `e5403c6` feat: 用户名片与店铺名片
 
 ---
 
