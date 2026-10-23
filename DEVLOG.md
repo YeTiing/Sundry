@@ -16,9 +16,9 @@
 | 存储 | MinIO `sundry-minio`（9000 API / 9001 控制台），公开桶 `sundry-public` |
 | 商品图 | `POST /api/admin/files/images`，≤5MB，JPEG/PNG/WebP，随机 key |
 | 商品 | 分类（秒杀券/软件/实物）、商品 CRUD、上下架、商城列表/详情 |
-| 数字商品 | 私有桶、2GB 分片直传 MinIO、商品绑定 DIGITAL 文件；下载未做 |
+| 数字商品 | 私有桶、2GB 分片直传 MinIO、商品绑定 DIGITAL 文件；支持后台直接复用已上传文件；下载未做 |
 | 文件清理 | 手动删除为软删除；每天 3 点清理，数字 7 天 / 图片 1 天宽限；ETag 去重 |
-| 测试 | 45 个集成测试，`mvn test` 全绿 |
+| 测试 | 48 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop` 最新 `ba803d2`；`main` / `origin/main` 停在 `18c8b3d` |
 | 未完成 | 库存、购物车、订单、支付、发货、售后、通知公告 |
 
@@ -398,16 +398,25 @@
 
 **验证**
 
-- `TEST_DB_PASSWORD=123456 mvn test` → 45 个用例全部通过
+- `TEST_DB_PASSWORD=123456 mvn test` → 48 个用例全部通过（含复用文件 3 个）
 - 真实 MinIO：
   - 同一个 1MB 文件传两次 → 返回同一个 fileId（ETag 去重）
   - 软删除后 `status = 0`
   - 再传同一个文件 → 恢复同一个 fileId，`status = 1`，数据库只剩一行
 - 8081 实例已停止
 
+**补充：直接复用已上传文件**
+
+- 后台商品表单增加「选择已上传」
+- `GET /api/admin/uploads/digital/reusable`：列出有效文件和 7 天内软删除的文件
+- `POST /api/admin/uploads/digital/{id}/reuse`：恢复软删除记录或刷新有效文件时间，**不重新上传**
+- 复用后重置 `created_at`，避免刚恢复就被清理任务当成长期孤儿
+- 真实 MinIO 验证：软删除文件出现在列表，复用后 `status = 1`
+
 **提交**
 
 - `ba803d2` feat: 文件软删除、ETag 去重与定时清理
+- `74d1bf5` feat: 支持直接复用已上传文件
 
 ---
 
