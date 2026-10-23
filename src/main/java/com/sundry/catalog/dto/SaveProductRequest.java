@@ -4,6 +4,7 @@ import com.sundry.catalog.ProductStatus;
 import com.sundry.catalog.ProductType;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -26,6 +27,10 @@ public record SaveProductRequest(
         @DecimalMin(value = "0.00", message = "价格不能为负")
         @Digits(integer = 8, fraction = 2, message = "价格最多 8 位整数和 2 位小数")
         BigDecimal price,
+
+        // 实物库存；数字商品忽略。不传按 0 处理
+        @Min(value = 0, message = "库存不能为负")
+        Integer stock,
 
         @NotNull(message = "分类不能为空")
         Long categoryId,

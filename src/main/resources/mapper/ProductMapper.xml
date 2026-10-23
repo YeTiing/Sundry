@@ -5,7 +5,7 @@
 
     <!-- 联表带出分类名和封面对象信息，避免列表 N+1 查询 -->
     <sql id="productColumns">
-        p.id, p.request_id, p.category_id, p.name, p.description, p.type, p.price, p.cover_file_id,
+        p.id, p.request_id, p.category_id, p.name, p.description, p.type, p.price, p.stock, p.cover_file_id,
         p.digital_file_id, p.status, p.deleted_at, p.created_at, p.updated_at,
         c.name AS category_name,
         f.bucket AS cover_bucket,
@@ -20,9 +20,9 @@
 
     <insert id="insert" parameterType="com.sundry.catalog.Product"
             useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO product (request_id, category_id, name, description, type, price,
+        INSERT INTO product (request_id, category_id, name, description, type, price, stock,
                              cover_file_id, digital_file_id, status)
-        VALUES (#{requestId}, #{categoryId}, #{name}, #{description}, #{type}, #{price},
+        VALUES (#{requestId}, #{categoryId}, #{name}, #{description}, #{type}, #{price}, #{stock},
                 #{coverFileId}, #{digitalFileId}, #{status})
     </insert>
 
@@ -33,6 +33,7 @@
             description     = #{description},
             type            = #{type},
             price           = #{price},
+            stock           = #{stock},
             cover_file_id   = #{coverFileId},
             digital_file_id = #{digitalFileId}
         WHERE id = #{id}

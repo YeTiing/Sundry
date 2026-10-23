@@ -15,6 +15,7 @@ public class Product {
     private String description;
     private ProductType type;
     private BigDecimal price;
+    private Integer stock;
     private Long coverFileId;
     private Long digitalFileId;
     private ProductStatus status;
@@ -80,6 +81,14 @@ public class Product {
 
     public void setPrice(BigDecimal price) {
         this.price = price;
+    }
+
+    public Integer getStock() {
+        return stock;
+    }
+
+    public void setStock(Integer stock) {
+        this.stock = stock;
     }
 
     public Long getCoverFileId() {

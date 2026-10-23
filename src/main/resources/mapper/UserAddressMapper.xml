@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.address.UserAddressMapper">
+
+    <select id="findByUser" resultType="com.sundry.address.UserAddress">
+        SELECT id, user_id, receiver_name, receiver_phone, province, city, district,
+               detail, is_default, created_at, updated_at
+        FROM user_address
+        WHERE user_id = #{userId}
+        ORDER BY is_default DESC, id DESC
+    </select>
+
+    <select id="findByIdAndUser" resultType="com.sundry.address.UserAddress">
+        SELECT id, user_id, receiver_name, receiver_phone, province, city, district,
+               detail, is_default, created_at, updated_at
+        FROM user_address
+        WHERE id = #{id} AND user_id = #{userId}
+    </select>
+
+    <select id="countByUser" resultType="long">
+        SELECT COUNT(*) FROM user_address WHERE user_id = #{userId}
+    </select>
+
+    <insert id="insert" parameterType="com.sundry.address.UserAddress"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_address (user_id, receiver_name, receiver_phone, province, city,
+                                  district, detail, is_default)
+        VALUES (#{userId}, #{receiverName}, #{receiverPhone}, #{province}, #{city},
+                #{district}, #{detail}, #{isDefault})
+    </insert>
+
+    <update id="update" parameterType="com.sundry.address.UserAddress">
+        UPDATE user_address
+        SET receiver_name  = #{receiverName},
+            receiver_phone = #{receiverPhone},
+            province       = #{province},
+            city           = #{city},
+            district       = #{district},
+            detail         = #{detail},
+            is_default     = #{isDefault}
+        WHERE id = #{id} AND user_id = #{userId}
+    </update>
+
+    <delete id="deleteByIdAndUser">
+        DELETE FROM user_address WHERE id = #{id} AND user_id = #{userId}
+    </delete>
+
+    <update id="clearDefault">
+        UPDATE user_address SET is_default = 0 WHERE user_id = #{userId}
+    </update>
+
+    <update id="setDefault">
+        UPDATE user_address SET is_default = 1 WHERE id = #{id} AND user_id = #{userId}
+    </update>
+
+</mapper>

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.cart.CartItemMapper">
+
+    <sql id="cartColumns">
+        c.id, c.user_id, c.product_id, c.quantity, c.created_at, c.updated_at,
+        p.name AS product_name, p.type AS product_type, p.price, p.stock,
+        p.status AS product_status, p.deleted_at AS product_deleted_at,
+        f.bucket AS cover_bucket, f.object_key AS cover_object_key
+    </sql>
+
+    <sql id="cartFrom">
+        FROM cart_item c
+        JOIN product p ON p.id = c.product_id
+        LEFT JOIN file_object f ON f.id = p.cover_file_id
+    </sql>
+
+    <select id="findByUser" resultType="com.sundry.cart.CartItem">
+        SELECT <include refid="cartColumns"/>
+        <include refid="cartFrom"/>
+        WHERE c.user_id = #{userId}
+        ORDER BY c.id DESC
+    </select>
+
+    <select id="findByUserAndProduct" resultType="com.sundry.cart.CartItem">
+        SELECT <include refid="cartColumns"/>
+        <include refid="cartFrom"/>
+        WHERE c.user_id = #{userId} AND c.product_id = #{productId}
+    </select>
+
+    <select id="findByIdAndUser" resultType="com.sundry.cart.CartItem">
+        SELECT <include refid="cartColumns"/>
+        <include refid="cartFrom"/>
+        WHERE c.id = #{id} AND c.user_id = #{userId}
+    </select>
+
+    <insert id="insert" parameterType="com.sundry.cart.CartItem"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO cart_item (user_id, product_id, quantity)
+        VALUES (#{userId}, #{productId}, #{quantity})
+    </insert>
+
+    <update id="updateQuantity">
+        UPDATE cart_item
+        SET quantity = #{quantity}
+        WHERE id = #{id} AND user_id = #{userId}
+    </update>
+
+    <delete id="deleteByIdAndUser">
+        DELETE FROM cart_item WHERE id = #{id} AND user_id = #{userId}
+    </delete>
+
+</mapper>

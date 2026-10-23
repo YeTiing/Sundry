@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * 数字文件只暴露 id，不暴露对象 key 或下载地址。
  */
 public record ProductView(Long id, String name, String description, ProductType type,
-                          BigDecimal price, Long categoryId, String categoryName,
+                          BigDecimal price, Integer stock, Long categoryId, String categoryName,
                           Long coverFileId, String coverUrl, Long digitalFileId,
                           ProductStatus status, LocalDateTime deletedAt, LocalDateTime createdAt) {
 }

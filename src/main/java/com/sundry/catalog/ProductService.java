@@ -168,8 +168,12 @@ public class ProductService {
         product.setCategoryId(request.categoryId());
         product.setName(request.name().trim());
         product.setDescription(request.description().trim());
-        product.setType(request.type() == null ? ProductType.PHYSICAL : request.type());
+        ProductType type = request.type() == null ? ProductType.PHYSICAL : request.type();
+        product.setType(type);
         product.setPrice(request.price().setScale(2, RoundingMode.HALF_UP));
+        // 数字商品不参与库存，统一记 0
+        product.setStock(type == ProductType.DIGITAL ? 0
+                : (request.stock() == null ? 0 : request.stock()));
         product.setCoverFileId(request.coverFileId());
         product.setDigitalFileId(request.digitalFileId());
     }
@@ -212,7 +216,8 @@ public class ProductService {
             coverUrl = storage.publicUrl(product.getCoverBucket(), product.getCoverObjectKey());
         }
         return new ProductView(product.getId(), product.getName(), product.getDescription(),
-                product.getType(), product.getPrice(), product.getCategoryId(), product.getCategoryName(),
+                product.getType(), product.getPrice(), product.getStock(),
+                product.getCategoryId(), product.getCategoryName(),
                 product.getCoverFileId(), coverUrl, product.getDigitalFileId(),
                 product.getStatus(), product.getDeletedAt(), product.getCreatedAt());
     }
