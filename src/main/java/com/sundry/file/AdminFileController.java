@@ -7,7 +7,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminFileController {
 
     private final FileDeletionService deletionService;
+    private final ImageReuseService imageReuseService;
 
-    public AdminFileController(FileDeletionService deletionService) {
+    public AdminFileController(FileDeletionService deletionService, ImageReuseService imageReuseService) {
         this.deletionService = deletionService;
+        this.imageReuseService = imageReuseService;
     }
 
     @DeleteMapping("/{id}")
@@ -33,5 +37,23 @@ public class AdminFileController {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
         deletionService.delete(user.id(), user.role(), id);
+    }
+
+    @GetMapping("/images/reusable")
+    public java.util.List<ReusableImageView> reusableImages(
+            @AuthenticationPrincipal AuthenticatedUser user) {
+        if (user == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        }
+        return imageReuseService.reusable(user.id());
+    }
+
+    @PostMapping("/images/{id}/reuse")
+    public ReusableImageView reuseImage(@PathVariable Long id,
+                                        @AuthenticationPrincipal AuthenticatedUser user) {
+        if (user == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        }
+        return imageReuseService.reuse(user.id(), user.role(), id);
     }
 }

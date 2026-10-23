@@ -46,6 +46,12 @@ public class AdminProductController {
         return productService.findAdminPage(status, page, size);
     }
 
+    @GetMapping("/deleted")
+    public PageResponse<ProductView> deleted(@RequestParam(defaultValue = "1") @Min(1) int page,
+                                             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return productService.findDeletedPage(page, size);
+    }
+
     @GetMapping("/{id}")
     public ProductView detail(@PathVariable Long id) {
         return productService.findAdmin(id);
@@ -72,5 +78,10 @@ public class AdminProductController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
         productService.delete(id);
+    }
+
+    @PostMapping("/{id}/restore")
+    public ProductView restore(@PathVariable Long id) {
+        return productService.restore(id);
     }
 }

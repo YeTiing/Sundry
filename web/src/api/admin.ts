@@ -9,6 +9,7 @@ import type {
   ProductStatus,
   ProductType,
   ReusableDigitalFile,
+  ReusableImage,
   Role,
 } from './types'
 
@@ -70,6 +71,14 @@ export const adminApi = {
     return http.delete<void>(`/admin/products/${id}`)
   },
 
+  listDeletedProducts(page: number, size: number): Promise<PageResponse<Product>> {
+    return http.get<PageResponse<Product>>(`/admin/products/deleted?page=${page}&size=${size}`)
+  },
+
+  restoreProduct(id: number): Promise<Product> {
+    return http.post<Product>(`/admin/products/${id}/restore`)
+  },
+
   initDigitalUpload(payload: {
     fileName: string
     contentType: string
@@ -88,6 +97,14 @@ export const adminApi = {
 
   deleteFile(id: number): Promise<void> {
     return http.delete<void>(`/admin/files/${id}`)
+  },
+
+  listReusableImages(): Promise<ReusableImage[]> {
+    return http.get<ReusableImage[]>('/admin/files/images/reusable')
+  },
+
+  reuseImage(id: number): Promise<ReusableImage> {
+    return http.post<ReusableImage>(`/admin/files/images/${id}/reuse`)
   },
 
   listReusableDigitalFiles(): Promise<ReusableDigitalFile[]> {

@@ -115,6 +115,23 @@ public class ProductService {
         productMapper.softDelete(id);
     }
 
+    public PageResponse<ProductView> findDeletedPage(int page, int size) {
+        long offset = (long) (page - 1) * size;
+        List<ProductView> items = productMapper.findPageDeleted(offset, size)
+                .stream().map(this::toView).toList();
+        return new PageResponse<>(items, productMapper.countDeleted(), page, size);
+    }
+
+    /**
+     * 从回收站恢复，保持 OFF_SHELF，商家确认后再上架。
+     */
+    public ProductView restore(Long id) {
+        if (productMapper.restore(id) == 0) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        return toView(productMapper.findById(id));
+    }
+
     private void apply(Product product, SaveProductRequest request) {
         product.setCategoryId(request.categoryId());
         product.setName(request.name().trim());
@@ -165,6 +182,6 @@ public class ProductService {
         return new ProductView(product.getId(), product.getName(), product.getDescription(),
                 product.getType(), product.getPrice(), product.getCategoryId(), product.getCategoryName(),
                 product.getCoverFileId(), coverUrl, product.getDigitalFileId(),
-                product.getStatus(), product.getCreatedAt());
+                product.getStatus(), product.getDeletedAt(), product.getCreatedAt());
     }
 }

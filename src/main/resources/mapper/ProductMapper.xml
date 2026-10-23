@@ -49,6 +49,27 @@
         WHERE id = #{id} AND deleted_at IS NULL
     </update>
 
+    <!-- 从回收站恢复：保持 OFF_SHELF，需要商家重新上架 -->
+    <update id="restore">
+        UPDATE product
+        SET deleted_at = NULL
+        WHERE id = #{id} AND deleted_at IS NOT NULL
+    </update>
+
+    <select id="findPageDeleted" resultType="com.sundry.catalog.Product">
+        SELECT <include refid="productColumns"/>
+        <include refid="productFrom"/>
+        WHERE p.deleted_at IS NOT NULL
+        ORDER BY p.deleted_at DESC, p.id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countDeleted" resultType="long">
+        SELECT COUNT(*)
+        FROM product
+        WHERE deleted_at IS NOT NULL
+    </select>
+
     <select id="findById" resultType="com.sundry.catalog.Product">
         SELECT <include refid="productColumns"/>
         <include refid="productFrom"/>

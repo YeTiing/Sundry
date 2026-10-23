@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi, type SaveProductPayload } from '@/api/admin'
 import { catalogApi } from '@/api/catalog'
-import type { Category, Product, ProductStatus, ProductType } from '@/api/types'
+import type { Category, Product, ProductStatus, ProductType, ReusableImage } from '@/api/types'
 import DigitalFileUploader from '@/components/DigitalFileUploader.vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -18,6 +18,7 @@ const products = ref<Product[]>([])
 const page = ref(1)
 const total = ref(0)
 const statusFilter = ref<ProductStatus | null>(null)
+const deletedView = ref(false)
 const listLoading = ref(false)
 const listError = ref('')
 const notice = ref('')
@@ -29,6 +30,9 @@ const priceInput = ref('')
 const categoryId = ref<number | null>(null)
 const coverFileId = ref<number | null>(null)
 const coverUrl = ref('')
+const showCoverReusable = ref(false)
+const coverReusableFiles = ref<ReusableImage[]>([])
+const loadingCoverReusable = ref(false)
 const type = ref<ProductType>('PHYSICAL')
 const digitalFileId = ref<number | null>(null)
 const originalDigitalFileId = ref<number | null>(null)
@@ -65,7 +69,9 @@ async function loadProducts(target = page.value): Promise<void> {
   listLoading.value = true
   listError.value = ''
   try {
-    const data = await adminApi.listProducts(statusFilter.value, target, PAGE_SIZE)
+    const data = deletedView.value
+      ? await adminApi.listDeletedProducts(target, PAGE_SIZE)
+      : await adminApi.listProducts(statusFilter.value, target, PAGE_SIZE)
     products.value = data.items
     total.value = data.total
     page.value = data.page
@@ -84,6 +90,8 @@ function resetForm(): void {
   categoryId.value = categories.value[0]?.id ?? null
   coverFileId.value = null
   coverUrl.value = ''
+  showCoverReusable.value = false
+  coverReusableFiles.value = []
   type.value = 'PHYSICAL'
   digitalFileId.value = null
   originalDigitalFileId.value = null
@@ -198,6 +206,40 @@ function clearCover(): void {
   coverUrl.value = ''
 }
 
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+async function toggleCoverReusable(): Promise<void> {
+  if (showCoverReusable.value) {
+    showCoverReusable.value = false
+    return
+  }
+  showCoverReusable.value = true
+  loadingCoverReusable.value = true
+  formError.value = ''
+  try {
+    coverReusableFiles.value = await adminApi.listReusableImages()
+  } catch (err) {
+    formError.value = messageOf(err)
+  } finally {
+    loadingCoverReusable.value = false
+  }
+}
+
+async function selectCoverImage(item: ReusableImage): Promise<void> {
+  try {
+    const reused = await adminApi.reuseImage(item.id)
+    coverFileId.value = reused.id
+    coverUrl.value = reused.url
+    showCoverReusable.value = false
+    formError.value = ''
+  } catch (err) {
+    formError.value = messageOf(err)
+  }
+}
+
 async function deleteProduct(product: Product): Promise<void> {
   if (!window.confirm(`删除商品「${product.name}」？删除后前后台都不再展示，已绑定的文件会保留。`)) {
     return
@@ -209,6 +251,27 @@ async function deleteProduct(product: Product): Promise<void> {
     if (editingId.value === product.id) {
       resetForm()
     }
+    await loadProducts(page.value)
+  } catch (err) {
+    listError.value = messageOf(err)
+  }
+}
+
+async function toggleDeletedView(): Promise<void> {
+  deletedView.value = !deletedView.value
+  notice.value = ''
+  listError.value = ''
+  if (deletedView.value) {
+    resetForm()
+  }
+  await loadProducts(1)
+}
+
+async function restoreProduct(product: Product): Promise<void> {
+  listError.value = ''
+  try {
+    await adminApi.restoreProduct(product.id)
+    notice.value = `${product.name} 已恢复（当前为已下架）`
     await loadProducts(page.value)
   } catch (err) {
     listError.value = messageOf(err)
@@ -261,7 +324,7 @@ onMounted(async () => {
       </header>
 
       <main class="admin-main">
-        <section class="admin-panel">
+        <section v-if="!deletedView" class="admin-panel">
           <div class="panel-head">
             <div>
               <h2>{{ isEditing ? '编辑商品' : '新建商品' }}</h2>
@@ -353,6 +416,9 @@ onMounted(async () => {
                     @change="onCoverChange"
                   />
                 </label>
+                <button class="secondary-button" type="button" @click="toggleCoverReusable">
+                  {{ showCoverReusable ? '收起已上传' : '选择已上传' }}
+                </button>
                 <button
                   v-if="coverUrl"
                   class="secondary-button"
@@ -363,6 +429,24 @@ onMounted(async () => {
                 </button>
                 <span class="panel-note">JPEG / PNG / WebP，≤5MB</span>
               </div>
+            </div>
+
+            <div v-if="showCoverReusable" class="cover-reusable">
+              <p v-if="loadingCoverReusable" class="panel-note">加载中…</p>
+              <p v-else-if="coverReusableFiles.length === 0" class="panel-note">
+                最近没有可复用的图片
+              </p>
+              <button
+                v-for="item in coverReusableFiles"
+                :key="item.id"
+                class="cover-reusable__item"
+                type="button"
+                :title="`${item.originalName} · ${formatSize(item.sizeBytes)}`"
+                @click="selectCoverImage(item)"
+              >
+                <img :src="item.url" :alt="item.originalName" />
+                <span v-if="item.status === 0" class="cover-reusable__tag">已移除</span>
+              </button>
             </div>
 
             <div class="admin-actions">
@@ -380,15 +464,31 @@ onMounted(async () => {
         <section class="admin-panel">
           <div class="panel-head">
             <div>
-              <h2>商品列表</h2>
-              <p class="panel-note">草稿和已下架商品只有管理员能看到。</p>
+              <h2>{{ deletedView ? '回收站' : '商品列表' }}</h2>
+              <p class="panel-note">
+                {{
+                  deletedView
+                    ? '恢复后为已下架状态，需要重新上架才会在商城展示。'
+                    : '草稿和已下架商品只有管理员能看到。'
+                }}
+              </p>
             </div>
-            <select class="filter-select" :value="statusFilter ?? ''" @change="changeFilter">
-              <option value="">全部状态</option>
-              <option value="DRAFT">草稿</option>
-              <option value="ON_SALE">已上架</option>
-              <option value="OFF_SHELF">已下架</option>
-            </select>
+            <div class="panel-head-actions">
+              <select
+                v-if="!deletedView"
+                class="filter-select"
+                :value="statusFilter ?? ''"
+                @change="changeFilter"
+              >
+                <option value="">全部状态</option>
+                <option value="DRAFT">草稿</option>
+                <option value="ON_SALE">已上架</option>
+                <option value="OFF_SHELF">已下架</option>
+              </select>
+              <button class="secondary-button" type="button" @click="toggleDeletedView">
+                {{ deletedView ? '返回商品列表' : '回收站' }}
+              </button>
+            </div>
           </div>
 
           <p v-if="listError" class="form-error">{{ listError }}</p>
@@ -414,30 +514,45 @@ onMounted(async () => {
                 <td>{{ product.categoryName }}</td>
                 <td class="mono">{{ formatPrice(product.price) }}</td>
                 <td>
-                  <span class="status-pill" :data-status="product.status">
+                  <span v-if="deletedView" class="status-pill" data-status="DELETED">
+                    已删除
+                  </span>
+                  <span v-else class="status-pill" :data-status="product.status">
                     {{ statusLabel(product.status) }}
                   </span>
                 </td>
                 <td>
                   <div class="row-actions">
-                    <button class="secondary-button" type="button" @click="startEdit(product)">
-                      编辑
-                    </button>
-                    <button class="secondary-button" type="button" @click="toggleStatus(product)">
-                      {{ product.status === 'ON_SALE' ? '下架' : '上架' }}
-                    </button>
                     <button
-                      class="secondary-button danger-button"
+                      v-if="deletedView"
+                      class="secondary-button"
                       type="button"
-                      @click="deleteProduct(product)"
+                      @click="restoreProduct(product)"
                     >
-                      删除
+                      恢复
                     </button>
+                    <template v-else>
+                      <button class="secondary-button" type="button" @click="startEdit(product)">
+                        编辑
+                      </button>
+                      <button class="secondary-button" type="button" @click="toggleStatus(product)">
+                        {{ product.status === 'ON_SALE' ? '下架' : '上架' }}
+                      </button>
+                      <button
+                        class="secondary-button danger-button"
+                        type="button"
+                        @click="deleteProduct(product)"
+                      >
+                        删除
+                      </button>
+                    </template>
                   </div>
                 </td>
               </tr>
               <tr v-if="!listLoading && products.length === 0">
-                <td colspan="7" class="panel-note">还没有商品</td>
+                <td colspan="7" class="panel-note">
+                  {{ deletedView ? '回收站是空的' : '还没有商品' }}
+                </td>
               </tr>
             </tbody>
           </table>

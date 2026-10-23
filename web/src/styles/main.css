@@ -816,6 +816,12 @@ a:hover {
   margin-bottom: 4px;
 }
 
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .admin-form {
   margin-top: 18px;
 }
@@ -895,6 +901,49 @@ a:hover {
   inset: 0;
   opacity: 0;
   cursor: pointer;
+}
+
+.cover-reusable {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+}
+
+.cover-reusable__item {
+  position: relative;
+  width: 90px;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  background: #f3f1ea;
+  cursor: pointer;
+}
+
+.cover-reusable__item:hover {
+  border-color: var(--ink);
+}
+
+.cover-reusable__item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cover-reusable__tag {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 10px;
+  text-align: center;
 }
 
 .digital-uploader {
@@ -1002,6 +1051,11 @@ a:hover {
 
 .status-pill[data-status='DRAFT'] {
   color: var(--muted);
+}
+
+.status-pill[data-status='DELETED'] {
+  border-color: var(--stamp);
+  color: var(--stamp);
 }
 
 @media (max-width: 720px) {

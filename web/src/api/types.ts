@@ -64,6 +64,7 @@ export interface Product {
   coverUrl: string | null
   digitalFileId: number | null
   status: ProductStatus
+  deletedAt: string | null
   createdAt: string
 }
 
@@ -86,6 +87,15 @@ export interface DigitalFile {
   originalName: string
   sizeBytes: number
   contentType: string
+}
+
+export interface ReusableImage {
+  id: number
+  originalName: string
+  sizeBytes: number
+  status: number
+  deletedAt: string | null
+  url: string
 }
 
 export interface ReusableDigitalFile {

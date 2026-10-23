@@ -295,6 +295,40 @@ class CatalogFlowIntegrationTest {
                                 {"status":"ON_SALE"}
                                 """))
                 .andExpect(status().isNotFound());
+
+        // 回收站里能看到
+        mockMvc.perform(get("/api/admin/products/deleted")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(productId));
+
+        // 恢复后回到后台列表，状态保持 OFF_SHELF
+        mockMvc.perform(post("/api/admin/products/{id}/restore", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("OFF_SHELF"))
+                .andExpect(jsonPath("$.deletedAt").doesNotExist());
+
+        mockMvc.perform(get("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(jsonPath("$.total").value(1));
+        mockMvc.perform(get("/api/admin/products/deleted")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(jsonPath("$.total").value(0));
+        mockMvc.perform(get("/api/products"))
+                .andExpect(jsonPath("$.total").value(0));
+
+        // 恢复后可以重新上架
+        mockMvc.perform(patch("/api/admin/products/{id}/status", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"ON_SALE"}
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/products"))
+                .andExpect(jsonPath("$.total").value(1));
     }
 
     @Test

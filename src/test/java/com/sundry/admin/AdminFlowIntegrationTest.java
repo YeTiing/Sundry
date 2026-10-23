@@ -305,6 +305,48 @@ class AdminFlowIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void adminCanReuseSoftDeletedImage() throws Exception {
+        Session superAdmin = register(SUPER_PHONE);
+        MvcResult uploaded = mockMvc.perform(multipart("/api/admin/files/images")
+                        .file(new MockMultipartFile("file", "cover.png", "image/png", TINY_PNG))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        long fileId = ((Number) JsonPath.read(
+                uploaded.getResponse().getContentAsString(StandardCharsets.UTF_8), "$.id")).longValue();
+
+        mockMvc.perform(delete("/api/admin/files/{id}", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token())))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/admin/files/images/reusable")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(fileId))
+                .andExpect(jsonPath("$[0].status").value(0))
+                .andExpect(jsonPath("$[0].url").isNotEmpty());
+
+        mockMvc.perform(post("/api/admin/files/images/{id}/reuse", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(fileId));
+
+        Integer status = jdbcTemplate.queryForObject(
+                "SELECT status FROM file_object WHERE id = ?", Integer.class, fileId);
+        assertThat(status).isEqualTo(1);
+    }
+
+    @Test
+    void normalUserCannotReuseImages() throws Exception {
+        Session user = register(USER_PHONE);
+
+        mockMvc.perform(get("/api/admin/files/images/reusable")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isForbidden());
+    }
+
     private Session register(String phone) throws Exception {
         redis.delete("auth:sms:cooldown:" + phone);
         mockMvc.perform(post("/api/auth/sms-code")

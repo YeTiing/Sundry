@@ -38,7 +38,19 @@
         WHERE id = #{id}
     </update>
 
-    <!-- 后台“选择已上传文件”：有效文件 + 宽限期内软删除的文件 -->
+    <!-- 封面图复用：只列当前上传人的图片，有效 + 1 天内软删除 -->
+    <select id="findReusableImagesForUploader" resultType="com.sundry.file.FileObject">
+        SELECT id, bucket, object_key, original_name, content_type,
+               size_bytes, etag, kind, uploader_id, status, deleted_at, created_at
+        FROM file_object
+        WHERE uploader_id = #{uploaderId}
+          AND kind = 'IMAGE'
+          AND (status = 1 OR (status = 0 AND deleted_at IS NOT NULL AND deleted_at &gt;= #{softCutoff}))
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 后台“选择已上传文件”：只列当前上传人的有效文件 + 宽限期内软删除文件 -->
     <select id="findReusableForUploader" resultType="com.sundry.file.FileObject">
         SELECT id, bucket, object_key, original_name, content_type,
                size_bytes, etag, kind, uploader_id, status, deleted_at, created_at

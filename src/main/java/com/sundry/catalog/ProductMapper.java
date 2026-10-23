@@ -19,6 +19,13 @@ public interface ProductMapper {
 
     int softDelete(@Param("id") Long id);
 
+    int restore(@Param("id") Long id);
+
+    List<Product> findPageDeleted(@Param("offset") long offset,
+                                  @Param("size") int size);
+
+    long countDeleted();
+
     Product findById(@Param("id") Long id);
 
     Product findPublicById(@Param("id") Long id);
