@@ -3,6 +3,7 @@ package com.sundry.file;
 import com.sundry.catalog.ProductMapper;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
+import com.sundry.order.OrderItemMapper;
 import com.sundry.storage.StorageProperties;
 import com.sundry.user.Role;
 import org.springframework.stereotype.Service;
@@ -16,12 +17,14 @@ public class FileDeletionService {
 
     private final FileObjectMapper fileObjectMapper;
     private final ProductMapper productMapper;
+    private final OrderItemMapper orderItemMapper;
     private final StorageProperties properties;
 
     public FileDeletionService(FileObjectMapper fileObjectMapper, ProductMapper productMapper,
-                               StorageProperties properties) {
+                               OrderItemMapper orderItemMapper, StorageProperties properties) {
         this.fileObjectMapper = fileObjectMapper;
         this.productMapper = productMapper;
+        this.orderItemMapper = orderItemMapper;
         this.properties = properties;
     }
 
@@ -33,7 +36,8 @@ public class FileDeletionService {
         if (!file.getUploaderId().equals(operatorId) && operatorRole != Role.SUPER_ADMIN) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        if (productMapper.countByFileId(fileId) > 0) {
+        if (productMapper.countByFileId(fileId) > 0
+                || orderItemMapper.countByDigitalFileId(fileId) > 0) {
             throw new BusinessException(ErrorCode.FILE_IN_USE);
         }
         fileObjectMapper.softDelete(fileId);

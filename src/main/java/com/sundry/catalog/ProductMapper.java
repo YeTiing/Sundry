@@ -47,4 +47,8 @@ public interface ProductMapper {
     long countByDigitalFileId(@Param("fileId") Long fileId);
 
     long countByFileId(@Param("fileId") Long fileId);
+
+    int deductStock(@Param("id") Long id, @Param("quantity") int quantity);
+
+    int restoreStock(@Param("id") Long id, @Param("quantity") int quantity);
 }

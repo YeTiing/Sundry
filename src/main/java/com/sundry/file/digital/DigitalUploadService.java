@@ -44,16 +44,19 @@ public class DigitalUploadService {
     private final StorageProperties properties;
     private final FileObjectMapper fileObjectMapper;
     private final ProductMapper productMapper;
+    private final com.sundry.order.OrderItemMapper orderItemMapper;
     private final CleanupProperties cleanupProperties;
     private final StringRedisTemplate redis;
 
     public DigitalUploadService(DigitalUploadGateway gateway, StorageProperties properties,
                                 FileObjectMapper fileObjectMapper, ProductMapper productMapper,
+                                com.sundry.order.OrderItemMapper orderItemMapper,
                                 CleanupProperties cleanupProperties, StringRedisTemplate redis) {
         this.gateway = gateway;
         this.properties = properties;
         this.fileObjectMapper = fileObjectMapper;
         this.productMapper = productMapper;
+        this.orderItemMapper = orderItemMapper;
         this.cleanupProperties = cleanupProperties;
         this.redis = redis;
     }
@@ -254,7 +257,8 @@ public class DigitalUploadService {
         if (!file.getUploaderId().equals(operatorId) && operatorRole != Role.SUPER_ADMIN) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        if (productMapper.countByFileId(fileId) > 0) {
+        if (productMapper.countByFileId(fileId) > 0
+                || orderItemMapper.countByDigitalFileId(fileId) > 0) {
             throw new BusinessException(ErrorCode.FILE_IN_USE);
         }
         fileObjectMapper.softDelete(fileId);

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.order.OrderItemMapper">
+
+    <insert id="insertBatch">
+        INSERT INTO order_item (order_id, product_id, product_name, product_type,
+                                price, quantity, cover_url, digital_file_id)
+        VALUES
+        <foreach collection="items" item="item" separator=",">
+            (#{item.orderId}, #{item.productId}, #{item.productName}, #{item.productType},
+             #{item.price}, #{item.quantity}, #{item.coverUrl}, #{item.digitalFileId})
+        </foreach>
+    </insert>
+
+    <select id="findByOrderId" resultType="com.sundry.order.OrderItem">
+        SELECT id, order_id, product_id, product_name, product_type,
+               price, quantity, cover_url, digital_file_id
+        FROM order_item
+        WHERE order_id = #{orderId}
+        ORDER BY id
+    </select>
+
+    <select id="findByIdAndOrder" resultType="com.sundry.order.OrderItem">
+        SELECT id, order_id, product_id, product_name, product_type,
+               price, quantity, cover_url, digital_file_id
+        FROM order_item
+        WHERE id = #{id} AND order_id = #{orderId}
+    </select>
+
+    <select id="countByDigitalFileId" resultType="long">
+        SELECT COUNT(*) FROM order_item WHERE digital_file_id = #{fileId}
+    </select>
+
+</mapper>

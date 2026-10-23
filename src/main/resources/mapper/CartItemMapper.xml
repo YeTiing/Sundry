@@ -6,7 +6,7 @@
     <sql id="cartColumns">
         c.id, c.user_id, c.product_id, c.quantity, c.created_at, c.updated_at,
         p.name AS product_name, p.type AS product_type, p.price, p.stock,
-        p.status AS product_status, p.deleted_at AS product_deleted_at,
+        p.digital_file_id, p.status AS product_status, p.deleted_at AS product_deleted_at,
         f.bucket AS cover_bucket, f.object_key AS cover_object_key
     </sql>
 

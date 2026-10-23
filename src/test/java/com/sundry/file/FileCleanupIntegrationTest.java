@@ -67,6 +67,8 @@ class FileCleanupIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM order_item");
+        jdbcTemplate.update("DELETE FROM orders");
         jdbcTemplate.update("DELETE FROM product");
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");
@@ -122,6 +124,32 @@ class FileCleanupIntegrationTest {
         Uploaded uploaded = uploadDigital(token, 1024);
         bindProduct(token, uploaded.id());
         ageCreatedAt(uploaded.id(), 8);
+
+        cleanupJob.run();
+
+        assertThat(fileExists(uploaded.id())).isTrue();
+        assertThat(gateway.exists(uploaded.key())).isTrue();
+    }
+
+    @Test
+    void digitalFileReferencedByOrderIsKept() throws Exception {
+        String token = register(SUPER_PHONE);
+        Long userId = jdbcTemplate.queryForObject(
+                "SELECT id FROM app_user WHERE phone = ?", Long.class, SUPER_PHONE);
+        Uploaded uploaded = uploadDigital(token, 1024);
+        ageCreatedAt(uploaded.id(), 8);
+
+        jdbcTemplate.update("""
+                INSERT INTO orders (order_no, user_id, status, total_amount, has_physical)
+                VALUES ('TEST-ORDER-1', ?, 'PAID', 0.00, 0)
+                """, userId);
+        Long orderId = jdbcTemplate.queryForObject(
+                "SELECT id FROM orders WHERE order_no = 'TEST-ORDER-1'", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO order_item (order_id, product_id, product_name, product_type,
+                                        price, quantity, digital_file_id)
+                VALUES (?, 0, '数字商品', 'DIGITAL', 0.00, 1, ?)
+                """, orderId, uploaded.id());
 
         cleanupJob.run();
 

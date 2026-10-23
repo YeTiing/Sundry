@@ -76,18 +76,24 @@
         LIMIT 1
     </select>
 
-    <!-- 软删除过期文件 + 没有商品引用的孤儿文件；订单上线后要再加订单引用判断 -->
+    <!-- 软删除过期文件 + 没有商品/订单引用的孤儿文件 -->
     <select id="findCleanupCandidates" resultType="com.sundry.file.FileObject">
         SELECT f.id, f.bucket, f.object_key, f.original_name, f.content_type,
                f.size_bytes, f.etag, f.kind, f.uploader_id, f.status, f.deleted_at, f.created_at
         FROM file_object f
         WHERE f.kind = #{kind}
           AND (
-            (f.status = 0 AND f.deleted_at IS NOT NULL AND f.deleted_at &lt; #{cutoff})
+            (f.status = 0 AND f.deleted_at IS NOT NULL AND f.deleted_at &lt; #{cutoff}
+                AND NOT EXISTS (
+                    SELECT 1 FROM order_item oi WHERE oi.digital_file_id = f.id
+                ))
             OR (f.status = 1 AND f.created_at &lt; #{cutoff}
                 AND NOT EXISTS (
                     SELECT 1 FROM product p
                     WHERE p.cover_file_id = f.id OR p.digital_file_id = f.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM order_item oi WHERE oi.digital_file_id = f.id
                 ))
           )
         ORDER BY f.id

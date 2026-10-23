@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.order.OrderMapper">
+
+    <sql id="orderColumns">
+        id, order_no, request_id, user_id, status, total_amount, has_physical,
+        receiver_name, receiver_phone, receiver_address, tracking_no,
+        created_at, paid_at, packed_at, shipped_at, completed_at, cancelled_at
+    </sql>
+
+    <insert id="insert" parameterType="com.sundry.order.Order"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO orders (order_no, request_id, user_id, status, total_amount, has_physical,
+                            receiver_name, receiver_phone, receiver_address)
+        VALUES (#{orderNo}, #{requestId}, #{userId}, #{status}, #{totalAmount}, #{hasPhysical},
+                #{receiverName}, #{receiverPhone}, #{receiverAddress})
+    </insert>
+
+    <select id="findByUserAndRequestId" resultType="com.sundry.order.Order">
+        SELECT <include refid="orderColumns"/>
+        FROM orders
+        WHERE user_id = #{userId} AND request_id = #{requestId}
+    </select>
+
+    <select id="findByOrderNoAndUser" resultType="com.sundry.order.Order">
+        SELECT <include refid="orderColumns"/>
+        FROM orders
+        WHERE order_no = #{orderNo} AND user_id = #{userId}
+    </select>
+
+    <select id="findByOrderNo" resultType="com.sundry.order.Order">
+        SELECT <include refid="orderColumns"/>
+        FROM orders
+        WHERE order_no = #{orderNo}
+    </select>
+
+    <select id="findPageByUser" resultType="com.sundry.order.Order">
+        SELECT <include refid="orderColumns"/>
+        FROM orders
+        WHERE user_id = #{userId}
+        ORDER BY id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countByUser" resultType="long">
+        SELECT COUNT(*) FROM orders WHERE user_id = #{userId}
+    </select>
+
+    <select id="findPageAdmin" resultType="com.sundry.order.Order">
+        SELECT <include refid="orderColumns"/>
+        FROM orders
+        <where>
+            <if test="status != null">
+                status = #{status}
+            </if>
+        </where>
+        ORDER BY id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM orders
+        <where>
+            <if test="status != null">
+                status = #{status}
+            </if>
+        </where>
+    </select>
+
+    <select id="findTimeoutCandidates" resultType="com.sundry.order.Order">
+        SELECT <include refid="orderColumns"/>
+        FROM orders
+        WHERE status = 'PENDING_PAYMENT' AND created_at &lt; #{cutoff}
+        ORDER BY id
+        LIMIT #{limit}
+    </select>
+
+    <update id="markPaid">
+        UPDATE orders
+        SET status = 'PAID', paid_at = NOW(3)
+        WHERE order_no = #{orderNo} AND user_id = #{userId} AND status = 'PENDING_PAYMENT'
+    </update>
+
+    <update id="cancel">
+        UPDATE orders
+        SET status = 'CANCELLED', cancelled_at = NOW(3)
+        WHERE order_no = #{orderNo} AND user_id = #{userId} AND status = 'PENDING_PAYMENT'
+    </update>
+
+    <update id="confirm">
+        UPDATE orders
+        SET status = 'COMPLETED', completed_at = NOW(3)
+        WHERE order_no = #{orderNo} AND user_id = #{userId}
+          AND (status = 'SHIPPED' OR (status = 'PAID' AND has_physical = 0))
+    </update>
+
+    <update id="pack">
+        UPDATE orders
+        SET status = 'PACKING', packed_at = NOW(3)
+        WHERE order_no = #{orderNo} AND status = 'PAID' AND has_physical = 1
+    </update>
+
+    <update id="ship">
+        UPDATE orders
+        SET status = 'SHIPPED', shipped_at = NOW(3), tracking_no = #{trackingNo}
+        WHERE order_no = #{orderNo} AND status = 'PACKING'
+    </update>
+
+    <update id="cancelById">
+        UPDATE orders
+        SET status = 'CANCELLED', cancelled_at = NOW(3)
+        WHERE id = #{id} AND status = 'PENDING_PAYMENT'
+    </update>
+
+</mapper>

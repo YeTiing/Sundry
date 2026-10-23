@@ -80,6 +80,11 @@ public class FakeDigitalUploadGateway implements DigitalUploadGateway {
     }
 
     @Override
+    public String presignGet(String key, Duration ttl) {
+        return "http://test-minio/download/" + key + "?ttl=" + ttl.toSeconds();
+    }
+
+    @Override
     public void deleteObject(String key) {
         objectSizes.remove(key);
     }

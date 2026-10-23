@@ -53,6 +53,8 @@ class CartAddressIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM order_item");
+        jdbcTemplate.update("DELETE FROM orders");
         jdbcTemplate.update("DELETE FROM cart_item");
         jdbcTemplate.update("DELETE FROM user_address");
         jdbcTemplate.update("DELETE FROM product");

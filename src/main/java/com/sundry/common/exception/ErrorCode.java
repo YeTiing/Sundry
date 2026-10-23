@@ -34,6 +34,13 @@ public enum ErrorCode {
     CART_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "购物车条目不存在"),
     ADDRESS_NOT_FOUND(HttpStatus.NOT_FOUND, "收货地址不存在"),
     ADDRESS_LIMIT_REACHED(HttpStatus.BAD_REQUEST, "最多保存 20 个收货地址"),
+    CART_EMPTY(HttpStatus.BAD_REQUEST, "请选择要购买的商品"),
+    ADDRESS_REQUIRED(HttpStatus.BAD_REQUEST, "实物商品必须选择收货地址"),
+    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "订单不存在"),
+    INVALID_ORDER_STATUS(HttpStatus.CONFLICT, "当前订单状态不允许此操作"),
+    TRACKING_REQUIRED(HttpStatus.BAD_REQUEST, "发货必须填写快递单号"),
+    ORDER_NOT_PAID(HttpStatus.FORBIDDEN, "订单未支付，不能下载"),
+    DIGITAL_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "数字商品文件不存在"),
     CATEGORY_NOT_FOUND(HttpStatus.BAD_REQUEST, "分类不存在或已停用"),
     COVER_NOT_FOUND(HttpStatus.BAD_REQUEST, "封面图片不存在"),
     DIGITAL_FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "数字文件不能超过 2GB"),
@@ -42,7 +49,7 @@ public enum ErrorCode {
     DIGITAL_FILE_REQUIRED(HttpStatus.BAD_REQUEST, "数字商品必须绑定文件"),
     DIGITAL_FILE_INVALID(HttpStatus.BAD_REQUEST, "数字文件不存在或类型不正确"),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "文件不存在"),
-    FILE_IN_USE(HttpStatus.CONFLICT, "文件已被商品使用，先解除绑定"),
+    FILE_IN_USE(HttpStatus.CONFLICT, "文件已被商品或订单使用，不能删除"),
     FILE_DELETE_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "文件删除失败，请稍后重试"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "服务器内部错误");
 

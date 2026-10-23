@@ -22,6 +22,7 @@ public class CartItem {
     private ProductType productType;
     private BigDecimal price;
     private Integer stock;
+    private Long digitalFileId;
     private ProductStatus productStatus;
     private LocalDateTime productDeletedAt;
     private String coverBucket;
@@ -105,6 +106,14 @@ public class CartItem {
 
     public void setStock(Integer stock) {
         this.stock = stock;
+    }
+
+    public Long getDigitalFileId() {
+        return digitalFileId;
+    }
+
+    public void setDigitalFileId(Long digitalFileId) {
+        this.digitalFileId = digitalFileId;
     }
 
     public ProductStatus getProductStatus() {

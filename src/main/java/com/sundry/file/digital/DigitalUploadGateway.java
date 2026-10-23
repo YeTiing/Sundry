@@ -20,5 +20,7 @@ public interface DigitalUploadGateway {
 
     StoredObject stat(String key);
 
+    String presignGet(String key, Duration ttl);
+
     void deleteObject(String key);
 }

@@ -7,10 +7,12 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListPartsResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedUploadPartRequest;
 
 import java.time.Duration;
@@ -113,6 +115,19 @@ public class S3DigitalUploadGateway implements DigitalUploadGateway {
                 .bucket(properties.getPrivateBucket())
                 .key(key));
         return new StoredObject(response.contentLength(), response.eTag());
+    }
+
+    @Override
+    public String presignGet(String key, Duration ttl) {
+        GetObjectRequest request = GetObjectRequest.builder()
+                .bucket(properties.getPrivateBucket())
+                .key(key)
+                // 直接触发下载，不在浏览器里内联打开
+                .responseContentDisposition("attachment")
+                .build();
+        PresignedGetObjectRequest presigned = presigner.presignGetObject(builder ->
+                builder.signatureDuration(ttl).getObjectRequest(request));
+        return presigned.url().toString();
     }
 
     @Override

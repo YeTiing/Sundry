@@ -153,4 +153,21 @@
         WHERE cover_file_id = #{fileId} OR digital_file_id = #{fileId}
     </select>
 
+    <!-- 条件扣库存：任何一行不满足都返回 0，交给事务回滚 -->
+    <update id="deductStock">
+        UPDATE product
+        SET stock = stock - #{quantity}
+        WHERE id = #{id}
+          AND type = 'PHYSICAL'
+          AND status = 'ON_SALE'
+          AND deleted_at IS NULL
+          AND stock &gt;= #{quantity}
+    </update>
+
+    <update id="restoreStock">
+        UPDATE product
+        SET stock = stock + #{quantity}
+        WHERE id = #{id} AND type = 'PHYSICAL'
+    </update>
+
 </mapper>
