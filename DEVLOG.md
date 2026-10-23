@@ -511,9 +511,41 @@
   - key 超过 64 字符 → 400 `VALIDATION_FAILED`
 - 前端 `npm run build` 通过
 
+**方案取舍：为什么不用 `INSERT ... ON DUPLICATE KEY UPDATE`**
+
+曾考虑用一条 SQL 同时完成「插入或取回已有 id」：
+
+```sql
+INSERT INTO product (...)
+VALUES (...)
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+```
+
+最终没有采用，保持「预查 + 插入 + 撞唯一键再查」。
+
+| 维度 | 当前方案（预查 + 唯一索引兜底） | ON DUPLICATE KEY UPDATE |
+|---|---|---|
+| 首次创建 | 1 次索引预查 + INSERT + 回查 | INSERT + 回查，少 1 次读 |
+| 重复重试 | 1 次索引预查直接返回，不校验、不写 | 先跑分类/封面/文件校验，再 upsert，再回查 |
+| 多唯一键 | 可按 request_id 精确判断 | 对所有唯一键生效；将来 product_code 冲突会被误当成幂等命中 |
+| 主键回填 | `useGeneratedKeys` 标准路径，稳定 | 依赖 `LAST_INSERT_ID(id)` 和驱动行为，需要专门验证 |
+| 返回完整商品 | 已有 row，直接映射 | 仍需按 id 回查一次 |
+| 写语义 | 重试只读 | 重试也执行一次「空更新」，走 UPDATE 路径 |
+| 锁 / 触发器 / binlog | 重试不写，干净 | 可能多持锁、触发 UPDATE 触发器、binlog 记 UPDATE |
+| 可移植性 | 标准 SQL + 唯一索引 | MySQL 方言 |
+| 代码复杂度 | 低，路径清晰 | 表面简单，隐式语义多 |
+
+结论：
+
+- 商品创建是管理员低频操作，少一次索引读的收益可以忽略
+- 幂等重试应该是只读的；`ON DUPLICATE` 会把重试变成写操作
+- 现在只有一个唯一键，但后续可能加 `product_code`；`ON DUPLICATE` 无法区分是哪个键冲突，风险大于收益
+- 保持当前方案：预查走唯一索引，并发由数据库唯一键兜底
+
 **提交**
 
 - `db32898` feat: 商品创建幂等
+- `839f765` fix: 创建商品增加并发进入保护
 
 ---
 
