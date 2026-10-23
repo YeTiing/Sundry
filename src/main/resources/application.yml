@@ -41,6 +41,13 @@ management:
 app:
   security:
     super-admin-phone: ${SUPER_ADMIN_PHONE:}
+  cleanup:
+    enabled: true
+    cron: "0 0 3 * * *"
+    digital-grace: 7d
+    image-grace: 1d
+    batch-size: 100
+    max-batches-per-run: 10
   storage:
     endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
     access-key: ${MINIO_ACCESS_KEY:}

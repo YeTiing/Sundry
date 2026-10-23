@@ -18,7 +18,7 @@ public interface DigitalUploadGateway {
 
     void abortMultipart(String key, String uploadId);
 
-    long objectSize(String key);
+    StoredObject stat(String key);
 
     void deleteObject(String key);
 }

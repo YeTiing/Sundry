@@ -33,6 +33,8 @@ public class DigitalUploadService {
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter DATE_PATH = DateTimeFormatter.ofPattern("yyyy/MM");
     private static final String STATE_KEY = "upload:digital:%s";
+    private static final String DONE_KEY = "upload:digital:done:%s";
+    private static final Duration DONE_TTL = Duration.ofHours(1);
     private static final String OCTET_STREAM = "application/octet-stream";
     private static final int MAX_PARTS = 10_000;
 
@@ -88,6 +90,12 @@ public class DigitalUploadService {
     }
 
     public DigitalFileView complete(Long uploaderId, CompleteDigitalUploadRequest request) {
+        // 网络超时后客户端重试：直接返回上次成功的结果
+        DigitalFileView cached = loadDone(request.uploadId(), request.key());
+        if (cached != null) {
+            return cached;
+        }
+
         UploadState state = loadState(request.uploadId());
         if (state == null || !state.uploaderId().equals(uploaderId) || !state.key().equals(request.key())) {
             throw new BusinessException(ErrorCode.UPLOAD_SESSION_NOT_FOUND);
@@ -115,9 +123,9 @@ public class DigitalUploadService {
             throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
         }
 
-        long actualSize;
+        StoredObject stored;
         try {
-            actualSize = gateway.objectSize(request.key());
+            stored = gateway.stat(request.key());
         } catch (RuntimeException ex) {
             log.error("failed to stat uploaded object, key={}", request.key(), ex);
             deleteQuietly(request.key());
@@ -125,6 +133,7 @@ public class DigitalUploadService {
             throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
         }
 
+        long actualSize = stored.size();
         if (actualSize <= 0 || actualSize > properties.getMaxDigitalBytes()) {
             deleteQuietly(request.key());
             redis.delete(stateKey(request.uploadId()));
@@ -136,6 +145,20 @@ public class DigitalUploadService {
             throw new BusinessException(ErrorCode.UPLOAD_PART_INVALID);
         }
 
+        // 同一上传人、同大小、同 ETag：删掉新对象，复用旧记录；软删除记录顺便恢复
+        FileObject reusable = fileObjectMapper.findReusable(
+                uploaderId, FileKind.DIGITAL, actualSize, stored.etag());
+        if (reusable != null) {
+            deleteQuietly(request.key());
+            if (reusable.getStatus() != null && reusable.getStatus() == 0) {
+                fileObjectMapper.restore(reusable.getId());
+            }
+            redis.delete(stateKey(request.uploadId()));
+            cacheDone(request.uploadId(), request.key(), reusable.getId());
+            return new DigitalFileView(reusable.getId(), reusable.getObjectKey(),
+                    reusable.getOriginalName(), reusable.getSizeBytes(), reusable.getContentType());
+        }
+
         try {
             FileObject record = new FileObject();
             record.setBucket(properties.getPrivateBucket());
@@ -143,11 +166,13 @@ public class DigitalUploadService {
             record.setOriginalName(state.originalName());
             record.setContentType(state.contentType());
             record.setSizeBytes(actualSize);
+            record.setEtag(stored.etag());
             record.setKind(FileKind.DIGITAL);
             record.setUploaderId(uploaderId);
             record.setStatus(1);
             fileObjectMapper.insert(record);
             redis.delete(stateKey(request.uploadId()));
+            cacheDone(request.uploadId(), request.key(), record.getId());
             return new DigitalFileView(record.getId(), request.key(), state.originalName(),
                     actualSize, state.contentType());
         } catch (RuntimeException ex) {
@@ -159,7 +184,7 @@ public class DigitalUploadService {
     }
 
     /**
-     * 删除已上传但未使用的数字文件：先确认没有任何商品引用，再删对象和数据库记录。
+     * 软删除：保留对象和记录，7 天内重复上传可复用，到期由清理任务硬删除。
      */
     public void delete(Long operatorId, Role operatorRole, Long fileId) {
         FileObject file = fileObjectMapper.findById(fileId);
@@ -174,13 +199,7 @@ public class DigitalUploadService {
         if (productMapper.countByDigitalFileId(fileId) > 0) {
             throw new BusinessException(ErrorCode.FILE_IN_USE);
         }
-        try {
-            gateway.deleteObject(file.getObjectKey());
-        } catch (RuntimeException ex) {
-            log.error("failed to delete digital object, key={}", file.getObjectKey(), ex);
-            throw new BusinessException(ErrorCode.FILE_DELETE_FAILED);
-        }
-        fileObjectMapper.deleteById(fileId);
+        fileObjectMapper.softDelete(fileId);
     }
 
     public void abort(Long uploaderId, AbortDigitalUploadRequest request) {
@@ -190,6 +209,31 @@ public class DigitalUploadService {
         }
         abortQuietly(request.key(), request.uploadId());
         redis.delete(stateKey(request.uploadId()));
+    }
+
+    private DigitalFileView loadDone(String uploadId, String key) {
+        String value = redis.opsForValue().get(DONE_KEY.formatted(uploadId));
+        if (value == null) {
+            return null;
+        }
+        String[] fields = value.split("\\|", 2);
+        if (fields.length != 2 || !fields[0].equals(key)) {
+            return null;
+        }
+        try {
+            FileObject file = fileObjectMapper.findById(Long.valueOf(fields[1]));
+            if (file == null || file.getStatus() == null || file.getStatus() != 1) {
+                return null;
+            }
+            return new DigitalFileView(file.getId(), file.getObjectKey(), file.getOriginalName(),
+                    file.getSizeBytes(), file.getContentType());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private void cacheDone(String uploadId, String key, Long fileId) {
+        redis.opsForValue().set(DONE_KEY.formatted(uploadId), key + "|" + fileId, DONE_TTL);
     }
 
     private void saveState(String uploadId, UploadState state) {

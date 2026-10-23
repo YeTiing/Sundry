@@ -1,6 +1,7 @@
 package com.sundry.file;
 
 import com.sundry.file.digital.DigitalUploadGateway;
+import com.sundry.file.digital.StoredObject;
 import com.sundry.file.digital.UploadedPart;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
@@ -73,8 +74,9 @@ public class FakeDigitalUploadGateway implements DigitalUploadGateway {
     }
 
     @Override
-    public long objectSize(String key) {
-        return objectSizes.getOrDefault(key, 0L);
+    public StoredObject stat(String key) {
+        long size = objectSizes.getOrDefault(key, 0L);
+        return new StoredObject(size, "\"fake-etag-" + size + "\"");
     }
 
     @Override

@@ -6,16 +6,61 @@
     <insert id="insert" parameterType="com.sundry.file.FileObject"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO file_object (bucket, object_key, original_name, content_type,
-                                 size_bytes, kind, uploader_id, status)
+                                 size_bytes, etag, kind, uploader_id, status)
         VALUES (#{bucket}, #{objectKey}, #{originalName}, #{contentType},
-                #{sizeBytes}, #{kind}, #{uploaderId}, #{status})
+                #{sizeBytes}, #{etag}, #{kind}, #{uploaderId}, #{status})
     </insert>
 
     <select id="findById" resultType="com.sundry.file.FileObject">
         SELECT id, bucket, object_key, original_name, content_type,
-               size_bytes, kind, uploader_id, status, created_at
+               size_bytes, etag, kind, uploader_id, status, deleted_at, created_at
         FROM file_object
         WHERE id = #{id}
+    </select>
+
+    <!-- 软删除：保留对象 7 天，期间重复上传可复用 -->
+    <update id="softDelete">
+        UPDATE file_object
+        SET status = 0, deleted_at = NOW(3)
+        WHERE id = #{id} AND status = 1
+    </update>
+
+    <update id="restore">
+        UPDATE file_object
+        SET status = 1, deleted_at = NULL
+        WHERE id = #{id} AND status = 0
+    </update>
+
+    <!-- 同一上传人、同类型、同大小、同 ETag 视为同一份内容 -->
+    <select id="findReusable" resultType="com.sundry.file.FileObject">
+        SELECT id, bucket, object_key, original_name, content_type,
+               size_bytes, etag, kind, uploader_id, status, deleted_at, created_at
+        FROM file_object
+        WHERE uploader_id = #{uploaderId}
+          AND kind = #{kind}
+          AND size_bytes = #{sizeBytes}
+          AND etag = #{etag}
+          AND status IN (0, 1)
+        ORDER BY status DESC, id ASC
+        LIMIT 1
+    </select>
+
+    <!-- 软删除过期文件 + 没有商品引用的孤儿文件；订单上线后要再加订单引用判断 -->
+    <select id="findCleanupCandidates" resultType="com.sundry.file.FileObject">
+        SELECT f.id, f.bucket, f.object_key, f.original_name, f.content_type,
+               f.size_bytes, f.etag, f.kind, f.uploader_id, f.status, f.deleted_at, f.created_at
+        FROM file_object f
+        WHERE f.kind = #{kind}
+          AND (
+            (f.status = 0 AND f.deleted_at IS NOT NULL AND f.deleted_at &lt; #{cutoff})
+            OR (f.status = 1 AND f.created_at &lt; #{cutoff}
+                AND NOT EXISTS (
+                    SELECT 1 FROM product p
+                    WHERE p.cover_file_id = f.id OR p.digital_file_id = f.id
+                ))
+          )
+        ORDER BY f.id
+        LIMIT #{limit}
     </select>
 
     <delete id="deleteById">

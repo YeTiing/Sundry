@@ -231,7 +231,7 @@ class DigitalUploadIntegrationTest {
     }
 
     @Test
-    void adminCanDeleteUnusedDigitalFile() throws Exception {
+    void adminSoftDeletesUnusedDigitalFile() throws Exception {
         String token = register(SUPER_PHONE);
         String[] init = initUpload(token, 1024);
         MvcResult completed = completeUpload(token, init[0], init[1]);
@@ -243,10 +243,57 @@ class DigitalUploadIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(token)))
                 .andExpect(status().isNoContent());
 
-        assertThat(gateway.exists(key)).isFalse();
-        Long remaining = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM file_object WHERE id = ?", Long.class, fileId);
-        assertThat(remaining).isZero();
+        // 软删除：对象和记录都保留，7 天内可复用
+        assertThat(gateway.exists(key)).isTrue();
+        Long softDeleted = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM file_object WHERE id = ? AND status = 0 AND deleted_at IS NOT NULL",
+                Long.class, fileId);
+        assertThat(softDeleted).isEqualTo(1);
+    }
+
+    @Test
+    void completeIsIdempotent() throws Exception {
+        String token = register(SUPER_PHONE);
+        String[] init = initUpload(token, 1024);
+
+        long firstId = ((Number) JsonPath.read(body(completeUpload(token, init[0], init[1])), "$.id")).longValue();
+        long secondId = ((Number) JsonPath.read(body(completeUpload(token, init[0], init[1])), "$.id")).longValue();
+
+        assertThat(secondId).isEqualTo(firstId);
+        Long rows = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM file_object", Long.class);
+        assertThat(rows).isEqualTo(1);
+    }
+
+    @Test
+    void softDeletedFileIsRestoredWhenUploadedAgain() throws Exception {
+        String token = register(SUPER_PHONE);
+        String[] first = initUpload(token, 1024);
+        MvcResult firstComplete = completeUpload(token, first[0], first[1]);
+        String firstBody = body(firstComplete);
+        long firstId = ((Number) JsonPath.read(firstBody, "$.id")).longValue();
+        String firstKey = JsonPath.read(firstBody, "$.key");
+
+        mockMvc.perform(delete("/api/admin/uploads/digital/{id}", firstId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isNoContent());
+
+        String[] second = initUpload(token, 1024);
+        MvcResult secondComplete = completeUpload(token, second[0], second[1]);
+        String secondBody = body(secondComplete);
+        long secondId = ((Number) JsonPath.read(secondBody, "$.id")).longValue();
+        String secondKey = JsonPath.read(secondBody, "$.key");
+
+        // 同大小同 ETag：复用旧记录并恢复，新对象被删掉
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(secondKey).isEqualTo(firstKey);       // 响应返回的是被复用的旧 key
+        assertThat(gateway.exists(firstKey)).isTrue();
+        assertThat(gateway.exists(second[1])).isFalse();  // 第二次上传的新对象已删除
+
+        Long rows = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM file_object", Long.class);
+        assertThat(rows).isEqualTo(1);
+        Integer status = jdbcTemplate.queryForObject(
+                "SELECT status FROM file_object WHERE id = ?", Integer.class, firstId);
+        assertThat(status).isEqualTo(1);
     }
 
     @Test

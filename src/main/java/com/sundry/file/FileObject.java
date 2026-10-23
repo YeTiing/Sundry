@@ -13,9 +13,11 @@ public class FileObject {
     private String originalName;
     private String contentType;
     private Long sizeBytes;
+    private String etag;
     private FileKind kind;
     private Long uploaderId;
-    private Integer status;
+    private Integer status;          // 1=正常 0=已软删除
+    private LocalDateTime deletedAt;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -66,6 +68,14 @@ public class FileObject {
         this.sizeBytes = sizeBytes;
     }
 
+    public String getEtag() {
+        return etag;
+    }
+
+    public void setEtag(String etag) {
+        this.etag = etag;
+    }
+
     public FileKind getKind() {
         return kind;
     }
@@ -88,6 +98,14 @@ public class FileObject {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public LocalDateTime getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(LocalDateTime deletedAt) {
+        this.deletedAt = deletedAt;
     }
 
     public LocalDateTime getCreatedAt() {

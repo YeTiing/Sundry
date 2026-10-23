@@ -7,6 +7,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListPartsResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -107,10 +108,11 @@ public class S3DigitalUploadGateway implements DigitalUploadGateway {
     }
 
     @Override
-    public long objectSize(String key) {
-        return s3Client.headObject(builder -> builder
+    public StoredObject stat(String key) {
+        HeadObjectResponse response = s3Client.headObject(builder -> builder
                 .bucket(properties.getPrivateBucket())
-                .key(key)).contentLength();
+                .key(key));
+        return new StoredObject(response.contentLength(), response.eTag());
     }
 
     @Override
