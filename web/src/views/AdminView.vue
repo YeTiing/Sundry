@@ -22,6 +22,7 @@ const uploading = ref(false)
 const uploadError = ref('')
 const result = ref<FileView | null>(null)
 const copied = ref(false)
+const deleting = ref(false)
 
 const users = ref<AdminUserRow[]>([])
 const page = ref(1)
@@ -99,6 +100,28 @@ async function copyUrl(): Promise<void> {
     }, 1500)
   } catch {
     uploadError.value = '复制失败，请手动选中链接复制'
+  }
+}
+
+async function deleteUploadedImage(): Promise<void> {
+  if (!result.value || deleting.value) return
+  if (!window.confirm('删除这张图片？删除后 1 天内仍可被复用，之后自动清理。')) return
+
+  deleting.value = true
+  uploadError.value = ''
+  try {
+    await adminApi.deleteFile(result.value.id)
+    result.value = null
+    copied.value = false
+    file.value = null
+    if (previewUrl.value) {
+      URL.revokeObjectURL(previewUrl.value)
+      previewUrl.value = ''
+    }
+  } catch (error) {
+    uploadError.value = messageOf(error)
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -210,6 +233,14 @@ onBeforeUnmount(() => {
             <div class="admin-actions">
               <button class="secondary-button" type="button" @click="copyUrl">
                 {{ copied ? '已复制' : '复制链接' }}
+              </button>
+              <button
+                class="secondary-button danger-button"
+                type="button"
+                :disabled="deleting"
+                @click="deleteUploadedImage"
+              >
+                {{ deleting ? '删除中…' : '删除图片' }}
               </button>
               <span class="panel-note result__meta">
                 {{ result.originalName }} · {{ Math.round(result.size / 1024) }} KB

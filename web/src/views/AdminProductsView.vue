@@ -154,7 +154,7 @@ async function save(): Promise<void> {
       // 换了或移除了数字文件，商品保存后再清理旧文件
       if (previousFileId !== null && previousFileId !== payload.digitalFileId) {
         try {
-          await adminApi.deleteDigitalFile(previousFileId)
+          await adminApi.deleteFile(previousFileId)
         } catch {
           // 仍被其他商品引用时保留，不影响本次保存
         }
@@ -196,6 +196,23 @@ async function onCoverChange(event: Event): Promise<void> {
 function clearCover(): void {
   coverFileId.value = null
   coverUrl.value = ''
+}
+
+async function deleteProduct(product: Product): Promise<void> {
+  if (!window.confirm(`删除商品「${product.name}」？删除后前后台都不再展示，已绑定的文件会保留。`)) {
+    return
+  }
+  listError.value = ''
+  try {
+    await adminApi.deleteProduct(product.id)
+    notice.value = `${product.name} 已删除`
+    if (editingId.value === product.id) {
+      resetForm()
+    }
+    await loadProducts(page.value)
+  } catch (err) {
+    listError.value = messageOf(err)
+  }
 }
 
 async function toggleStatus(product: Product): Promise<void> {
@@ -408,6 +425,13 @@ onMounted(async () => {
                     </button>
                     <button class="secondary-button" type="button" @click="toggleStatus(product)">
                       {{ product.status === 'ON_SALE' ? '下架' : '上架' }}
+                    </button>
+                    <button
+                      class="secondary-button danger-button"
+                      type="button"
+                      @click="deleteProduct(product)"
+                    >
+                      删除
                     </button>
                   </div>
                 </td>

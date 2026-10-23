@@ -187,7 +187,7 @@ async function remove(): Promise<void> {
   // 本次会话刚上传、还未保存到商品的文件：直接删对象和数据库记录
   if (uploadedThisSession.value && props.modelValue !== null) {
     try {
-      await adminApi.deleteDigitalFile(props.modelValue)
+      await adminApi.deleteFile(props.modelValue)
     } catch (err) {
       error.value = err instanceof Error ? err.message : '删除文件失败'
       return

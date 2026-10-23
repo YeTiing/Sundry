@@ -22,6 +22,7 @@ import java.util.Base64;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -203,6 +204,110 @@ class CatalogFlowIntegrationTest {
                         .content(productJson("带封面商品", "88.00", categoryId, "ON_SALE", fileId)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.coverUrl").value(expectedUrl));
+    }
+
+    @Test
+    void offShelfIsNotDelete() throws Exception {
+        Session admin = register(SUPER_PHONE);
+        Long categoryId = categoryId("软件");
+        MvcResult created = createProduct(admin.token(), "下架商品", "10.00", categoryId, "ON_SALE", null);
+        long productId = ((Number) JsonPath.read(body(created), "$.id")).longValue();
+
+        mockMvc.perform(patch("/api/admin/products/{id}/status", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"OFF_SHELF"}
+                                """))
+                .andExpect(status().isOk());
+
+        // 下架后前台不可见，后台仍可见，且没有删除标记
+        mockMvc.perform(get("/api/products"))
+                .andExpect(jsonPath("$.total").value(0));
+        mockMvc.perform(get("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(productId));
+        Long deleted = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM product WHERE id = ? AND deleted_at IS NOT NULL",
+                Long.class, productId);
+        assertThat(deleted).isZero();
+
+        // 可以重新上架
+        mockMvc.perform(patch("/api/admin/products/{id}/status", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"ON_SALE"}
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/products"))
+                .andExpect(jsonPath("$.total").value(1));
+    }
+
+    @Test
+    void deleteIsSeparateFromOffShelfAndKeepsFileReference() throws Exception {
+        Session admin = register(SUPER_PHONE);
+        Long categoryId = categoryId("软件");
+
+        MvcResult uploaded = mockMvc.perform(multipart("/api/admin/files/images")
+                        .file(new MockMultipartFile("file", "cover.png", "image/png", TINY_PNG))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        long fileId = ((Number) JsonPath.read(body(uploaded), "$.id")).longValue();
+
+        MvcResult created = createProduct(admin.token(), "待删除商品", "10.00", categoryId, "ON_SALE", fileId);
+        long productId = ((Number) JsonPath.read(body(created), "$.id")).longValue();
+
+        mockMvc.perform(delete("/api/admin/products/{id}", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isNoContent());
+
+        String productStatus = jdbcTemplate.queryForObject(
+                "SELECT status FROM product WHERE id = ?", String.class, productId);
+        Long deleted = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM product WHERE id = ? AND deleted_at IS NOT NULL",
+                Long.class, productId);
+        assertThat(productStatus).isEqualTo("OFF_SHELF");
+        assertThat(deleted).isEqualTo(1);
+
+        // 前后台都不再展示
+        mockMvc.perform(get("/api/products"))
+                .andExpect(jsonPath("$.total").value(0));
+        mockMvc.perform(get("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(jsonPath("$.total").value(0));
+        mockMvc.perform(get("/api/products/{id}", productId))
+                .andExpect(status().isNotFound());
+
+        // 文件仍被软删除商品引用，不能删
+        mockMvc.perform(delete("/api/admin/files/{id}", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("FILE_IN_USE"));
+
+        // 删除后不能再上架
+        mockMvc.perform(patch("/api/admin/products/{id}/status", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"ON_SALE"}
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void normalUserCannotDeleteProduct() throws Exception {
+        Session admin = register(SUPER_PHONE);
+        Session user = register(USER_PHONE);
+        Long categoryId = categoryId("实物");
+        MvcResult created = createProduct(admin.token(), "普通用户不能删", "1.00", categoryId, "ON_SALE", null);
+        long productId = ((Number) JsonPath.read(body(created), "$.id")).longValue();
+
+        mockMvc.perform(delete("/api/admin/products/{id}", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isForbidden());
     }
 
     private Session register(String phone) throws Exception {

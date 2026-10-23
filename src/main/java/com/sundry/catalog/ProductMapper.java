@@ -17,6 +17,8 @@ public interface ProductMapper {
 
     int updateStatus(@Param("id") Long id, @Param("status") ProductStatus status);
 
+    int softDelete(@Param("id") Long id);
+
     Product findById(@Param("id") Long id);
 
     Product findPublicById(@Param("id") Long id);
@@ -34,4 +36,6 @@ public interface ProductMapper {
     long countPublic(@Param("categoryId") Long categoryId);
 
     long countByDigitalFileId(@Param("fileId") Long fileId);
+
+    long countByFileId(@Param("fileId") Long fileId);
 }

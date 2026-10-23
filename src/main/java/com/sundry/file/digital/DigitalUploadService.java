@@ -254,7 +254,7 @@ public class DigitalUploadService {
         if (!file.getUploaderId().equals(operatorId) && operatorRole != Role.SUPER_ADMIN) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        if (productMapper.countByDigitalFileId(fileId) > 0) {
+        if (productMapper.countByFileId(fileId) > 0) {
             throw new BusinessException(ErrorCode.FILE_IN_USE);
         }
         fileObjectMapper.softDelete(fileId);

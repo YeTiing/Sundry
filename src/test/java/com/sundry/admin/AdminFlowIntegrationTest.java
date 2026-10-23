@@ -23,6 +23,7 @@ import java.util.Base64;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -241,6 +242,67 @@ class AdminFlowIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void adminSoftDeletesUploadedImage() throws Exception {
+        Session superAdmin = register(SUPER_PHONE);
+
+        MvcResult uploaded = mockMvc.perform(multipart("/api/admin/files/images")
+                        .file(new MockMultipartFile("file", "cover.png", "image/png", TINY_PNG))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        String uploadedBody = uploaded.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        long fileId = ((Number) JsonPath.read(uploadedBody, "$.id")).longValue();
+        String key = JsonPath.read(uploadedBody, "$.key");
+
+        mockMvc.perform(delete("/api/admin/files/{id}", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token())))
+                .andExpect(status().isNoContent());
+
+        Long softDeleted = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM file_object WHERE id = ? AND status = 0 AND deleted_at IS NOT NULL",
+                Long.class, fileId);
+        assertThat(softDeleted).isEqualTo(1);
+        assertThat(storage.exists("sundry-public", key)).isTrue();
+    }
+
+    @Test
+    void imageUsedAsProductCoverCannotBeDeleted() throws Exception {
+        Session superAdmin = register(SUPER_PHONE);
+        MvcResult uploaded = mockMvc.perform(multipart("/api/admin/files/images")
+                        .file(new MockMultipartFile("file", "cover.png", "image/png", TINY_PNG))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        String uploadedBody = uploaded.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        long fileId = ((Number) JsonPath.read(uploadedBody, "$.id")).longValue();
+        Long categoryId = jdbcTemplate.queryForObject(
+                "SELECT id FROM category WHERE name = '软件'", Long.class);
+
+        mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"封面商品","description":"x","price":1.00,
+                                 "categoryId":%d,"type":"PHYSICAL","coverFileId":%d}
+                                """.formatted(categoryId, fileId)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(delete("/api/admin/files/{id}", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("FILE_IN_USE"));
+    }
+
+    @Test
+    void normalUserCannotDeleteFile() throws Exception {
+        Session user = register(USER_PHONE);
+
+        mockMvc.perform(delete("/api/admin/files/{id}", 1)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isForbidden());
     }
 
     private Session register(String phone) throws Exception {

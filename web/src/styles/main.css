@@ -426,6 +426,16 @@ a:hover {
   cursor: not-allowed;
 }
 
+.danger-button {
+  color: var(--stamp);
+  border-color: var(--stamp);
+}
+
+.danger-button:hover:not(:disabled) {
+  background: rgba(180, 50, 40, 0.08);
+  border-color: var(--stamp);
+}
+
 .result {
   display: grid;
   gap: 10px;

@@ -66,6 +66,10 @@ export const adminApi = {
     return http.patch<Product>(`/admin/products/${id}/status`, { status })
   },
 
+  deleteProduct(id: number): Promise<void> {
+    return http.delete<void>(`/admin/products/${id}`)
+  },
+
   initDigitalUpload(payload: {
     fileName: string
     contentType: string
@@ -82,8 +86,8 @@ export const adminApi = {
     return http.post<void>('/admin/uploads/digital/abort', payload)
   },
 
-  deleteDigitalFile(id: number): Promise<void> {
-    return http.delete<void>(`/admin/uploads/digital/${id}`)
+  deleteFile(id: number): Promise<void> {
+    return http.delete<void>(`/admin/files/${id}`)
   },
 
   listReusableDigitalFiles(): Promise<ReusableDigitalFile[]> {

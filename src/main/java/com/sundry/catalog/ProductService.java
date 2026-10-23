@@ -103,6 +103,18 @@ public class ProductService {
         return toView(productMapper.findById(id));
     }
 
+    /**
+     * 软删除商品，和“下架”不是一回事：
+     * 下架只是 status=OFF_SHELF，仍然存在于后台；删除会记 deleted_at，前后台都不再展示。
+     * 文件引用保留，已售数字商品的下载权益不受影响。
+     */
+    public void delete(Long id) {
+        if (productMapper.findById(id) == null) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        productMapper.softDelete(id);
+    }
+
     private void apply(Product product, SaveProductRequest request) {
         product.setCategoryId(request.categoryId());
         product.setName(request.name().trim());

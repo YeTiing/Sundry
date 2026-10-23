@@ -6,7 +6,7 @@
     <!-- 联表带出分类名和封面对象信息，避免列表 N+1 查询 -->
     <sql id="productColumns">
         p.id, p.category_id, p.name, p.description, p.type, p.price, p.cover_file_id,
-        p.digital_file_id, p.status, p.created_at, p.updated_at,
+        p.digital_file_id, p.status, p.deleted_at, p.created_at, p.updated_at,
         c.name AS category_name,
         f.bucket AS cover_bucket,
         f.object_key AS cover_object_key
@@ -39,13 +39,21 @@
     <update id="updateStatus">
         UPDATE product
         SET status = #{status}
-        WHERE id = #{id}
+        WHERE id = #{id} AND deleted_at IS NULL
+    </update>
+
+    <!-- 软删除商品：下架 + 记录删除时间，文件引用保留，历史订单仍可用 -->
+    <update id="softDelete">
+        UPDATE product
+        SET status = 'OFF_SHELF', deleted_at = NOW(3)
+        WHERE id = #{id} AND deleted_at IS NULL
     </update>
 
     <select id="findById" resultType="com.sundry.catalog.Product">
         SELECT <include refid="productColumns"/>
         <include refid="productFrom"/>
         WHERE p.id = #{id}
+          AND p.deleted_at IS NULL
     </select>
 
     <select id="findPublicById" resultType="com.sundry.catalog.Product">
@@ -53,14 +61,16 @@
         <include refid="productFrom"/>
         WHERE p.id = #{id}
           AND p.status = 'ON_SALE'
+          AND p.deleted_at IS NULL
     </select>
 
     <select id="findPageAdmin" resultType="com.sundry.catalog.Product">
         SELECT <include refid="productColumns"/>
         <include refid="productFrom"/>
         <where>
+            p.deleted_at IS NULL
             <if test="status != null">
-                p.status = #{status}
+                AND p.status = #{status}
             </if>
         </where>
         ORDER BY p.id DESC
@@ -71,8 +81,9 @@
         SELECT COUNT(*)
         FROM product p
         <where>
+            p.deleted_at IS NULL
             <if test="status != null">
-                p.status = #{status}
+                AND p.status = #{status}
             </if>
         </where>
     </select>
@@ -81,6 +92,7 @@
         SELECT <include refid="productColumns"/>
         <include refid="productFrom"/>
         WHERE p.status = 'ON_SALE'
+          AND p.deleted_at IS NULL
         <if test="categoryId != null">
             AND p.category_id = #{categoryId}
         </if>
@@ -92,6 +104,7 @@
         SELECT COUNT(*)
         FROM product p
         WHERE p.status = 'ON_SALE'
+          AND p.deleted_at IS NULL
         <if test="categoryId != null">
             AND p.category_id = #{categoryId}
         </if>
@@ -101,6 +114,12 @@
         SELECT COUNT(*)
         FROM product
         WHERE digital_file_id = #{fileId}
+    </select>
+
+    <select id="countByFileId" resultType="long">
+        SELECT COUNT(*)
+        FROM product
+        WHERE cover_file_id = #{fileId} OR digital_file_id = #{fileId}
     </select>
 
 </mapper>
