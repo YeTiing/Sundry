@@ -910,6 +910,47 @@ a:hover {
   word-break: break-all;
 }
 
+.reusable-list {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+}
+
+.reusable-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reusable-item:hover {
+  border-color: var(--rule-strong);
+  background: var(--blue-wash);
+}
+
+.reusable-item__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reusable-item__tag {
+  color: var(--stamp);
+  font-size: 11px;
+}
+
 .upload-progress {
   height: 8px;
   overflow: hidden;

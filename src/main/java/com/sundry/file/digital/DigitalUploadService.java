@@ -1,6 +1,7 @@
 package com.sundry.file.digital;
 
 import com.sundry.catalog.ProductMapper;
+import com.sundry.cleanup.CleanupProperties;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
 import com.sundry.file.FileKind;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
@@ -42,15 +44,17 @@ public class DigitalUploadService {
     private final StorageProperties properties;
     private final FileObjectMapper fileObjectMapper;
     private final ProductMapper productMapper;
+    private final CleanupProperties cleanupProperties;
     private final StringRedisTemplate redis;
 
     public DigitalUploadService(DigitalUploadGateway gateway, StorageProperties properties,
                                 FileObjectMapper fileObjectMapper, ProductMapper productMapper,
-                                StringRedisTemplate redis) {
+                                CleanupProperties cleanupProperties, StringRedisTemplate redis) {
         this.gateway = gateway;
         this.properties = properties;
         this.fileObjectMapper = fileObjectMapper;
         this.productMapper = productMapper;
+        this.cleanupProperties = cleanupProperties;
         this.redis = redis;
     }
 
@@ -152,6 +156,8 @@ public class DigitalUploadService {
             deleteQuietly(request.key());
             if (reusable.getStatus() != null && reusable.getStatus() == 0) {
                 fileObjectMapper.restore(reusable.getId());
+            } else {
+                fileObjectMapper.touch(reusable.getId());
             }
             redis.delete(stateKey(request.uploadId()));
             cacheDone(request.uploadId(), request.key(), reusable.getId());
@@ -181,6 +187,58 @@ public class DigitalUploadService {
             redis.delete(stateKey(request.uploadId()));
             throw ex;
         }
+    }
+
+    /**
+     * 后台可直接选择最近上传过的文件，不用重新上传。
+     * 包含有效文件和宽限期内软删除的文件。
+     */
+    public List<ReusableDigitalFileView> reusable(Long uploaderId) {
+        LocalDateTime cutoff = LocalDateTime.now().minus(cleanupProperties.getDigitalGrace());
+        return fileObjectMapper.findReusableForUploader(uploaderId, cutoff, 20).stream()
+                .map(file -> new ReusableDigitalFileView(file.getId(), file.getOriginalName(),
+                        file.getSizeBytes(), file.getContentType(), file.getStatus(),
+                        file.getDeletedAt(), file.getCreatedAt()))
+                .toList();
+    }
+
+    /**
+     * 直接复用已上传文件：软删除的恢复，有效文件刷新时间，不产生新的上传。
+     */
+    public DigitalFileView reuse(Long operatorId, Role operatorRole, Long fileId) {
+        FileObject file = fileObjectMapper.findById(fileId);
+        if (file == null
+                || file.getKind() != FileKind.DIGITAL
+                || !properties.getPrivateBucket().equals(file.getBucket())) {
+            throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
+        }
+        if (!file.getUploaderId().equals(operatorId) && operatorRole != Role.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        try {
+            StoredObject stored = gateway.stat(file.getObjectKey());
+            if (stored.size() <= 0) {
+                throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
+            }
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            log.warn("reusable object missing, id={}, key={}", fileId, file.getObjectKey(), ex);
+            throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
+        }
+
+        if (file.getStatus() != null && file.getStatus() == 0) {
+            fileObjectMapper.restore(fileId);
+        } else {
+            fileObjectMapper.touch(fileId);
+        }
+
+        FileObject refreshed = fileObjectMapper.findById(fileId);
+        if (refreshed == null) {
+            throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
+        }
+        return new DigitalFileView(refreshed.getId(), refreshed.getObjectKey(),
+                refreshed.getOriginalName(), refreshed.getSizeBytes(), refreshed.getContentType());
     }
 
     /**

@@ -20,6 +20,12 @@ public interface FileObjectMapper {
 
     int restore(@Param("id") Long id);
 
+    int touch(@Param("id") Long id);
+
+    List<FileObject> findReusableForUploader(@Param("uploaderId") Long uploaderId,
+                                             @Param("softCutoff") LocalDateTime softCutoff,
+                                             @Param("limit") int limit);
+
     FileObject findReusable(@Param("uploaderId") Long uploaderId,
                             @Param("kind") FileKind kind,
                             @Param("sizeBytes") long sizeBytes,

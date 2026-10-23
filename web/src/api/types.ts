@@ -87,3 +87,13 @@ export interface DigitalFile {
   sizeBytes: number
   contentType: string
 }
+
+export interface ReusableDigitalFile {
+  id: number
+  originalName: string
+  sizeBytes: number
+  contentType: string
+  status: number
+  deletedAt: string | null
+  createdAt: string
+}

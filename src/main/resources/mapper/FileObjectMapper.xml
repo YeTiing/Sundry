@@ -27,9 +27,28 @@
 
     <update id="restore">
         UPDATE file_object
-        SET status = 1, deleted_at = NULL
+        SET status = 1, deleted_at = NULL, created_at = NOW(3)
         WHERE id = #{id} AND status = 0
     </update>
+
+    <!-- 重新使用已上传文件时刷新时间，避免刚恢复就被清理任务当成长期孤儿 -->
+    <update id="touch">
+        UPDATE file_object
+        SET created_at = NOW(3)
+        WHERE id = #{id}
+    </update>
+
+    <!-- 后台“选择已上传文件”：有效文件 + 宽限期内软删除的文件 -->
+    <select id="findReusableForUploader" resultType="com.sundry.file.FileObject">
+        SELECT id, bucket, object_key, original_name, content_type,
+               size_bytes, etag, kind, uploader_id, status, deleted_at, created_at
+        FROM file_object
+        WHERE uploader_id = #{uploaderId}
+          AND kind = 'DIGITAL'
+          AND (status = 1 OR (status = 0 AND deleted_at IS NOT NULL AND deleted_at &gt;= #{softCutoff}))
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
 
     <!-- 同一上传人、同类型、同大小、同 ETag 视为同一份内容 -->
     <select id="findReusable" resultType="com.sundry.file.FileObject">

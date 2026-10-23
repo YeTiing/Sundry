@@ -297,6 +297,62 @@ class DigitalUploadIntegrationTest {
     }
 
     @Test
+    void reusableListIncludesSoftDeletedFileAndCanRestore() throws Exception {
+        String token = register(SUPER_PHONE);
+        String[] init = initUpload(token, 1024);
+        MvcResult completed = completeUpload(token, init[0], init[1]);
+        long fileId = ((Number) JsonPath.read(body(completed), "$.id")).longValue();
+
+        mockMvc.perform(delete("/api/admin/uploads/digital/{id}", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/admin/uploads/digital/reusable")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(fileId))
+                .andExpect(jsonPath("$[0].status").value(0));
+
+        mockMvc.perform(post("/api/admin/uploads/digital/{id}/reuse", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(fileId));
+
+        Integer status = jdbcTemplate.queryForObject(
+                "SELECT status FROM file_object WHERE id = ?", Integer.class, fileId);
+        assertThat(status).isEqualTo(1);
+    }
+
+    @Test
+    void expiredSoftDeletedFileIsNotListed() throws Exception {
+        String token = register(SUPER_PHONE);
+        String[] init = initUpload(token, 1024);
+        MvcResult completed = completeUpload(token, init[0], init[1]);
+        long fileId = ((Number) JsonPath.read(body(completed), "$.id")).longValue();
+
+        mockMvc.perform(delete("/api/admin/uploads/digital/{id}", fileId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isNoContent());
+        jdbcTemplate.update("UPDATE file_object SET deleted_at = ? WHERE id = ?",
+                java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusDays(8)), fileId);
+
+        mockMvc.perform(get("/api/admin/uploads/digital/reusable")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void normalUserCannotListReusableFiles() throws Exception {
+        String token = register(USER_PHONE);
+
+        mockMvc.perform(get("/api/admin/uploads/digital/reusable")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void cannotDeleteFileUsedByProduct() throws Exception {
         String token = register(SUPER_PHONE);
         String[] init = initUpload(token, 1024);

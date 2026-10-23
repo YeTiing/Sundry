@@ -8,6 +8,7 @@ import type {
   Product,
   ProductStatus,
   ProductType,
+  ReusableDigitalFile,
   Role,
 } from './types'
 
@@ -83,5 +84,13 @@ export const adminApi = {
 
   deleteDigitalFile(id: number): Promise<void> {
     return http.delete<void>(`/admin/uploads/digital/${id}`)
+  },
+
+  listReusableDigitalFiles(): Promise<ReusableDigitalFile[]> {
+    return http.get<ReusableDigitalFile[]>('/admin/uploads/digital/reusable')
+  },
+
+  reuseDigitalFile(id: number): Promise<DigitalFile> {
+    return http.post<DigitalFile>(`/admin/uploads/digital/${id}/reuse`)
   },
 }

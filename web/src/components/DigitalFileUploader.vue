@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { adminApi } from '@/api/admin'
 import { getAccessToken } from '@/api/http'
-import type { DigitalFile, DigitalPart } from '@/api/types'
+import type { DigitalFile, DigitalPart, ReusableDigitalFile } from '@/api/types'
 
 const props = withDefaults(
   defineProps<{
@@ -23,6 +23,9 @@ const progress = ref(0)
 const error = ref('')
 const uploadedFile = ref<DigitalFile | null>(null)
 const uploadedThisSession = ref(false)
+const showReusable = ref(false)
+const reusableFiles = ref<ReusableDigitalFile[]>([])
+const loadingReusable = ref(false)
 const activeUploadId = ref<string | null>(null)
 const activeKey = ref<string | null>(null)
 const xhrs = new Set<XMLHttpRequest>()
@@ -198,6 +201,38 @@ async function remove(): Promise<void> {
   emit('update:modelValue', null)
 }
 
+async function toggleReusable(): Promise<void> {
+  if (showReusable.value) {
+    showReusable.value = false
+    return
+  }
+  showReusable.value = true
+  loadingReusable.value = true
+  error.value = ''
+  try {
+    reusableFiles.value = await adminApi.listReusableDigitalFiles()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '加载已上传文件失败'
+  } finally {
+    loadingReusable.value = false
+  }
+}
+
+async function selectReusable(item: ReusableDigitalFile): Promise<void> {
+  try {
+    const fileView = await adminApi.reuseDigitalFile(item.id)
+    file.value = null
+    uploadedFile.value = fileView
+    uploadedThisSession.value = false
+    progress.value = 0
+    error.value = ''
+    showReusable.value = false
+    emit('update:modelValue', fileView.id)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '复用文件失败'
+  }
+}
+
 function abortOnServer(): void {
   if (!activeUploadId.value || !activeKey.value) return
   const token = getAccessToken()
@@ -269,6 +304,9 @@ onBeforeUnmount(() => {
       <button v-if="uploading" class="secondary-button" type="button" @click="cancel">
         取消上传
       </button>
+      <button v-if="!uploading" class="secondary-button" type="button" @click="toggleReusable">
+        {{ showReusable ? '收起已上传' : '选择已上传' }}
+      </button>
       <button
         v-if="modelValue && !uploading"
         class="secondary-button"
@@ -287,8 +325,23 @@ onBeforeUnmount(() => {
       <span :style="{ width: `${progress}%` }"></span>
     </div>
     <p v-if="uploading" class="panel-note">已上传 {{ progress }}%</p>
+    <div v-if="showReusable" class="reusable-list">
+      <p v-if="loadingReusable" class="panel-note">加载中…</p>
+      <p v-else-if="reusableFiles.length === 0" class="panel-note">最近没有可复用的文件</p>
+      <button
+        v-for="item in reusableFiles"
+        :key="item.id"
+        class="reusable-item"
+        type="button"
+        @click="selectReusable(item)"
+      >
+        <span class="reusable-item__name">{{ item.originalName }}</span>
+        <span class="mono">{{ formatSize(item.sizeBytes) }}</span>
+        <span v-if="item.status === 0" class="reusable-item__tag">已移除 · 可恢复</span>
+      </button>
+    </div>
     <p v-if="uploadedFile" class="notice">
-      已上传：{{ uploadedFile.originalName }} · {{ formatSize(uploadedFile.sizeBytes) }}
+      已选择：{{ uploadedFile.originalName }} · {{ formatSize(uploadedFile.sizeBytes) }}
     </p>
     <p v-else-if="modelValue" class="panel-note">已绑定文件 #{{ modelValue }}</p>
     <p v-if="error" class="form-error">{{ error }}</p>
