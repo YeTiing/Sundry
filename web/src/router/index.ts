@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import AdminCategoriesView from '@/views/AdminCategoriesView.vue'
 import AdminOrdersView from '@/views/AdminOrdersView.vue'
 import AdminProductsView from '@/views/AdminProductsView.vue'
 import AdminSeckillView from '@/views/AdminSeckillView.vue'
@@ -74,6 +75,12 @@ const router = createRouter({
       path: '/admin/products',
       name: 'admin-products',
       component: AdminProductsView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/categories',
+      name: 'admin-categories',
+      component: AdminCategoriesView,
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {

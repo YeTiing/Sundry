@@ -262,3 +262,11 @@ export interface ReusableDigitalFile {
   deletedAt: string | null
   createdAt: string
 }
+
+export interface AdminCategory {
+  id: number
+  name: string
+  sortOrder: number
+  status: number
+  productCount: number
+}

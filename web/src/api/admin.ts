@@ -1,5 +1,6 @@
 import { http } from './http'
 import type {
+  AdminCategory,
   AdminUser,
   DigitalFile,
   DigitalUploadInit,
@@ -12,6 +13,12 @@ import type {
   ReusableImage,
   Role,
 } from './types'
+
+export interface SaveCategoryPayload {
+  name: string
+  sortOrder: number
+  status?: number
+}
 
 export interface SaveProductPayload {
   name: string
@@ -118,5 +125,21 @@ export const adminApi = {
 
   reuseDigitalFile(id: number): Promise<DigitalFile> {
     return http.post<DigitalFile>(`/admin/uploads/digital/${id}/reuse`)
+  },
+
+  listCategories(): Promise<AdminCategory[]> {
+    return http.get<AdminCategory[]>('/admin/categories')
+  },
+
+  createCategory(payload: SaveCategoryPayload): Promise<AdminCategory> {
+    return http.post<AdminCategory>('/admin/categories', payload)
+  },
+
+  updateCategory(id: number, payload: SaveCategoryPayload): Promise<AdminCategory> {
+    return http.put<AdminCategory>(`/admin/categories/${id}`, payload)
+  },
+
+  deleteCategory(id: number): Promise<void> {
+    return http.delete<void>(`/admin/categories/${id}`)
   },
 }

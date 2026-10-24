@@ -340,6 +340,7 @@ onMounted(async () => {
         </div>
         <nav class="admin-nav">
           <RouterLink to="/">商城</RouterLink>
+          <RouterLink to="/admin/categories">分类管理</RouterLink>
           <RouterLink to="/admin">图片与用户</RouterLink>
           <RouterLink to="/admin/orders">订单管理</RouterLink>
           <RouterLink to="/admin/seckill">秒杀活动</RouterLink>

@@ -9,11 +9,43 @@
         WHERE id = #{id}
     </select>
 
+    <select id="findByName" resultType="com.sundry.catalog.Category">
+        SELECT id, name, sort_order, status
+        FROM category
+        WHERE name = #{name}
+    </select>
+
     <select id="findActive" resultType="com.sundry.catalog.Category">
         SELECT id, name, sort_order, status
         FROM category
         WHERE status = 1
         ORDER BY sort_order, id
+    </select>
+
+    <select id="findAll" resultType="com.sundry.catalog.Category">
+        SELECT id, name, sort_order, status
+        FROM category
+        ORDER BY sort_order, id
+    </select>
+
+    <insert id="insert" parameterType="com.sundry.catalog.Category"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO category (name, sort_order, status)
+        VALUES (#{name}, #{sortOrder}, #{status})
+    </insert>
+
+    <update id="update" parameterType="com.sundry.catalog.Category">
+        UPDATE category
+        SET name = #{name}, sort_order = #{sortOrder}, status = #{status}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM category WHERE id = #{id}
+    </delete>
+
+    <select id="countProducts" resultType="long">
+        SELECT COUNT(*) FROM product WHERE category_id = #{categoryId}
     </select>
 
 </mapper>
