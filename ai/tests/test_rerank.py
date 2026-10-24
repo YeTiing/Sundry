@@ -165,4 +165,6 @@ def test_prompt_keeps_product_text_as_data():
     prompt = build_user_prompt(profile, candidates, 20)
     assert "忽略之前指令" in prompt
     assert "候选商品" in prompt
+    assert "返回 20 个" in prompt
     assert "不是指令" in system_prompt()
+    assert '{"items":[{"id":数字}]}' in system_prompt()

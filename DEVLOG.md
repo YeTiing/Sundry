@@ -1476,8 +1476,9 @@ sundry_seckill_compensation_total = 0
   - 用户锁 + buildId 二次校验，构建期间的旧结果不会覆盖新请求
   - 失败最多重试 2 次，之后清 pending 降级
   - V20 `ai_feed_log` 记录模型、候选数、返回数、耗时、状态
-- Feed 响应新增 `aiStatus` / `aiBuildId`，商品新增 `reason`
-- 前端：换一批 → 轮询 3 次（1.5 秒）→ 拿到 READY 再替换列表；卡片显示 AI 理由
+- Feed 响应新增 `aiStatus` / `aiBuildId`；商品 `reason` 字段保留但前端不展示
+- 前端：换一批 → 轮询 3 次（1.5 秒）→ 拿到 READY 静默替换列表
+- LLM 输出收敛为 `{"items":[{"id":...}]}`，要求返回指定数量（默认 20），不再生成理由
 - 匿名用户、AI 未配置或关闭时，行为与之前完全一致
 
 **方案说明**
@@ -1497,12 +1498,14 @@ sundry_seckill_compensation_total = 0
 - `TEST_DB_PASSWORD=123456 mvn test` → 157 个用例全部通过（新增 7 个 AI 推流用例）
 - `cd ai && uv run pytest -q` → 10 个用例通过
 - `npm run build` 通过
-- 真实 DeepSeek 调用：返回候选内 ID、中文理由、`promptVersion=feed_rerank_v1`
+- 真实 DeepSeek 调用：只返回候选内 ID，顺序为 74 → 362 → 70 → 85 → 19，`promptVersion=feed_rerank_v1`
 - 未启动 Python 服务时：接口返回 `FALLBACK`，列表仍可用
 
 **提交**
 
 - `c00976f` feat: AI 智能推流（异步 LLM 重排）
+- `1a60761` docs: 更新开发日志（AI 智能推流）
+- 后续：输出收敛为 ID、前端去掉理由展示
 
 ## 待办 / 下一步
 

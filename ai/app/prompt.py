@@ -34,7 +34,9 @@ def build_user_prompt(profile: Profile, candidates: list[Candidate], limit: int)
         lines.append("- 最近浏览：暂无")
 
     lines.append("")
-    lines.append(f"候选商品（只能从这里选，最多返回 {limit} 个）：")
+    lines.append(
+        f"候选商品（只能从这里选，请按优先级返回 {limit} 个；候选不足时返回全部）："
+    )
     for item in candidates:
         lines.append(
             f"{item.id} | {item.name} | {item.category} | {item.price}"

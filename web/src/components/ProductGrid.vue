@@ -23,7 +23,6 @@ function formatPrice(value: number): string {
       <div class="product-card__body">
         <span class="product-card__category">{{ product.categoryName }}</span>
         <h2 class="product-card__name">{{ product.name }}</h2>
-        <p v-if="product.reason" class="product-card__reason">AI · {{ product.reason }}</p>
         <p class="product-card__price">{{ formatPrice(product.price) }}</p>
       </div>
     </RouterLink>

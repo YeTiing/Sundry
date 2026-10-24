@@ -19,7 +19,6 @@ const { products, cursor, hasMore } = storeToRefs(store)
 const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
-const aiNotice = ref('')
 const aiStatus = ref<AiFeedStatus>('DISABLED')
 const aiBuildId = ref<string | null>(null)
 const sentinel = ref<HTMLElement | null>(null)
@@ -70,18 +69,9 @@ async function loadFirst(
  */
 async function refreshWithAi(): Promise<void> {
   const token = ++pollToken
-  aiNotice.value = 'AI 正在重新排序…'
   const first = await loadFirst(true)
   if (!first || token !== pollToken) return
-
-  if (first.aiStatus === 'DISABLED') {
-    aiNotice.value = ''
-    return
-  }
-  if (first.aiStatus !== 'PENDING' || !first.aiBuildId) {
-    aiNotice.value = 'AI 排序暂不可用，已使用规则排序'
-    return
-  }
+  if (first.aiStatus !== 'PENDING' || !first.aiBuildId) return
 
   const target = first.aiBuildId
   for (let i = 0; i < POLL_TIMES; i++) {
@@ -96,14 +86,12 @@ async function refreshWithAi(): Promise<void> {
         hasMore.value = page.hasMore
         aiStatus.value = page.aiStatus
         aiBuildId.value = page.aiBuildId
-        aiNotice.value = 'AI 排序已更新'
         return
       }
     } catch {
       // 单次轮询失败不打断，继续等下一轮
     }
   }
-  aiNotice.value = 'AI 排序稍后生效，先按当前列表展示'
 }
 
 async function loadMore(): Promise<void> {
@@ -201,7 +189,6 @@ onBeforeUnmount(() => {
       </section>
 
       <p v-if="error" class="form-error">{{ error }}</p>
-      <p v-if="aiNotice" class="panel-note feed-ai-note">{{ aiNotice }}</p>
 
       <p v-if="loading" class="store-empty">加载中…</p>
       <p v-else-if="products.length === 0" class="store-empty">

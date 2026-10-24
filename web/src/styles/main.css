@@ -776,13 +776,6 @@ a:hover {
   line-height: 1.4;
 }
 
-.product-card__reason {
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 .product-card__price {
   margin: 4px 0 0;
   color: var(--ink);
@@ -795,10 +788,6 @@ a:hover {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-}
-
-.feed-ai-note {
-  margin: 8px 0 16px;
 }
 
 .store-empty {
