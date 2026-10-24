@@ -131,3 +131,98 @@
 - 安全相关：必须有越权/注入负向测试
 - 并发相关：必须有重复请求/并发状态测试
 - 上线相关：必须有部署步骤、回滚方式和监控项
+
+---
+
+## 九、卡密与软件授权（已设计，暂不排期）
+
+**状态：暂不做，设计先留档。**
+**前提：激活服务自研；本地软件可以改，软件内输入卡密并调用激活接口。**
+
+### 交付形态
+
+```
+支付成功
+  → 订单页展示：下载链接 + 激活卡密
+  → 用户安装软件，输入卡密
+  → 软件调用激活服务
+  → 校验通过返回签名授权，软件本地验签后可用
+```
+
+卡密**不能写进下载文件**，否则文件一转发，卡密跟着泄露。
+
+### 数据模型
+
+```sql
+product_license_config(
+  product_id, enabled, seat_limit, valid_days, max_activations
+)
+
+license_key(
+  id, product_id, order_item_id, user_id,
+  key_hash, key_cipher, status,
+  seat_limit, valid_days,
+  delivered_at, activated_at, expires_at,
+  revoked_at, revoke_reason
+)
+
+license_activation(
+  id, license_id, device_id, device_name,
+  activated_at, last_seen_at, status
+)
+
+license_event(
+  id, license_id, event_type, device_id,
+  ip, user_agent, created_at
+)
+```
+
+卡密状态：`UNUSED / ACTIVE / EXPIRED / REVOKED`。
+
+### 接口
+
+**平台/订单**
+- 支付成功后分配卡密（条件更新，一单一码）
+- 订单页查看卡密（脱敏展示、可复制）
+- 退款/拒付自动吊销卡密
+
+**软件激活**
+- `POST /api/licenses/activate`：卡密 + 设备指纹 → 签名授权
+- `POST /api/licenses/validate`：心跳/定期校验、吊销检查
+- `POST /api/licenses/deactivate`：释放席位
+
+**管理端**
+- 卡密库存与分配情况
+- 按订单/用户/设备查看
+- 远程吊销、重置设备
+
+### 规则
+
+- 一单一码，支付后发放，不重复
+- 默认 1 个席位；换设备需解绑或后台重置
+- 同设备重装复用原激活
+- 卡密随机生成、带校验位、HMAC/加密存储
+- 激活接口限流、失败锁定，防暴力猜码
+- 退款/拒付 → 吊销 + 心跳生效
+- 离线授权带到期时间和宽限期，联网后补校验
+
+### 切片建议
+
+- L1：商品授权配置 + 卡密表 + 支付后分配
+- L2：订单页卡密展示 + 下载 token 改造
+- L3：激活 / 心跳 / 解绑接口 + 签名授权
+- L4：设备席位与并发在线检测
+- L5：管理端卡密/设备/吊销
+- L6：退款联动吊销 + 审计 + 限流
+
+### 能防到什么程度
+
+- 下载链接转发：一次性/短时 token 基本挡住
+- 卡密转发：席位 + 设备绑定限制同时使用，不能阻止转发
+- 多设备共用：席位限制 + 心跳 + 吊销
+- 破解软件：防不住，只能提高成本
+- 退款后继续用：吊销 + 心跳生效
+
+### 与现状的关系
+
+当前只有「支付后 10 分钟预签名下载」，没有卡密、设备绑定和吊销。上述模块独立于现有交易链路，等排期再做。
