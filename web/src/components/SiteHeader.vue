@@ -17,6 +17,7 @@ async function logout(): Promise<void> {
     <nav class="site-nav">
       <RouterLink to="/">商品</RouterLink>
       <RouterLink v-if="auth.isAuthenticated" to="/cart">购物车</RouterLink>
+      <RouterLink v-if="auth.isAuthenticated" to="/orders">我的订单</RouterLink>
       <RouterLink v-if="auth.isAuthenticated" class="site-user" to="/account">
         <img
           v-if="auth.user?.avatarUrl"

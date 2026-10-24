@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import SiteHeader from '@/components/SiteHeader.vue'
 import { cartApi } from '@/api/cart'
 import type { CartItem } from '@/api/types'
 
+const router = useRouter()
 const items = ref<CartItem[]>([])
 const loading = ref(true)
 const error = ref('')
@@ -91,6 +93,11 @@ async function removeItem(item: CartItem): Promise<void> {
   } finally {
     busyId.value = null
   }
+}
+
+function goCheckout(): void {
+  if (availableCount.value === 0) return
+  void router.push({ name: 'checkout' })
 }
 
 onMounted(load)
@@ -196,9 +203,14 @@ onMounted(load)
             </p>
             <p class="cart-summary__total mono">合计 {{ formatPrice(total) }}</p>
           </div>
-          <RouterLink class="primary-button cart-summary__action" to="/addresses">
-            先填收货地址
-          </RouterLink>
+          <button
+            class="primary-button cart-summary__action"
+            type="button"
+            :disabled="availableCount === 0"
+            @click="goCheckout"
+          >
+            去结算
+          </button>
         </footer>
       </template>
     </main>

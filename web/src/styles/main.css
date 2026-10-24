@@ -1494,3 +1494,308 @@ a:hover {
     justify-self: end;
   }
 }
+
+/* ---------- 结算 / 订单 ---------- */
+
+.checkout-list {
+  display: grid;
+  gap: 10px;
+}
+
+.checkout-line {
+  display: grid;
+  grid-template-columns: 22px 64px minmax(0, 1fr) auto 110px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  background: #f7f6f1;
+  cursor: pointer;
+}
+
+.checkout-line--off {
+  opacity: 0.55;
+}
+
+.checkout-line__media {
+  width: 64px;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  background: #f3f1ea;
+}
+
+.checkout-line__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.checkout-line__name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.checkout-line__subtotal {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+.checkout-section {
+  margin-top: 18px;
+}
+
+.address-card--select {
+  cursor: pointer;
+}
+
+.address-card--select.is-selected {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
+  background: var(--blue-wash);
+}
+
+.order-list {
+  display: grid;
+  gap: 16px;
+}
+
+.order-card {
+  padding: 20px 22px;
+}
+
+.order-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.order-card__head .panel-note {
+  margin: 4px 0 0;
+}
+
+.order-card__no {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.order-status,
+.refund-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid var(--rule-strong);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.order-status[data-status='PENDING_PAYMENT'],
+.refund-tag[data-status='PENDING'] {
+  color: var(--stamp);
+  border-color: var(--stamp);
+  background: rgba(160, 43, 32, 0.06);
+}
+
+.order-status[data-status='PAID'],
+.order-status[data-status='PACKING'],
+.order-status[data-status='SHIPPED'],
+.refund-tag[data-status='APPROVED'] {
+  color: var(--blue);
+  border-color: var(--blue);
+  background: var(--blue-wash);
+}
+
+.order-status[data-status='COMPLETED'] {
+  color: #2f6b3a;
+  border-color: #2f6b3a;
+  background: rgba(47, 107, 58, 0.08);
+}
+
+.order-status[data-status='CANCELLED'],
+.refund-tag[data-status='WITHDRAWN'] {
+  color: var(--muted);
+  border-color: var(--rule-strong);
+}
+
+.order-status[data-status='REFUND_REQUESTED'],
+.refund-tag[data-status='REJECTED'] {
+  color: #8a5a00;
+  border-color: #8a5a00;
+  background: rgba(138, 90, 0, 0.08);
+}
+
+.order-status[data-status='REFUNDED'] {
+  color: var(--stamp);
+  border-color: var(--stamp);
+  background: rgba(160, 43, 32, 0.08);
+}
+
+.order-items {
+  display: grid;
+  gap: 8px;
+  padding: 14px 0;
+}
+
+.order-item {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.order-item__media {
+  width: 48px;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  background: #f3f1ea;
+}
+
+.order-item__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.order-item__name {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.order-item__name:hover {
+  text-decoration: underline;
+}
+
+.order-meta {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 12px 0;
+  border-top: 1px dashed var(--rule);
+  font-size: 13px;
+}
+
+.order-meta div {
+  display: flex;
+  gap: 10px;
+}
+
+.order-meta dt {
+  flex: none;
+  width: 72px;
+  color: var(--muted);
+}
+
+.order-meta dd {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.refund-box {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--rule-strong);
+  background: #f7f6f1;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.refund-box p {
+  margin: 0 0 4px;
+}
+
+.refund-box__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.order-actions {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+
+.order-action {
+  width: auto;
+  min-width: 110px;
+  margin-top: 0;
+}
+
+.order-total {
+  margin-left: auto;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.refund-form {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--rule);
+}
+
+.refund-form .row-actions {
+  margin-top: 10px;
+}
+
+@media (max-width: 760px) {
+  .checkout-line {
+    grid-template-columns: 22px 52px minmax(0, 1fr);
+    grid-template-areas:
+      'check media body'
+      'check media subtotal';
+  }
+
+  .checkout-line > input {
+    grid-area: check;
+  }
+
+  .checkout-line__media {
+    grid-area: media;
+    width: 52px;
+  }
+
+  .checkout-line__body {
+    grid-area: body;
+  }
+
+  .checkout-line__subtotal {
+    grid-area: subtotal;
+    text-align: left;
+  }
+
+  .order-item {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'media body price'
+      'media body download';
+  }
+
+  .order-item__media {
+    grid-area: media;
+    width: 44px;
+  }
+
+  .order-item__body {
+    grid-area: body;
+  }
+
+  .order-total {
+    width: 100%;
+    margin-left: 0;
+  }
+}

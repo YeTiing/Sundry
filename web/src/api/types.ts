@@ -113,6 +113,59 @@ export interface AddressPayload {
   isDefault: boolean
 }
 
+export type OrderStatus =
+  | 'PENDING_PAYMENT'
+  | 'PAID'
+  | 'PACKING'
+  | 'SHIPPED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'REFUND_REQUESTED'
+  | 'REFUNDED'
+
+export type RefundStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN'
+
+export interface OrderItem {
+  id: number
+  productId: number
+  productName: string
+  productType: ProductType
+  price: number
+  quantity: number
+  coverUrl: string | null
+  digitalFileId: number | null
+}
+
+export interface Order {
+  orderNo: string
+  status: OrderStatus
+  totalAmount: number
+  hasPhysical: boolean
+  receiverName: string | null
+  receiverPhone: string | null
+  receiverAddress: string | null
+  trackingNo: string | null
+  createdAt: string
+  paidAt: string | null
+  packedAt: string | null
+  shippedAt: string | null
+  completedAt: string | null
+  cancelledAt: string | null
+  refundedAt: string | null
+  refundAmount: number | null
+  refundStatus: RefundStatus | null
+  refundReason: string | null
+  refundRequestedAt: string | null
+  refundReviewedAt: string | null
+  refundReviewRemark: string | null
+  items: OrderItem[]
+}
+
+export interface DownloadInfo {
+  url: string
+  expiresInSeconds: number
+}
+
 export interface DigitalPart {
   partNumber: number
   url: string

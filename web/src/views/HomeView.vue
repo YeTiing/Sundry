@@ -158,6 +158,8 @@ async function logout(): Promise<void> {
 
     <RouterLink class="secondary-button home-admin-link" to="/cart">我的购物车</RouterLink>
 
+    <RouterLink class="secondary-button home-admin-link" to="/orders">我的订单</RouterLink>
+
     <RouterLink class="secondary-button home-admin-link" to="/addresses">收货地址</RouterLink>
 
     <RouterLink class="quiet-button home-admin-link" to="/">返回商城</RouterLink>
