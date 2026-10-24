@@ -28,9 +28,10 @@
 | 订单 | 购物车下单、条件扣库存、模拟支付、打包/发货/确认收货、30 分钟超时取消、数字下载；后台订单带买家手机号/昵称 |
 | 退款 | 用户申请（已支付/打包中且含实物）→ 商家通过/拒绝；审核前可撤销；通过后回补库存 |
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
-| 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单 |
+| 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、用户限流 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
-| 测试 | 126 个集成测试，`mvn test` 全绿 |
+| 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
+| 测试 | 129 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告 |
 
@@ -1098,9 +1099,36 @@ ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
 
 - `b90743e` refactor: 商品列表缓存改为 ID 页 + 卡片独立缓存
 
+## 2026-10-24 · 秒杀 S6：限流与可观测性
+
+**做了什么**
+
+- 秒杀提交按用户限流：Redis 固定窗口，默认每秒 5 次，可配置
+  - 超限返回 429 `RATE_LIMITED`
+  - Redis 异常时放行，避免限流组件拖垮抢购
+  - 限流在活动校验之前，保护无效请求洪峰
+- Micrometer 指标：
+  - `sundry.seckill.submit{result=...}`：accepted / existing / RATE_LIMITED / SECKILL_SOLD_OUT / SECKILL_LIMIT_REACHED / SECKILL_NOT_READY 等
+  - `sundry.seckill.order{result=success|failed, reason=...}`
+  - `sundry.seckill.compensation`：回补次数
+  - `sundry.seckill.submit.duration`：提交耗时
+- 新增 `micrometer-registry-prometheus`，暴露 `/actuator/prometheus`
+- 测试 profile：限流窗口 60 秒、上限 2 次，保证用例稳定
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 129 个用例全部通过（新增 3 个限流/指标用例）
+  - 第 3 次抢购请求返回 429
+  - 成功建单计数、补偿计数
+  - `/actuator/prometheus` 可读取秒杀指标
+- `npm run build` 未改前端
+
+**提交**
+
+- `6d98312` feat: 秒杀用户限流与 Prometheus 指标
+
 ## 待办 / 下一步
 
-- 秒杀 S6：限流与可观测性
 - 秒杀 S7：对账与压测
 - 分类管理（新增/排序/停用；目前只有迁移种子）
 - 并发压测；热点 SKU/秒杀再引入 Redis（当前 DB-only）
