@@ -66,6 +66,8 @@ app:
   seckill:
     topic: ${SECKILL_ORDER_TOPIC:sundry.seckill.order.create}
     result-ttl: 30m
+    timeout-scan-interval: 5s
+    timeout-batch-size: 100
   cleanup:
     enabled: true
     cron: "0 0 3 * * *"

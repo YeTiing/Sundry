@@ -130,6 +130,12 @@
         WHERE id = #{id} AND status = 'PENDING_PAYMENT'
     </update>
 
+    <update id="cancelByOrderNo">
+        UPDATE orders
+        SET status = 'CANCELLED', cancelled_at = NOW(3)
+        WHERE order_no = #{orderNo} AND status = 'PENDING_PAYMENT'
+    </update>
+
     <!-- 用户申请退款：只允许已支付/打包中且含实物的订单 -->
     <update id="requestRefund">
         UPDATE orders

@@ -11,6 +11,7 @@ public class SeckillProperties {
 
     private String topic = "sundry.seckill.order.create";
     private Duration resultTtl = Duration.ofMinutes(30);
+    private int timeoutBatchSize = 100;
 
     public String getTopic() {
         return topic;
@@ -26,5 +27,13 @@ public class SeckillProperties {
 
     public void setResultTtl(Duration resultTtl) {
         this.resultTtl = resultTtl;
+    }
+
+    public int getTimeoutBatchSize() {
+        return timeoutBatchSize;
+    }
+
+    public void setTimeoutBatchSize(int timeoutBatchSize) {
+        this.timeoutBatchSize = timeoutBatchSize;
     }
 }

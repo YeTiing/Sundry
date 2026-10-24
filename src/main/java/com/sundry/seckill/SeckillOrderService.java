@@ -13,6 +13,7 @@ import com.sundry.order.OrderItem;
 import com.sundry.order.OrderItemMapper;
 import com.sundry.order.OrderMapper;
 import com.sundry.order.OrderNoGenerator;
+import com.sundry.order.OrderProperties;
 import com.sundry.order.OrderSource;
 import com.sundry.order.OrderStatus;
 import com.sundry.seckill.dto.CreateSeckillOrderRequest;
@@ -46,15 +47,19 @@ public class SeckillOrderService {
     private final ObjectStorage storage;
     private final SeckillStockService stockService;
     private final SeckillResultService resultService;
+    private final SeckillTimeoutService timeoutService;
     private final SeckillOrderPublisher publisher;
     private final OrderNoGenerator orderNoGenerator;
+    private final OrderProperties orderProperties;
     private final TransactionTemplate transactionTemplate;
 
     public SeckillOrderService(SeckillActivityMapper activityMapper, OrderMapper orderMapper,
                                OrderItemMapper orderItemMapper, ProductMapper productMapper,
                                UserAddressMapper addressMapper, ObjectStorage storage,
                                SeckillStockService stockService, SeckillResultService resultService,
+                               SeckillTimeoutService timeoutService,
                                SeckillOrderPublisher publisher, OrderNoGenerator orderNoGenerator,
+                               OrderProperties orderProperties,
                                TransactionTemplate transactionTemplate) {
         this.activityMapper = activityMapper;
         this.orderMapper = orderMapper;
@@ -64,8 +69,10 @@ public class SeckillOrderService {
         this.storage = storage;
         this.stockService = stockService;
         this.resultService = resultService;
+        this.timeoutService = timeoutService;
         this.publisher = publisher;
         this.orderNoGenerator = orderNoGenerator;
+        this.orderProperties = orderProperties;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -135,6 +142,8 @@ public class SeckillOrderService {
 
             String orderNo = transactionTemplate.execute(status ->
                     doCreate(userId, activity, product, address));
+            // 放入延迟队列，支付截止后由 worker 取消；DB 扫描任务仍然兜底
+            timeoutService.add(orderNo, LocalDateTime.now().plus(orderProperties.getPayTimeout()));
             resultService.success(message.requestId(), orderNo);
         } catch (DuplicateKeyException ex) {
             Order duplicate = orderMapper.findSeckillOrder(userId, activityId);

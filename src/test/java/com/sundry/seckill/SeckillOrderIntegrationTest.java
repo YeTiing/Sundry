@@ -75,6 +75,12 @@ class SeckillOrderIntegrationTest {
     @Autowired
     private RecordingSeckillOrderPublisher publisher;
 
+    @Autowired
+    private SeckillTimeoutService timeoutService;
+
+    @Autowired
+    private SeckillTimeoutProcessor timeoutProcessor;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
@@ -422,6 +428,110 @@ class SeckillOrderIntegrationTest {
                 .andExpect(jsonPath("$.code").value("SECKILL_RESULT_NOT_FOUND"));
     }
 
+    @Test
+    void createdOrderIsScheduledForTimeout() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createDigitalProduct(admin.token(), "超时队列", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 2);
+        activate(admin.token(), activityId);
+
+        String requestId = submitAndProcess(user.token(), activityId, null);
+        String orderNo = orderNoOfResult(user.token(), requestId);
+
+        Double score = redis.opsForZSet().score("seckill:timeout", orderNo);
+        assertThat(score).isNotNull();
+        assertThat(score).isGreaterThan(System.currentTimeMillis());
+    }
+
+    @Test
+    void expiredOrderIsCancelledAndStockRestored() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "超时取消", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 2);
+        activate(admin.token(), activityId);
+        long addressId = createAddress(user.token());
+
+        String requestId = submitAndProcess(user.token(), activityId, addressId);
+        String orderNo = orderNoOfResult(user.token(), requestId);
+
+        timeoutService.add(orderNo, LocalDateTime.now().minusSeconds(1));
+        timeoutProcessor.cancelExpired();
+
+        assertThat(statusOf(orderNo)).isEqualTo("CANCELLED");
+        assertThat(soldCount(activityId)).isZero();
+        assertThat(stockOf(productId)).isEqualTo(5);
+        assertThat(stockService.remaining(activityId)).isEqualTo(2);
+        // 购买标记保留，不能重复抢
+        assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
+                String.valueOf(user.id()))).isTrue();
+    }
+
+    @Test
+    void notYetExpiredOrderIsKept() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createDigitalProduct(admin.token(), "未到期", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 2);
+        activate(admin.token(), activityId);
+
+        String requestId = submitAndProcess(user.token(), activityId, null);
+        String orderNo = orderNoOfResult(user.token(), requestId);
+
+        timeoutService.add(orderNo, LocalDateTime.now().plusMinutes(10));
+        timeoutProcessor.cancelExpired();
+
+        assertThat(statusOf(orderNo)).isEqualTo("PENDING_PAYMENT");
+        assertThat(soldCount(activityId)).isEqualTo(1);
+        assertThat(stockService.remaining(activityId)).isEqualTo(1);
+    }
+
+    @Test
+    void paidOrderIsNotCancelledByTimeout() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "已支付不取消", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 2);
+        activate(admin.token(), activityId);
+        long addressId = createAddress(user.token());
+
+        String requestId = submitAndProcess(user.token(), activityId, addressId);
+        String orderNo = orderNoOfResult(user.token(), requestId);
+        mockMvc.perform(post("/api/orders/{orderNo}/pay", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk());
+
+        timeoutService.add(orderNo, LocalDateTime.now().minusSeconds(1));
+        timeoutProcessor.cancelExpired();
+
+        assertThat(statusOf(orderNo)).isEqualTo("PAID");
+        assertThat(soldCount(activityId)).isEqualTo(1);
+        assertThat(stockOf(productId)).isEqualTo(4);
+        assertThat(stockService.remaining(activityId)).isEqualTo(1);
+    }
+
+    @Test
+    void timeoutCancellationIsIdempotent() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "重复取消", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 2);
+        activate(admin.token(), activityId);
+        long addressId = createAddress(user.token());
+
+        String requestId = submitAndProcess(user.token(), activityId, addressId);
+        String orderNo = orderNoOfResult(user.token(), requestId);
+
+        timeoutService.add(orderNo, LocalDateTime.now().minusSeconds(1));
+        timeoutProcessor.cancelExpired();
+        timeoutProcessor.cancelExpired();
+
+        assertThat(statusOf(orderNo)).isEqualTo("CANCELLED");
+        assertThat(stockOf(productId)).isEqualTo(5);
+        assertThat(stockService.remaining(activityId)).isEqualTo(2);
+    }
+
     private String submit(String token, long activityId, Long addressId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/seckill/orders")
                         .header(HttpHeaders.AUTHORIZATION, bearer(token))
@@ -580,6 +690,11 @@ class SeckillOrderIntegrationTest {
     private long ordersOf(long activityId) {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM orders WHERE activity_id = ?", Long.class, activityId);
+    }
+
+    private String statusOf(String orderNo) {
+        return jdbcTemplate.queryForObject(
+                "SELECT status FROM orders WHERE order_no = ?", String.class, orderNo);
     }
 
     private Session register(String phone) throws Exception {

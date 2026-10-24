@@ -645,6 +645,21 @@ public class OrderService {
         }
     }
 
+    /**
+     * 秒杀延迟队列取到的到期订单：只有待支付才取消，并回补商品、活动和 Redis 库存。
+     */
+    public void cancelTimeoutOrder(String orderNo) {
+        Order order = orderMapper.findByOrderNo(orderNo);
+        if (order == null || order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            return;
+        }
+        transactionTemplate.executeWithoutResult(status -> {
+            if (orderMapper.cancelByOrderNo(orderNo) == 1) {
+                restoreStock(order);
+            }
+        });
+    }
+
     private boolean isReturnInProgress(OrderStatus status) {
         return status == OrderStatus.RETURN_REQUESTED
                 || status == OrderStatus.RETURNING

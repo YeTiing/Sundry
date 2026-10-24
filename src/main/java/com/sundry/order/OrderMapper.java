@@ -46,6 +46,8 @@ public interface OrderMapper {
 
     int cancelById(@Param("id") Long id);
 
+    int cancelByOrderNo(@Param("orderNo") String orderNo);
+
     int requestRefund(@Param("orderNo") String orderNo, @Param("userId") Long userId);
 
     int approveRefund(@Param("orderNo") String orderNo);
