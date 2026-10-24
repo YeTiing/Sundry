@@ -17,6 +17,7 @@ export interface SaveProductPayload {
   name: string
   description: string
   price: string
+  stock: number | null
   categoryId: number
   coverFileId: number | null
   type: ProductType

@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AdminProductsView from '@/views/AdminProductsView.vue'
 import AdminView from '@/views/AdminView.vue'
+import AddressesView from '@/views/AddressesView.vue'
+import CartView from '@/views/CartView.vue'
 import HomeView from '@/views/HomeView.vue'
 import LoginView from '@/views/LoginView.vue'
 import ProductDetailView from '@/views/ProductDetailView.vue'
@@ -25,6 +27,18 @@ const router = createRouter({
       path: '/account',
       name: 'account',
       component: HomeView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/cart',
+      name: 'cart',
+      component: CartView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/addresses',
+      name: 'addresses',
+      component: AddressesView,
       meta: { requiresAuth: true },
     },
     {

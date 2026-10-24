@@ -1,22 +1,65 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import SiteHeader from '@/components/SiteHeader.vue'
+import { cartApi } from '@/api/cart'
 import { catalogApi } from '@/api/catalog'
 import { shopApi } from '@/api/shop'
+import { useAuthStore } from '@/stores/auth'
 import type { Product, ShopView } from '@/api/types'
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 const product = ref<Product | null>(null)
 const shop = ref<ShopView | null>(null)
 const loading = ref(true)
 const error = ref('')
+const quantity = ref(1)
+const adding = ref(false)
+const cartNotice = ref('')
+const cartError = ref('')
 
 function formatPrice(value: number): string {
   return `¥${Number(value).toFixed(2)}`
 }
 
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : '操作失败，请稍后重试'
+}
+
+async function addToCart(): Promise<void> {
+  if (!product.value || adding.value) return
+  if (!auth.isAuthenticated) {
+    await router.push({ name: 'login', query: { redirect: route.fullPath } })
+    return
+  }
+  const count = Number(quantity.value)
+  if (!Number.isInteger(count) || count < 1) {
+    cartError.value = '数量必须是正整数'
+    return
+  }
+  if (product.value.type === 'PHYSICAL' && count > product.value.stock) {
+    cartError.value = `库存只剩 ${product.value.stock} 件`
+    return
+  }
+  adding.value = true
+  cartError.value = ''
+  cartNotice.value = ''
+  try {
+    await cartApi.add(product.value.id, count)
+    cartNotice.value = '已加入购物车'
+  } catch (err) {
+    cartError.value = messageOf(err)
+  } finally {
+    adding.value = false
+  }
+}
+
 async function load(): Promise<void> {
+  quantity.value = 1
+  cartNotice.value = ''
+  cartError.value = ''
   const id = Number(route.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     product.value = null
@@ -69,7 +112,34 @@ onMounted(async () => {
           </span>
           <h1 class="product-detail__name">{{ product.name }}</h1>
           <p class="product-detail__price">{{ formatPrice(product.price) }}</p>
+          <p v-if="product.type === 'PHYSICAL'" class="panel-note">
+            {{ product.stock > 0 ? `库存 ${product.stock} 件` : '暂时缺货' }}
+          </p>
+          <p v-else class="panel-note">数字商品，付款后可下载</p>
           <p class="product-detail__desc">{{ product.description }}</p>
+
+          <div class="buy-row">
+            <label class="field buy-row__qty">
+              <span class="field__label">数量</span>
+              <input
+                v-model.number="quantity"
+                type="number"
+                min="1"
+                :max="product.type === 'PHYSICAL' ? product.stock : undefined"
+              />
+            </label>
+            <button
+              class="primary-button buy-row__action"
+              type="button"
+              :disabled="adding || (product.type === 'PHYSICAL' && product.stock <= 0)"
+              @click="addToCart"
+            >
+              {{ adding ? '加入中…' : '加入购物车' }}
+            </button>
+            <RouterLink class="secondary-button" to="/cart">去购物车</RouterLink>
+          </div>
+          <p v-if="cartError" class="form-error">{{ cartError }}</p>
+          <p v-if="cartNotice" class="notice">{{ cartNotice }}</p>
         </div>
       </article>
 

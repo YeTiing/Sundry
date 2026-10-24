@@ -69,6 +69,7 @@ export interface Product {
   description: string
   type: ProductType
   price: number
+  stock: number
   categoryId: number
   categoryName: string
   coverFileId: number | null
@@ -77,6 +78,39 @@ export interface Product {
   status: ProductStatus
   deletedAt: string | null
   createdAt: string
+}
+
+export interface CartItem {
+  id: number
+  productId: number
+  productName: string
+  productType: ProductType
+  price: number
+  quantity: number
+  stock: number
+  coverUrl: string | null
+  available: boolean
+}
+
+export interface Address {
+  id: number
+  receiverName: string
+  receiverPhone: string
+  province: string
+  city: string
+  district: string
+  detail: string
+  isDefault: boolean
+}
+
+export interface AddressPayload {
+  receiverName: string
+  receiverPhone: string
+  province: string
+  city: string
+  district: string
+  detail: string
+  isDefault: boolean
 }
 
 export interface DigitalPart {

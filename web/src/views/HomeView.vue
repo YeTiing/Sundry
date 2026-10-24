@@ -156,6 +156,10 @@ async function logout(): Promise<void> {
       </div>
     </dl>
 
+    <RouterLink class="secondary-button home-admin-link" to="/cart">我的购物车</RouterLink>
+
+    <RouterLink class="secondary-button home-admin-link" to="/addresses">收货地址</RouterLink>
+
     <RouterLink class="quiet-button home-admin-link" to="/">返回商城</RouterLink>
 
     <RouterLink v-if="auth.isAdmin" class="primary-button home-admin-link" to="/admin">

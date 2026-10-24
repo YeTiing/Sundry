@@ -27,6 +27,7 @@ const editingId = ref<number | null>(null)
 const name = ref('')
 const description = ref('')
 const priceInput = ref('')
+const stockInput = ref('')
 const categoryId = ref<number | null>(null)
 const coverFileId = ref<number | null>(null)
 const coverUrl = ref('')
@@ -95,6 +96,7 @@ function resetForm(): void {
   name.value = ''
   description.value = ''
   priceInput.value = ''
+  stockInput.value = ''
   categoryId.value = categories.value[0]?.id ?? null
   coverFileId.value = null
   coverUrl.value = ''
@@ -120,6 +122,7 @@ function startEdit(product: Product): void {
   name.value = product.name
   description.value = product.description
   priceInput.value = Number(product.price).toFixed(2)
+  stockInput.value = product.type === 'PHYSICAL' ? String(product.stock) : ''
   categoryId.value = product.categoryId
   coverFileId.value = product.coverFileId
   coverUrl.value = product.coverUrl ?? ''
@@ -138,6 +141,9 @@ function validateForm(): string {
     return '价格格式不正确，最多 8 位整数和 2 位小数'
   }
   if (categoryId.value === null) return '请选择分类'
+  if (type.value === 'PHYSICAL' && !/^\d+$/.test(stockInput.value.trim())) {
+    return '实物商品库存必须是非负整数'
+  }
   if (digitalUploading.value) return '数字文件还在上传中，请稍候'
   if (type.value === 'DIGITAL' && digitalFileId.value === null) return '请先上传数字文件'
   return ''
@@ -163,6 +169,7 @@ async function save(): Promise<void> {
       name: name.value.trim(),
       description: description.value.trim(),
       price: priceInput.value.trim(),
+      stock: type.value === 'PHYSICAL' ? Number(stockInput.value.trim()) : null,
       categoryId: categoryId.value!,
       coverFileId: coverFileId.value,
       type: type.value,
@@ -344,7 +351,7 @@ onMounted(async () => {
             <div>
               <h2>{{ isEditing ? '编辑商品' : '新建商品' }}</h2>
               <p class="panel-note">
-                库存和下单后面再做。价格单位元，最多两位小数；封面从本地上传后会存到 MinIO。
+                价格单位元，最多两位小数；实物商品需要填写库存，数字商品忽略库存。
               </p>
             </div>
             <button v-if="isEditing" class="secondary-button" type="button" @click="startCreate">
@@ -368,6 +375,16 @@ onMounted(async () => {
                   type="text"
                   inputmode="decimal"
                   placeholder="0.00"
+                />
+              </label>
+
+              <label v-if="type === 'PHYSICAL'" class="field">
+                <span class="field__label">库存</span>
+                <input
+                  v-model.trim="stockInput"
+                  type="text"
+                  inputmode="numeric"
+                  placeholder="例如：100"
                 />
               </label>
 
@@ -517,6 +534,7 @@ onMounted(async () => {
                 <th>类型</th>
                 <th>分类</th>
                 <th>价格</th>
+                <th>库存</th>
                 <th>状态</th>
                 <th>操作</th>
               </tr>
@@ -528,6 +546,7 @@ onMounted(async () => {
                 <td>{{ product.type === 'DIGITAL' ? '数字' : '实物' }}</td>
                 <td>{{ product.categoryName }}</td>
                 <td class="mono">{{ formatPrice(product.price) }}</td>
+                <td class="mono">{{ product.type === 'DIGITAL' ? '—' : product.stock }}</td>
                 <td>
                   <span v-if="deletedView" class="status-pill" data-status="DELETED">
                     已删除
@@ -565,7 +584,7 @@ onMounted(async () => {
                 </td>
               </tr>
               <tr v-if="!listLoading && products.length === 0">
-                <td colspan="7" class="panel-note">
+                <td colspan="8" class="panel-note">
                   {{ deletedView ? '回收站是空的' : '还没有商品' }}
                 </td>
               </tr>
