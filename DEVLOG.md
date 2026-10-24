@@ -32,7 +32,7 @@
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 137 个集成测试，`mvn test` 全绿 |
+| 测试 | 142 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告 |
 
@@ -1269,12 +1269,55 @@ sundry_seckill_compensation_total = 0
 
 - `401268c` feat: 商品详情管理员操作
 
+## 2026-10-24 · 商品列表滑动分页（keyset）
+
+**做了什么**
+
+- V16 增加索引：
+  - `(status, deleted_at, id)`
+  - `(status, deleted_at, category_id, id)`
+- 新增 `GET /api/products/scroll?categoryId=&cursor=&size=`
+  - 按 `id` 倒序，`id < cursor`
+  - 多取一条判断 `hasMore`
+  - 返回 `{ items, nextCursor, hasMore }`
+  - 不传 cursor 取第一页
+- 后端直查 DB，不新增 Redis 结构；商品卡片继续复用详情三级缓存
+- 旧的 `GET /api/products?page=&size=` 保留，后台分页不受影响
+- 前端商品列表改为滑动加载：
+  - `IntersectionObserver` 提前预加载
+  - 按商品 id 去重
+  - 分类切换重置游标
+  - 请求序号防止旧分类结果覆盖新分类
+  - 保留「加载更多」按钮作为兜底
+  - 底部显示加载中 / 没有更多
+
+**说明**
+
+- 当前排序是 `id DESC`；按销量/价格排序时需要复合游标，后续再做
+- 深层游标暂不缓存，避免 Redis 被无限游标撑大
+- 第一版没有改 Feed，只是普通商品列表的滑动分页
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 142 个用例全部通过（新增 5 个游标分页用例）
+  - 三页共 25 条无重复、无遗漏
+  - 分类过滤正确
+  - 空分类
+  - 非法 cursor 400
+  - 旧 page 接口仍可用
+- `npm run build` 通过
+- 本机实测：82 个商品，第一页 12 条，第二页游标 78 继续返回 12 条，索引已生效
+
+**提交**
+
+- `c29d175` feat: 商品列表 keyset 滑动分页
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
-- 先做：滑动分页 / keyset（不依赖 AI）
-- 之后：A1 公告 + 已读 → A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
+- 下一步：A1 公告 + 已读 + 未读数
+- 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
 
 ## 已知风险 / 上线前必须处理
