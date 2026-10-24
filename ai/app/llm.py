@@ -30,8 +30,8 @@ class DeepSeekClient:
                 {"role": "user", "content": user},
             ],
             response_format={"type": "json_object"},
-            temperature=0.3,
-            max_tokens=1500,
+            temperature=0.2,
+            max_tokens=2500,
             timeout=self._timeout,
         )
         return response.choices[0].message.content or ""

@@ -1494,6 +1494,9 @@ sundry_seckill_compensation_total = 0
 - 异步化后 `refresh=true` 不再同步返回新排序；测试改为 AI 关闭时保持原行为，AI 开启用单独用例验证
 - 本地联调时后端没有配置 `AI_INTERNAL_TOKEN`，`FeedService` 直接降级，表现为"换一批没反应"；令牌已写进 `application-local.yml`（gitignored）
 - Java 的 `RestClient` 直接发送对象会使用 `Transfer-Encoding: chunked`，本地 uvicorn 收不到完整请求，报 `content type [application/octet-stream]`。改为先用 `ObjectMapper` 序列化成 String 再发送，固定 `Content-Length`
+- 60 个候选的 LLM 调用实测 4~11 秒，原来的 5 秒读超时让 Java 先断开连接，uvicorn 的 200 响应到达时客户端已经关闭。`app.ai.timeout` 调到 30 秒，前端轮询改为 10 次（15 秒）
+- 60 个候选下模型偶发非法 JSON；温度降到 0.2、`max_tokens` 提到 2500，并在 Python 侧记录非法输出原文，便于排查
+- 审计里的 `returned_count` 改为模型实际返回数量，不再用合并后的快照长度
 
 **验证**
 

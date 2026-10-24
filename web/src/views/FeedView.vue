@@ -9,7 +9,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useFeedStore } from '@/stores/feed'
 
 const PAGE_SIZE = 12
-const POLL_TIMES = 3
+// LLM 重排实测 4~11 秒，轮询窗口覆盖 15 秒
+const POLL_TIMES = 10
 const POLL_INTERVAL_MS = 1500
 
 const auth = useAuthStore()

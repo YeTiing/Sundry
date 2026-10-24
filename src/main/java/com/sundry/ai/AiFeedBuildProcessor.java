@@ -98,23 +98,23 @@ public class AiFeedBuildProcessor {
                     userId, bundle.profile(), bundle.candidates(),
                     properties.getFeedRerankLimit()), traceId);
 
-            List<SnapshotItem> items = merge(response.items(), bundle);
-            if (items.isEmpty()) {
+            MergeResult merged = merge(response.items(), bundle);
+            if (merged.items().isEmpty()) {
                 throw new AiFeedException("NO_VALID_ITEMS");
             }
 
             if (!pending.equals(store.pending(userId))) {
                 audit(userId, traceId, response.model(), response.promptVersion(),
-                        candidateCount, items.size(), start, "STALE", "superseded");
+                        candidateCount, merged.llmCount(), start, "STALE", "superseded");
                 return true;
             }
 
             store.saveSnapshot(userId, new FeedSnapshot(pending, LocalDateTime.now(),
-                    response.model(), response.promptVersion(), items));
+                    response.model(), response.promptVersion(), merged.items()));
             store.clearPending(userId);
             store.clearAttempts(userId);
             audit(userId, traceId, response.model(), response.promptVersion(),
-                    candidateCount, items.size(), start, "SUCCESS", null);
+                    candidateCount, merged.llmCount(), start, "SUCCESS", null);
             return true;
         } catch (RuntimeException ex) {
             long attempt = store.nextAttempt(userId);
@@ -136,8 +136,8 @@ public class AiFeedBuildProcessor {
         }
     }
 
-    private List<SnapshotItem> merge(List<RerankResponse.RerankItem> raw,
-                                     AiFeedProfileService.CandidateBundle bundle) {
+    private MergeResult merge(List<RerankResponse.RerankItem> raw,
+                              AiFeedProfileService.CandidateBundle bundle) {
         Map<Long, String> allowed = new LinkedHashMap<>();
         for (RerankRequest.Candidate candidate : bundle.candidates()) {
             allowed.put(candidate.id(), candidate.name());
@@ -145,6 +145,7 @@ public class AiFeedBuildProcessor {
 
         Set<Long> seen = new HashSet<>();
         List<SnapshotItem> items = new ArrayList<>();
+        int llmCount = 0;
         if (raw != null) {
             for (RerankResponse.RerankItem item : raw) {
                 if (item == null || item.id() == null
@@ -152,6 +153,7 @@ public class AiFeedBuildProcessor {
                     continue;
                 }
                 items.add(new SnapshotItem(item.id(), sanitize(item.reason())));
+                llmCount++;
                 if (items.size() >= properties.getFeedRerankLimit()) {
                     break;
                 }
@@ -169,7 +171,10 @@ public class AiFeedBuildProcessor {
                 items.add(new SnapshotItem(id, null));
             }
         }
-        return items;
+        return new MergeResult(items, llmCount);
+    }
+
+    private record MergeResult(List<SnapshotItem> items, int llmCount) {
     }
 
     private String sanitize(String reason) {

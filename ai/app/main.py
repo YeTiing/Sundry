@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -8,6 +9,8 @@ from app.config import Settings, get_settings
 from app.llm import LlmClient, get_llm
 from app.prompt import PROMPT_VERSION, build_user_prompt, system_prompt
 from app.schemas import LlmOutput, RerankItem, RerankRequest, RerankResponse
+
+logger = logging.getLogger("sundry.ai")
 
 app = FastAPI(title="Sundry AI", version="0.1.0")
 
@@ -48,6 +51,7 @@ async def rerank(
     try:
         parsed = LlmOutput.model_validate(json.loads(raw))
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+        logger.warning("invalid llm output: %s", raw[:1000])
         raise HTTPException(status_code=422, detail="model returned invalid json") from exc
 
     allowed = {candidate.id for candidate in request.candidates}

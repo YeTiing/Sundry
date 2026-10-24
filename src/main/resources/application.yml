@@ -79,7 +79,7 @@ app:
     enabled: ${AI_FEED_ENABLED:true}
     base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
     internal-token: ${AI_INTERNAL_TOKEN:}
-    timeout: ${AI_TIMEOUT:5s}
+    timeout: ${AI_TIMEOUT:30s}
     feed-candidate-limit: ${AI_FEED_CANDIDATE_LIMIT:60}
     feed-rerank-limit: ${AI_FEED_RERANK_LIMIT:20}
     feed-cache-ttl: ${AI_FEED_CACHE_TTL:10m}
