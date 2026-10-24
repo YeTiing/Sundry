@@ -28,10 +28,11 @@
 | 订单 | 购物车下单、条件扣库存、模拟支付、打包/发货/确认收货、30 分钟超时取消、数字下载；后台订单带买家手机号/昵称 |
 | 退款 | 用户申请（已支付/打包中且含实物）→ 商家通过/拒绝；审核前可撤销；通过后回补库存 |
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
-| 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、用户限流 |
+| 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
-| 测试 | 129 个集成测试，`mvn test` 全绿 |
+| 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
+| 测试 | 131 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告 |
 
@@ -1127,9 +1128,36 @@ ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
 
 - `6d98312` feat: 秒杀用户限流与 Prometheus 指标
 
+## 2026-10-24 · 秒杀 S7：对账与压测
+
+**做了什么**
+
+- 对账服务：
+  - 对比 `sold_count` 与有效订单数（排除 CANCELLED / REFUNDED）
+  - 对比 Redis 剩余库存与 DB 剩余库存（`stock - sold_count`）
+  - 默认只报告，写 `sundry.seckill.reconcile.mismatch` 指标并记录日志
+  - `repair=true` 且 `sold_count` 一致时，按 DB 重建 Redis 库存；已售数不一致时拒绝自动修复
+- 后台接口：`POST /api/admin/seckill/activities/{id}/reconcile?repair=true`
+- 每天 4:30 对进行中的活动做一次只读对账
+- 压测脚本：
+  - `loadtest/browse.js`：商品列表 + 详情 + 分类并发读
+  - `loadtest/seckill.js`：多用户并发抢购，支持 VUS / ITERATIONS
+  - `loadtest/README.md`：环境准备、活动准备、结果校验 SQL 和 Prometheus 指标
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 131 个用例全部通过（新增 2 个对账用例）
+  - 一致时报告正常
+  - 人为制造 Redis 库存漂移后能识别，repair 后恢复
+  - 对账接口仅管理员可用
+- 压测脚本未在 CI 中执行，需本机启动完整环境后手动跑
+
+**提交**
+
+- `34a0e13` feat: 秒杀对账与 k6 压测脚本
+
 ## 待办 / 下一步
 
-- 秒杀 S7：对账与压测
 - 分类管理（新增/排序/停用；目前只有迁移种子）
 - 并发压测；热点 SKU/秒杀再引入 Redis（当前 DB-only）
 - 真实支付渠道接入（当前模拟支付，商户资质是前置）
