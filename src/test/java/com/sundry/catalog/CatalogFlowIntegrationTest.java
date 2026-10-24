@@ -56,6 +56,9 @@ class CatalogFlowIntegrationTest {
     @Autowired
     private CapturingSmsSender smsSender;
 
+    @Autowired
+    private ProductCacheService productCacheService;
+
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("DELETE FROM order_item");
@@ -68,6 +71,11 @@ class CatalogFlowIntegrationTest {
         if (keys != null && !keys.isEmpty()) {
             redis.delete(keys);
         }
+        Set<String> cacheKeys = redis.keys("cache:*");
+        if (cacheKeys != null && !cacheKeys.isEmpty()) {
+            redis.delete(cacheKeys);
+        }
+        productCacheService.clearLocalCaches();
         smsSender.clear();
     }
 

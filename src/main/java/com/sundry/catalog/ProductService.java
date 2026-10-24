@@ -26,20 +26,28 @@ public class ProductService {
     private final CategoryMapper categoryMapper;
     private final FileObjectMapper fileObjectMapper;
     private final ObjectStorage storage;
+    private final ProductCacheService cache;
 
     public ProductService(ProductMapper productMapper, CategoryMapper categoryMapper,
-                          FileObjectMapper fileObjectMapper, ObjectStorage storage) {
+                          FileObjectMapper fileObjectMapper, ObjectStorage storage,
+                          ProductCacheService cache) {
         this.productMapper = productMapper;
         this.categoryMapper = categoryMapper;
         this.fileObjectMapper = fileObjectMapper;
         this.storage = storage;
+        this.cache = cache;
     }
 
     public List<CategoryView> categories() {
-        return categoryMapper.findActive().stream().map(CategoryView::from).toList();
+        return cache.categories(() -> categoryMapper.findActive().stream()
+                .map(CategoryView::from).toList());
     }
 
     public PageResponse<ProductView> findPublicPage(Long categoryId, int page, int size) {
+        return cache.list(categoryId, page, size, () -> doFindPublicPage(categoryId, page, size));
+    }
+
+    private PageResponse<ProductView> doFindPublicPage(Long categoryId, int page, int size) {
         long offset = (long) (page - 1) * size;
         List<ProductView> items = productMapper.findPagePublic(categoryId, offset, size)
                 .stream().map(this::toView).toList();
@@ -54,11 +62,14 @@ public class ProductService {
     }
 
     public ProductView findPublic(Long id) {
-        Product product = productMapper.findPublicById(id);
-        if (product == null) {
+        ProductView view = cache.detail(id, () -> {
+            Product product = productMapper.findPublicById(id);
+            return product == null ? null : toView(product);
+        });
+        if (view == null) {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
-        return toView(product);
+        return view;
     }
 
     public ProductView findAdmin(Long id) {
@@ -101,6 +112,8 @@ public class ProductService {
             }
             throw ex;
         }
+        cache.evictDetail(product.getId());
+        cache.evictLists();
         return toView(productMapper.findById(product.getId()));
     }
 
@@ -124,6 +137,7 @@ public class ProductService {
         product.setId(id);
         apply(product, request);
         productMapper.update(product);
+        evict(id);
         return toView(productMapper.findById(id));
     }
 
@@ -132,6 +146,7 @@ public class ProductService {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
         productMapper.updateStatus(id, status);
+        evict(id);
         return toView(productMapper.findById(id));
     }
 
@@ -145,6 +160,7 @@ public class ProductService {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
         productMapper.softDelete(id);
+        evict(id);
     }
 
     public PageResponse<ProductView> findDeletedPage(int page, int size) {
@@ -161,7 +177,13 @@ public class ProductService {
         if (productMapper.restore(id) == 0) {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
+        evict(id);
         return toView(productMapper.findById(id));
+    }
+
+    private void evict(Long id) {
+        cache.evictDetail(id);
+        cache.evictLists();
     }
 
     private void apply(Product product, SaveProductRequest request) {
