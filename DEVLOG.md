@@ -1312,6 +1312,27 @@ sundry_seckill_compensation_total = 0
 
 - `c29d175` feat: 商品列表 keyset 滑动分页
 
+## 2026-10-24 · 滑动列表返回保持位置
+
+**做了什么**
+
+- 新增 Pinia `catalog` store，保存分类、商品、游标、hasMore 和滚动位置
+- 商品列表从详情页返回时：
+  - 不重新请求第一页
+  - 恢复之前的商品和滚动位置
+- 切换分类时重置列表并回到顶部
+- 滚动位置用 `requestAnimationFrame` 节流保存，组件卸载时再保存一次
+- 浏览器整页刷新仍会重新加载（内存状态不持久化）
+
+**验证**
+
+- `npm run build` 通过
+- 后端测试未改，仍是 142 个
+
+**提交**
+
+- `4f348c8` fix: 商品列表返回时保留数据与滚动位置
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
