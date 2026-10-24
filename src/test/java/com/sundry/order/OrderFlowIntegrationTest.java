@@ -70,6 +70,7 @@ class OrderFlowIntegrationTest {
         jdbcTemplate.update("DELETE FROM orders");
         jdbcTemplate.update("DELETE FROM cart_item");
         jdbcTemplate.update("DELETE FROM user_address");
+        jdbcTemplate.update("DELETE FROM seckill_activity");
         jdbcTemplate.update("DELETE FROM product");
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");

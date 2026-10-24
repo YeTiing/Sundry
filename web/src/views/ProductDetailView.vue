@@ -4,14 +4,16 @@ import { useRoute, useRouter } from 'vue-router'
 import SiteHeader from '@/components/SiteHeader.vue'
 import { cartApi } from '@/api/cart'
 import { catalogApi } from '@/api/catalog'
+import { seckillApi } from '@/api/seckill'
 import { shopApi } from '@/api/shop'
 import { useAuthStore } from '@/stores/auth'
-import type { Product, ShopView } from '@/api/types'
+import type { Product, SeckillActivity, ShopView } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const product = ref<Product | null>(null)
+const seckill = ref<SeckillActivity | null>(null)
 const shop = ref<ShopView | null>(null)
 const loading = ref(true)
 const error = ref('')
@@ -71,8 +73,15 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     product.value = await catalogApi.product(id)
+    try {
+      seckill.value = await seckillApi.productActivity(id)
+    } catch {
+      // 没有进行中的秒杀活动时后端返回 404，按普通商品处理
+      seckill.value = null
+    }
   } catch (err) {
     product.value = null
+    seckill.value = null
     error.value = err instanceof Error ? err.message : '商品加载失败'
   } finally {
     loading.value = false
@@ -109,9 +118,18 @@ onMounted(async () => {
         <div class="product-detail__body">
           <span class="product-card__category">
             {{ product.categoryName }} · {{ product.type === 'DIGITAL' ? '数字商品' : '实物商品' }}
+            <span v-if="seckill" class="seckill-badge">秒杀</span>
           </span>
           <h1 class="product-detail__name">{{ product.name }}</h1>
-          <p class="product-detail__price">{{ formatPrice(product.price) }}</p>
+          <p v-if="seckill" class="product-detail__price seckill-price">
+            {{ formatPrice(seckill.seckillPrice) }}
+            <span class="price-original">{{ formatPrice(product.price) }}</span>
+          </p>
+          <p v-else class="product-detail__price">{{ formatPrice(product.price) }}</p>
+          <p v-if="seckill" class="seckill-note">
+            秒杀进行中 · 每人限购 {{ seckill.perUserLimit }} 件 · 剩余 {{ seckill.remaining }} 件
+            · 活动至 {{ new Date(seckill.endAt).toLocaleString('zh-CN') }}
+          </p>
           <p v-if="product.type === 'PHYSICAL'" class="panel-note">
             {{ product.stock > 0 ? `库存 ${product.stock} 件` : '暂时缺货' }}
           </p>
@@ -119,23 +137,30 @@ onMounted(async () => {
           <p class="product-detail__desc">{{ product.description }}</p>
 
           <div class="buy-row">
-            <label class="field buy-row__qty">
-              <span class="field__label">数量</span>
-              <input
-                v-model.number="quantity"
-                type="number"
-                min="1"
-                :max="product.type === 'PHYSICAL' ? product.stock : undefined"
-              />
-            </label>
-            <button
-              class="primary-button buy-row__action"
-              type="button"
-              :disabled="adding || (product.type === 'PHYSICAL' && product.stock <= 0)"
-              @click="addToCart"
-            >
-              {{ adding ? '加入中…' : '加入购物车' }}
-            </button>
+            <template v-if="seckill">
+              <button class="primary-button buy-row__action" type="button" disabled>
+                秒杀进行中 · 抢购通道准备中
+              </button>
+            </template>
+            <template v-else>
+              <label class="field buy-row__qty">
+                <span class="field__label">数量</span>
+                <input
+                  v-model.number="quantity"
+                  type="number"
+                  min="1"
+                  :max="product.type === 'PHYSICAL' ? product.stock : undefined"
+                />
+              </label>
+              <button
+                class="primary-button buy-row__action"
+                type="button"
+                :disabled="adding || (product.type === 'PHYSICAL' && product.stock <= 0)"
+                @click="addToCart"
+              >
+                {{ adding ? '加入中…' : '加入购物车' }}
+              </button>
+            </template>
             <RouterLink class="secondary-button" to="/cart">去购物车</RouterLink>
           </div>
           <p v-if="cartError" class="form-error">{{ cartError }}</p>

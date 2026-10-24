@@ -69,6 +69,7 @@ class FileCleanupIntegrationTest {
     void setUp() {
         jdbcTemplate.update("DELETE FROM order_item");
         jdbcTemplate.update("DELETE FROM orders");
+        jdbcTemplate.update("DELETE FROM seckill_activity");
         jdbcTemplate.update("DELETE FROM product");
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");

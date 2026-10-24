@@ -185,6 +185,27 @@ export interface DownloadInfo {
   expiresInSeconds: number
 }
 
+export type SeckillStatus = 'DRAFT' | 'ACTIVE' | 'ENDED' | 'CANCELLED'
+
+export interface SeckillActivity {
+  id: number
+  productId: number
+  productName: string
+  productType: ProductType
+  productPrice: number
+  seckillPrice: number
+  stock: number
+  soldCount: number
+  remaining: number
+  perUserLimit: number
+  startAt: string
+  endAt: string
+  status: SeckillStatus
+  activeNow: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface DigitalPart {
   partNumber: number
   url: string

@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.seckill.SeckillActivityMapper">
+
+    <sql id="activityColumns">
+        s.id, s.product_id, s.seckill_price, s.stock, s.sold_count, s.per_user_limit,
+        s.start_at, s.end_at, s.status, s.created_at, s.updated_at
+    </sql>
+
+    <sql id="joinedColumns">
+        <include refid="activityColumns"/>,
+        p.name AS product_name, p.type AS product_type, p.price AS product_price
+    </sql>
+
+    <insert id="insert" parameterType="com.sundry.seckill.SeckillActivity"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO seckill_activity (product_id, seckill_price, stock, sold_count,
+                                      per_user_limit, start_at, end_at, status)
+        VALUES (#{productId}, #{seckillPrice}, #{stock}, #{soldCount},
+                #{perUserLimit}, #{startAt}, #{endAt}, #{status})
+    </insert>
+
+    <update id="updateDraft" parameterType="com.sundry.seckill.SeckillActivity">
+        UPDATE seckill_activity
+        SET seckill_price  = #{seckillPrice},
+            stock          = #{stock},
+            per_user_limit = #{perUserLimit},
+            start_at       = #{startAt},
+            end_at         = #{endAt}
+        WHERE id = #{id} AND status = 'DRAFT'
+    </update>
+
+    <select id="findById" resultType="com.sundry.seckill.SeckillActivity">
+        SELECT <include refid="joinedColumns"/>
+        FROM seckill_activity s
+        JOIN product p ON p.id = s.product_id
+        WHERE s.id = #{id}
+    </select>
+
+    <select id="findActiveByProduct" resultType="com.sundry.seckill.SeckillActivity">
+        SELECT <include refid="joinedColumns"/>
+        FROM seckill_activity s
+        JOIN product p ON p.id = s.product_id
+        WHERE s.product_id = #{productId}
+          AND s.status = 'ACTIVE'
+          AND s.start_at &lt;= NOW(3)
+          AND s.end_at &gt; NOW(3)
+        ORDER BY s.id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findPageAdmin" resultType="com.sundry.seckill.SeckillActivity">
+        SELECT <include refid="joinedColumns"/>
+        FROM seckill_activity s
+        JOIN product p ON p.id = s.product_id
+        <where>
+            <if test="status != null">
+                s.status = #{status}
+            </if>
+        </where>
+        ORDER BY s.id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM seckill_activity s
+        <where>
+            <if test="status != null">
+                s.status = #{status}
+            </if>
+        </where>
+    </select>
+
+    <select id="countOverlapping" resultType="long">
+        SELECT COUNT(*)
+        FROM seckill_activity
+        WHERE product_id = #{productId}
+          AND status IN
+          <foreach collection="statuses" item="item" open="(" separator="," close=")">
+              #{item}
+          </foreach>
+          AND start_at &lt; #{endAt}
+          AND end_at &gt; #{startAt}
+          <if test="excludeId != null">
+              AND id &lt;&gt; #{excludeId}
+          </if>
+    </select>
+
+    <update id="activate">
+        UPDATE seckill_activity
+        SET status = 'ACTIVE'
+        WHERE id = #{id} AND status = 'DRAFT'
+    </update>
+
+    <update id="cancel">
+        UPDATE seckill_activity
+        SET status = 'CANCELLED'
+        WHERE id = #{id} AND status IN ('DRAFT', 'ACTIVE')
+    </update>
+
+    <update id="end">
+        UPDATE seckill_activity
+        SET status = 'ENDED'
+        WHERE id = #{id} AND status = 'ACTIVE'
+    </update>
+
+</mapper>

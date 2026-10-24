@@ -1805,3 +1805,66 @@ a:hover {
     margin-left: 0;
   }
 }
+
+/* ---------- 秒杀 ---------- */
+
+.seckill-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  background: var(--stamp);
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  vertical-align: middle;
+}
+
+.seckill-price {
+  color: var(--stamp);
+}
+
+.price-original {
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 400;
+  text-decoration: line-through;
+}
+
+.seckill-note {
+  margin: 4px 0 0;
+  color: var(--stamp);
+  font-size: 13px;
+}
+
+.seckill-status {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--rule-strong);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.seckill-status[data-status='DRAFT'] {
+  color: var(--muted);
+  border-color: var(--rule-strong);
+}
+
+.seckill-status[data-status='ACTIVE'],
+.seckill-status[data-status='LIVE'] {
+  color: var(--stamp);
+  border-color: var(--stamp);
+  background: rgba(160, 43, 32, 0.06);
+}
+
+.seckill-status[data-status='ENDED'] {
+  color: var(--ink-soft);
+  border-color: var(--ink-soft);
+}
+
+.seckill-status[data-status='CANCELLED'] {
+  color: var(--muted);
+  border-color: var(--rule-strong);
+  text-decoration: line-through;
+}

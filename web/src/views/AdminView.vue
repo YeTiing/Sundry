@@ -273,6 +273,7 @@ onBeforeUnmount(() => {
           <RouterLink to="/">商城</RouterLink>
           <RouterLink to="/admin/products">商品管理</RouterLink>
           <RouterLink to="/admin/orders">订单管理</RouterLink>
+          <RouterLink to="/admin/seckill">秒杀活动</RouterLink>
           <button class="link-button" type="button" @click="logout">退出登录</button>
         </nav>
       </header>
