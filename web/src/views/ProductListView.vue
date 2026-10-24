@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import SiteHeader from '@/components/SiteHeader.vue'
 import { catalogApi } from '@/api/catalog'
-import type { Category, Product } from '@/api/types'
+import { useCatalogStore } from '@/stores/catalog'
 
 const PAGE_SIZE = 12
 
-const categories = ref<Category[]>([])
-const products = ref<Product[]>([])
-const activeCategory = ref<number | null>(null)
-const cursor = ref<number | null>(null)
-const hasMore = ref(true)
+const store = useCatalogStore()
+const { categories, products, activeCategory, cursor, hasMore } = storeToRefs(store)
+
 const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
@@ -18,6 +17,7 @@ const sentinel = ref<HTMLElement | null>(null)
 
 let observer: IntersectionObserver | null = null
 let requestSeq = 0
+let scrollTicking = false
 
 function formatPrice(value: number): string {
   return `¥${Number(value).toFixed(2)}`
@@ -28,6 +28,7 @@ function messageOf(err: unknown): string {
 }
 
 async function loadCategories(): Promise<void> {
+  if (categories.value.length > 0) return
   try {
     categories.value = await catalogApi.categories()
   } catch {
@@ -48,6 +49,7 @@ async function loadFirst(): Promise<void> {
     products.value = data.items
     cursor.value = data.nextCursor
     hasMore.value = data.hasMore
+    store.loaded = true
   } catch (err) {
     if (seq === requestSeq) {
       error.value = messageOf(err)
@@ -82,7 +84,8 @@ async function loadMore(): Promise<void> {
 
 function selectCategory(id: number | null): void {
   if (activeCategory.value === id) return
-  activeCategory.value = id
+  store.reset(id)
+  window.scrollTo({ top: 0 })
   void loadFirst()
 }
 
@@ -96,14 +99,37 @@ function setupObserver(): void {
   if (sentinel.value) observer.observe(sentinel.value)
 }
 
-onMounted(() => {
-  void loadCategories()
-  void loadFirst()
+function onScroll(): void {
+  if (scrollTicking) return
+  scrollTicking = true
+  requestAnimationFrame(() => {
+    store.scrollY = window.scrollY
+    scrollTicking = false
+  })
+}
+
+function restoreScroll(): void {
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: store.scrollY })
+  })
+}
+
+onMounted(async () => {
+  await loadCategories()
+  if (store.loaded) {
+    await nextTick()
+    restoreScroll()
+  } else {
+    await loadFirst()
+  }
   setupObserver()
+  window.addEventListener('scroll', onScroll, { passive: true })
 })
 
 onBeforeUnmount(() => {
+  store.scrollY = window.scrollY
   observer?.disconnect()
+  window.removeEventListener('scroll', onScroll)
 })
 </script>
 
