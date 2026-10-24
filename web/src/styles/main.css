@@ -1608,13 +1608,18 @@ a:hover {
 .order-status[data-status='PAID'],
 .order-status[data-status='PACKING'],
 .order-status[data-status='SHIPPED'],
-.refund-tag[data-status='APPROVED'] {
+.order-status[data-status='RETURNING'],
+.order-status[data-status='RETURN_SHIPPED'],
+.refund-tag[data-status='APPROVED'],
+.refund-tag[data-status='RETURNING'],
+.refund-tag[data-status='RETURN_SHIPPED'] {
   color: var(--blue);
   border-color: var(--blue);
   background: var(--blue-wash);
 }
 
-.order-status[data-status='COMPLETED'] {
+.order-status[data-status='COMPLETED'],
+.refund-tag[data-status='COMPLETED'] {
   color: #2f6b3a;
   border-color: #2f6b3a;
   background: rgba(47, 107, 58, 0.08);
@@ -1627,6 +1632,7 @@ a:hover {
 }
 
 .order-status[data-status='REFUND_REQUESTED'],
+.order-status[data-status='RETURN_REQUESTED'],
 .refund-tag[data-status='REJECTED'] {
   color: #8a5a00;
   border-color: #8a5a00;

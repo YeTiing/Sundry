@@ -122,9 +122,21 @@ export type OrderStatus =
   | 'COMPLETED'
   | 'CANCELLED'
   | 'REFUND_REQUESTED'
+  | 'RETURN_REQUESTED'
+  | 'RETURNING'
+  | 'RETURN_SHIPPED'
   | 'REFUNDED'
 
-export type RefundStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN'
+export type RefundStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'RETURNING'
+  | 'RETURN_SHIPPED'
+  | 'COMPLETED'
+  | 'REJECTED'
+  | 'WITHDRAWN'
+
+export type RefundKind = 'REFUND' | 'RETURN'
 
 export interface OrderItem {
   id: number
@@ -156,11 +168,15 @@ export interface Order {
   cancelledAt: string | null
   refundedAt: string | null
   refundAmount: number | null
+  refundKind: RefundKind | null
   refundStatus: RefundStatus | null
   refundReason: string | null
   refundRequestedAt: string | null
   refundReviewedAt: string | null
   refundReviewRemark: string | null
+  returnTrackingNo: string | null
+  returnShippedAt: string | null
+  receivedAt: string | null
   items: OrderItem[]
 }
 

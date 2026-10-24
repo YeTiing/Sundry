@@ -130,11 +130,40 @@
         WHERE order_no = #{orderNo} AND status = 'REFUND_REQUESTED'
     </update>
 
-    <!-- 商家拒绝或用户撤销：回到申请前状态 -->
+    <!-- 商家拒绝或用户撤销：退款和退货申请都回到申请前状态 -->
     <update id="revertRefund">
         UPDATE orders
         SET status = #{status}
-        WHERE order_no = #{orderNo} AND status = 'REFUND_REQUESTED'
+        WHERE order_no = #{orderNo}
+          AND status IN ('REFUND_REQUESTED', 'RETURN_REQUESTED')
+    </update>
+
+    <!-- 用户申请退货：已发货，或确认收货后 7 天内 -->
+    <update id="requestReturn">
+        UPDATE orders
+        SET status = 'RETURN_REQUESTED'
+        WHERE order_no = #{orderNo} AND user_id = #{userId} AND has_physical = 1
+          AND (status = 'SHIPPED'
+               OR (status = 'COMPLETED' AND completed_at &gt;= NOW(3) - INTERVAL 7 DAY))
+    </update>
+
+    <update id="approveReturn">
+        UPDATE orders
+        SET status = 'RETURNING'
+        WHERE order_no = #{orderNo} AND status = 'RETURN_REQUESTED'
+    </update>
+
+    <update id="markReturnShipped">
+        UPDATE orders
+        SET status = 'RETURN_SHIPPED'
+        WHERE order_no = #{orderNo} AND status = 'RETURNING'
+    </update>
+
+    <!-- 商家确认收到退货：订单退款并记录金额，库存在同一事务回补 -->
+    <update id="completeReturn">
+        UPDATE orders
+        SET status = 'REFUNDED', refunded_at = NOW(3), refund_amount = total_amount
+        WHERE order_no = #{orderNo} AND status = 'RETURN_SHIPPED'
     </update>
 
 </mapper>

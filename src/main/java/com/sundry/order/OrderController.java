@@ -8,6 +8,7 @@ import com.sundry.order.dto.CreateOrderRequest;
 import com.sundry.order.dto.DownloadView;
 import com.sundry.order.dto.OrderView;
 import com.sundry.order.dto.RefundRequest;
+import com.sundry.order.dto.UpdateTrackingRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -91,6 +92,26 @@ public class OrderController {
     public OrderView withdrawRefund(@PathVariable String orderNo,
                                     @AuthenticationPrincipal AuthenticatedUser user) {
         return orderService.withdrawRefund(requireUser(user), orderNo);
+    }
+
+    @PostMapping("/{orderNo}/return")
+    public OrderView applyReturn(@PathVariable String orderNo,
+                                 @Valid @RequestBody RefundRequest request,
+                                 @AuthenticationPrincipal AuthenticatedUser user) {
+        return orderService.applyReturn(requireUser(user), orderNo, request.reason());
+    }
+
+    @PostMapping("/{orderNo}/return/withdraw")
+    public OrderView withdrawReturn(@PathVariable String orderNo,
+                                    @AuthenticationPrincipal AuthenticatedUser user) {
+        return orderService.withdrawReturn(requireUser(user), orderNo);
+    }
+
+    @PostMapping("/{orderNo}/return/ship")
+    public OrderView shipReturn(@PathVariable String orderNo,
+                                @Valid @RequestBody UpdateTrackingRequest request,
+                                @AuthenticationPrincipal AuthenticatedUser user) {
+        return orderService.shipReturn(requireUser(user), orderNo, request.trackingNo());
     }
 
     @GetMapping("/{orderNo}/items/{itemId}/download")

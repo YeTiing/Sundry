@@ -640,6 +640,334 @@ class OrderFlowIntegrationTest {
         assertThat(refundCount(orderNo)).isEqualTo(1);
     }
 
+    @Test
+    void returnFlowRestoresStockAfterReceipt() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "退货商品", 5);
+        long cartItemId = addToCart(user.token(), productId, 2);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "return-flow-key");
+        pay(user.token(), orderNo);
+        packAndShip(admin.token(), orderNo, "SF200");
+
+        applyReturn(user.token(), orderNo, "不合适");
+        assertThat(stockOf(productId)).isEqualTo(3);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT kind FROM order_refund r JOIN orders o ON o.id = r.order_id
+                WHERE o.order_no = ? ORDER BY r.id DESC LIMIT 1
+                """, String.class, orderNo)).isEqualTo("RETURN");
+
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/approve", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RETURNING"))
+                .andExpect(jsonPath("$.refundStatus").value("RETURNING"));
+        // 未寄回前不能确认收货
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/receive", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+
+        mockMvc.perform(post("/api/orders/{orderNo}/return/ship", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"trackingNo":"YT888"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RETURN_SHIPPED"))
+                .andExpect(jsonPath("$.returnTrackingNo").value("YT888"));
+
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/receive", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUNDED"))
+                .andExpect(jsonPath("$.refundKind").value("RETURN"))
+                .andExpect(jsonPath("$.refundStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.refundAmount").value(20.00))
+                .andExpect(jsonPath("$.receivedAt").isNotEmpty());
+        assertThat(stockOf(productId)).isEqualTo(5);
+
+        // 重复确认收货幂等，库存不重复回补
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/receive", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUNDED"));
+        assertThat(stockOf(productId)).isEqualTo(5);
+        assertThat(refundCount(orderNo)).isEqualTo(1);
+    }
+
+    @Test
+    void returnRejectedReturnsToShipped() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "拒绝退货", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "return-reject-key");
+        pay(user.token(), orderNo);
+        packAndShip(admin.token(), orderNo, "SF201");
+
+        applyReturn(user.token(), orderNo, "不想要了");
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/reject", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"已拆封影响二次销售"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SHIPPED"))
+                .andExpect(jsonPath("$.refundKind").value("RETURN"))
+                .andExpect(jsonPath("$.refundStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.refundReviewRemark").value("已拆封影响二次销售"));
+        assertThat(stockOf(productId)).isEqualTo(4);
+    }
+
+    @Test
+    void returnWithdrawReturnsToShipped() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "撤销退货", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "return-withdraw-key");
+        pay(user.token(), orderNo);
+        packAndShip(admin.token(), orderNo, "SF202");
+
+        applyReturn(user.token(), orderNo, "先不退了");
+        mockMvc.perform(post("/api/orders/{orderNo}/return/withdraw", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SHIPPED"))
+                .andExpect(jsonPath("$.refundStatus").value("WITHDRAWN"));
+        assertThat(stockOf(productId)).isEqualTo(4);
+
+        // 重复撤销幂等
+        mockMvc.perform(post("/api/orders/{orderNo}/return/withdraw", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SHIPPED"));
+    }
+
+    @Test
+    void completedOrderCanReturnWithinSevenDays() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "七天内退货", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "return-completed-key");
+        pay(user.token(), orderNo);
+        packAndShip(admin.token(), orderNo, "SF203");
+        mockMvc.perform(post("/api/orders/{orderNo}/confirm", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        applyReturn(user.token(), orderNo, "收到后不满意");
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/approve", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/orders/{orderNo}/return/ship", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"trackingNo":"YT889"}
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/receive", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUNDED"));
+        assertThat(stockOf(productId)).isEqualTo(5);
+    }
+
+    @Test
+    void completedOrderOutsideSevenDaysCannotReturn() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "超期退货", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "return-expired-key");
+        pay(user.token(), orderNo);
+        packAndShip(admin.token(), orderNo, "SF204");
+        mockMvc.perform(post("/api/orders/{orderNo}/confirm", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk());
+
+        jdbcTemplate.update("UPDATE orders SET completed_at = ? WHERE order_no = ?",
+                Timestamp.valueOf(LocalDateTime.now().minusDays(8)), orderNo);
+
+        mockMvc.perform(post("/api/orders/{orderNo}/return", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"超过七天了"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RETURN_WINDOW_EXPIRED"));
+    }
+
+    @Test
+    void returnNotAllowedBeforeShipmentAndForDigital() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long physicalId = createPhysicalProduct(admin.token(), "未发货退货", 5);
+        long cartItemId = addToCart(user.token(), physicalId, 1);
+        long addressId = createAddress(user.token());
+        String paidOrderNo = createOrder(user.token(), cartItemId, addressId, "return-paid-key");
+        pay(user.token(), paidOrderNo);
+
+        mockMvc.perform(post("/api/orders/{orderNo}/return", paidOrderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"未发货"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+
+        long digitalId = createDigitalProduct(admin.token(), "数字不退货");
+        long digitalCart = addToCart(user.token(), digitalId, 1);
+        String digitalOrderNo = createOrderWithoutAddress(user.token(), digitalCart, "return-digital-key");
+        pay(user.token(), digitalOrderNo);
+
+        mockMvc.perform(post("/api/orders/{orderNo}/return", digitalOrderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"数字商品"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RETURN_NOT_ALLOWED"));
+    }
+
+    @Test
+    void returnShipRequiresApproval() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "未同意寄回", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "return-ship-guard-key");
+        pay(user.token(), orderNo);
+        packAndShip(admin.token(), orderNo, "SF205");
+
+        applyReturn(user.token(), orderNo, "申请中");
+
+        mockMvc.perform(post("/api/orders/{orderNo}/return/ship", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"trackingNo":"YT999"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void returnEndpointsRespectOwnershipAndRoles() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        Session other = register(OTHER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "退货权限", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "return-permission-key");
+        pay(user.token(), orderNo);
+        packAndShip(admin.token(), orderNo, "SF206");
+
+        mockMvc.perform(post("/api/orders/{orderNo}/return", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"别人的订单"}
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
+
+        mockMvc.perform(post("/api/orders/{orderNo}/return", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":" "}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        applyReturn(user.token(), orderNo, "正常申请");
+
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/approve", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/receive", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void concurrentReturnApplicationCreatesSinglePendingRecord() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "并发退货申请", 5);
+        long cartItemId = addToCart(user.token(), productId, 1);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "return-concurrent-apply");
+        pay(user.token(), orderNo);
+        packAndShip(admin.token(), orderNo, "SF207");
+        Long userId = userIdOf(USER_PHONE);
+
+        runConcurrently(() -> orderService.applyReturn(userId, orderNo, "并发申请"));
+
+        assertThat(orderStatus(orderNo)).isEqualTo("RETURN_REQUESTED");
+        assertThat(refundCount(orderNo)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentReturnReceiptRestoresStockOnce() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "并发确认退货", 5);
+        long cartItemId = addToCart(user.token(), productId, 2);
+        long addressId = createAddress(user.token());
+        String orderNo = createOrder(user.token(), cartItemId, addressId, "return-concurrent-receive");
+        pay(user.token(), orderNo);
+        packAndShip(admin.token(), orderNo, "SF208");
+        applyReturn(user.token(), orderNo, "并发确认");
+        mockMvc.perform(post("/api/admin/orders/{orderNo}/return/approve", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/orders/{orderNo}/return/ship", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"trackingNo":"YT777"}
+                                """))
+                .andExpect(status().isOk());
+        Long adminId = userIdOf(ADMIN_PHONE);
+
+        runConcurrently(() -> orderService.completeReturn(orderNo, adminId));
+
+        assertThat(orderStatus(orderNo)).isEqualTo("REFUNDED");
+        assertThat(stockOf(productId)).isEqualTo(5);
+        assertThat(refundCount(orderNo)).isEqualTo(1);
+    }
+
+    private void applyReturn(String token, String orderNo, String reason) throws Exception {
+        mockMvc.perform(post("/api/orders/{orderNo}/return", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"%s"}
+                                """.formatted(reason)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RETURN_REQUESTED"));
+    }
+
     private void runConcurrently(Runnable task) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);

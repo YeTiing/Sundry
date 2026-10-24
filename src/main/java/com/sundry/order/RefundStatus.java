@@ -6,6 +6,9 @@ package com.sundry.order;
 public enum RefundStatus {
     PENDING,
     APPROVED,
+    RETURNING,
+    RETURN_SHIPPED,
+    COMPLETED,
     REJECTED,
     WITHDRAWN
 }

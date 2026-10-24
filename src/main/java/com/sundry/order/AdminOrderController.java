@@ -67,6 +67,27 @@ public class AdminOrderController {
         return orderService.approveRefund(orderNo, user.id(), remark);
     }
 
+    @PostMapping("/{orderNo}/return/approve")
+    public OrderView approveReturn(@PathVariable String orderNo,
+                                   @Valid @RequestBody(required = false) RefundApproveRequest request,
+                                   @AuthenticationPrincipal AuthenticatedUser user) {
+        String remark = request == null ? null : request.remark();
+        return orderService.approveReturn(orderNo, user.id(), remark);
+    }
+
+    @PostMapping("/{orderNo}/return/reject")
+    public OrderView rejectReturn(@PathVariable String orderNo,
+                                  @Valid @RequestBody RefundRejectRequest request,
+                                  @AuthenticationPrincipal AuthenticatedUser user) {
+        return orderService.rejectReturn(orderNo, user.id(), request.reason());
+    }
+
+    @PostMapping("/{orderNo}/return/receive")
+    public OrderView receiveReturn(@PathVariable String orderNo,
+                                   @AuthenticationPrincipal AuthenticatedUser user) {
+        return orderService.completeReturn(orderNo, user.id());
+    }
+
     @PostMapping("/{orderNo}/refund/reject")
     public OrderView rejectRefund(@PathVariable String orderNo,
                                   @Valid @RequestBody RefundRejectRequest request,

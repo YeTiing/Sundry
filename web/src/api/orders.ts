@@ -41,4 +41,16 @@ export const ordersApi = {
   withdrawRefund(orderNo: string): Promise<Order> {
     return http.post<Order>(`/orders/${orderNo}/refund/withdraw`)
   },
+
+  applyReturn(orderNo: string, reason: string): Promise<Order> {
+    return http.post<Order>(`/orders/${orderNo}/return`, { reason })
+  },
+
+  withdrawReturn(orderNo: string): Promise<Order> {
+    return http.post<Order>(`/orders/${orderNo}/return/withdraw`)
+  },
+
+  shipReturn(orderNo: string, trackingNo: string): Promise<Order> {
+    return http.post<Order>(`/orders/${orderNo}/return/ship`, { trackingNo })
+  },
 }

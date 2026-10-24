@@ -32,4 +32,19 @@ export const adminOrdersApi = {
   rejectRefund(orderNo: string, reason: string): Promise<Order> {
     return http.post<Order>(`/admin/orders/${orderNo}/refund/reject`, { reason })
   },
+
+  approveReturn(orderNo: string, remark: string | null): Promise<Order> {
+    return http.post<Order>(
+      `/admin/orders/${orderNo}/return/approve`,
+      remark ? { remark } : undefined,
+    )
+  },
+
+  rejectReturn(orderNo: string, reason: string): Promise<Order> {
+    return http.post<Order>(`/admin/orders/${orderNo}/return/reject`, { reason })
+  },
+
+  receiveReturn(orderNo: string): Promise<Order> {
+    return http.post<Order>(`/admin/orders/${orderNo}/return/receive`)
+  },
 }

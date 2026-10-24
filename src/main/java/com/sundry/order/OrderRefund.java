@@ -13,12 +13,16 @@ public class OrderRefund {
     private Long userId;
     private BigDecimal amount;
     private String reason;
+    private RefundKind kind;
     private RefundStatus status;
     private OrderStatus prevStatus;
     private LocalDateTime appliedAt;
     private LocalDateTime reviewedAt;
     private Long reviewerId;
     private String reviewRemark;
+    private String returnTrackingNo;
+    private LocalDateTime returnShippedAt;
+    private LocalDateTime receivedAt;
 
     public Long getId() {
         return id;
@@ -58,6 +62,38 @@ public class OrderRefund {
 
     public void setReason(String reason) {
         this.reason = reason;
+    }
+
+    public RefundKind getKind() {
+        return kind;
+    }
+
+    public void setKind(RefundKind kind) {
+        this.kind = kind;
+    }
+
+    public String getReturnTrackingNo() {
+        return returnTrackingNo;
+    }
+
+    public void setReturnTrackingNo(String returnTrackingNo) {
+        this.returnTrackingNo = returnTrackingNo;
+    }
+
+    public LocalDateTime getReturnShippedAt() {
+        return returnShippedAt;
+    }
+
+    public void setReturnShippedAt(LocalDateTime returnShippedAt) {
+        this.returnShippedAt = returnShippedAt;
+    }
+
+    public LocalDateTime getReceivedAt() {
+        return receivedAt;
+    }
+
+    public void setReceivedAt(LocalDateTime receivedAt) {
+        this.receivedAt = receivedAt;
     }
 
     public RefundStatus getStatus() {

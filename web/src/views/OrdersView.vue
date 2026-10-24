@@ -14,12 +14,18 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
   COMPLETED: '已完成',
   CANCELLED: '已取消',
   REFUND_REQUESTED: '退款审核中',
+  RETURN_REQUESTED: '退货审核中',
+  RETURNING: '待寄回',
+  RETURN_SHIPPED: '退货已寄回',
   REFUNDED: '已退款',
 }
 
 const REFUND_LABELS: Record<RefundStatus, string> = {
   PENDING: '待商家审核',
   APPROVED: '商家已通过',
+  RETURNING: '商家已同意，请寄回',
+  RETURN_SHIPPED: '退货已寄回，等待商家收货',
+  COMPLETED: '退货完成',
   REJECTED: '商家已拒绝',
   WITHDRAWN: '已撤销',
 }
@@ -33,6 +39,10 @@ const notice = ref('')
 const busyOrderNo = ref<string | null>(null)
 const refundTarget = ref<string | null>(null)
 const refundReason = ref('')
+const returnTarget = ref<string | null>(null)
+const returnReason = ref('')
+const returnShipTarget = ref<string | null>(null)
+const returnTrackingNo = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
@@ -53,6 +63,21 @@ function messageOf(err: unknown): string {
 function isPaidLike(status: OrderStatus): boolean {
   return status === 'PAID' || status === 'PACKING' || status === 'SHIPPED'
     || status === 'COMPLETED' || status === 'REFUND_REQUESTED'
+    || status === 'RETURN_REQUESTED' || status === 'RETURNING'
+    || status === 'RETURN_SHIPPED'
+}
+
+function withinReturnWindow(order: Order): boolean {
+  if (order.status !== 'COMPLETED' || !order.completedAt) return true
+  const completed = new Date(order.completedAt).getTime()
+  if (Number.isNaN(completed)) return true
+  return Date.now() - completed <= 7 * 24 * 60 * 60 * 1000
+}
+
+function canReturn(order: Order): boolean {
+  if (!order.hasPhysical) return false
+  if (order.status === 'SHIPPED') return true
+  return order.status === 'COMPLETED' && withinReturnWindow(order)
 }
 
 function canDownload(order: Order): boolean {
@@ -140,6 +165,69 @@ async function submitRefund(order: Order): Promise<void> {
 function withdrawRefund(order: Order): void {
   if (!window.confirm('撤销退款申请？订单会回到申请前的状态。')) return
   void act(order, '已撤销退款申请', () => ordersApi.withdrawRefund(order.orderNo))
+}
+
+function openReturn(order: Order): void {
+  returnTarget.value = order.orderNo
+  returnReason.value = ''
+  refundTarget.value = null
+  returnShipTarget.value = null
+  error.value = ''
+  notice.value = ''
+}
+
+function closeReturn(): void {
+  returnTarget.value = null
+  returnReason.value = ''
+}
+
+async function submitReturn(order: Order): Promise<void> {
+  const reason = returnReason.value.trim()
+  if (!reason) {
+    error.value = '请填写退货原因'
+    return
+  }
+  if (reason.length > 200) {
+    error.value = '退货原因最多 200 个字符'
+    return
+  }
+  const ok = await act(order, '退货申请已提交，等待商家审核',
+    () => ordersApi.applyReturn(order.orderNo, reason))
+  if (ok) closeReturn()
+}
+
+function withdrawReturn(order: Order): void {
+  if (!window.confirm('撤销退货申请？订单会回到申请前的状态。')) return
+  void act(order, '已撤销退货申请', () => ordersApi.withdrawReturn(order.orderNo))
+}
+
+function openReturnShip(order: Order): void {
+  returnShipTarget.value = order.orderNo
+  returnTrackingNo.value = ''
+  returnTarget.value = null
+  refundTarget.value = null
+  error.value = ''
+  notice.value = ''
+}
+
+function closeReturnShip(): void {
+  returnShipTarget.value = null
+  returnTrackingNo.value = ''
+}
+
+async function submitReturnShip(order: Order): Promise<void> {
+  const tracking = returnTrackingNo.value.trim()
+  if (!tracking) {
+    error.value = '请填写退货快递单号'
+    return
+  }
+  if (tracking.length > 64) {
+    error.value = '快递单号最多 64 个字符'
+    return
+  }
+  const ok = await act(order, '退货单号已提交，等待商家收货',
+    () => ordersApi.shipReturn(order.orderNo, tracking))
+  if (ok) closeReturnShip()
 }
 
 async function download(order: Order, item: OrderItem): Promise<void> {
@@ -243,12 +331,15 @@ onMounted(() => {
 
           <section v-if="order.refundReason" class="refund-box">
             <p class="refund-box__head">
-              退款申请
+              {{ order.refundKind === 'RETURN' ? '退货申请' : '退款申请' }}
               <span v-if="order.refundStatus" class="refund-tag" :data-status="order.refundStatus">
                 {{ REFUND_LABELS[order.refundStatus] }}
               </span>
             </p>
             <p>原因：{{ order.refundReason }}</p>
+            <p v-if="order.returnTrackingNo" class="mono">
+              退货单号：{{ order.returnTrackingNo }}
+            </p>
             <p v-if="order.refundAmount" class="mono">
               金额：{{ formatPrice(order.refundAmount) }}
             </p>
@@ -304,8 +395,89 @@ onMounted(() => {
             >
               撤销退款申请
             </button>
+            <button
+              v-if="canReturn(order)"
+              class="secondary-button"
+              type="button"
+              :disabled="busyOrderNo !== null"
+              @click="openReturn(order)"
+            >
+              申请退货
+            </button>
+            <button
+              v-if="order.status === 'RETURN_REQUESTED'"
+              class="secondary-button"
+              type="button"
+              :disabled="busyOrderNo !== null"
+              @click="withdrawReturn(order)"
+            >
+              撤销退货申请
+            </button>
+            <button
+              v-if="order.status === 'RETURNING'"
+              class="primary-button order-action"
+              type="button"
+              :disabled="busyOrderNo !== null"
+              @click="openReturnShip(order)"
+            >
+              填写退货单号
+            </button>
             <span class="order-total mono">合计 {{ formatPrice(order.totalAmount) }}</span>
           </footer>
+
+          <form
+            v-if="returnTarget === order.orderNo"
+            class="refund-form"
+            novalidate
+            @submit.prevent="submitReturn(order)"
+          >
+            <label class="field">
+              <span class="field__label">退货原因</span>
+              <textarea
+                v-model.trim="returnReason"
+                rows="3"
+                maxlength="200"
+                placeholder="说明退货原因，商家会看到"
+              />
+            </label>
+            <div class="row-actions">
+              <button
+                class="primary-button order-action"
+                type="submit"
+                :disabled="busyOrderNo !== null"
+              >
+                提交退货申请
+              </button>
+              <button class="secondary-button" type="button" @click="closeReturn">取消</button>
+            </div>
+          </form>
+
+          <form
+            v-if="returnShipTarget === order.orderNo"
+            class="refund-form"
+            novalidate
+            @submit.prevent="submitReturnShip(order)"
+          >
+            <label class="field">
+              <span class="field__label">退货快递单号</span>
+              <input
+                v-model.trim="returnTrackingNo"
+                type="text"
+                maxlength="64"
+                placeholder="寄回后填写，例如：YT123456"
+              />
+            </label>
+            <div class="row-actions">
+              <button
+                class="primary-button order-action"
+                type="submit"
+                :disabled="busyOrderNo !== null"
+              >
+                提交退货单号
+              </button>
+              <button class="secondary-button" type="button" @click="closeReturnShip">取消</button>
+            </div>
+          </form>
 
           <form
             v-if="refundTarget === order.orderNo"

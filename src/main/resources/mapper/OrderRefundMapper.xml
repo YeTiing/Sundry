@@ -4,14 +4,15 @@
 <mapper namespace="com.sundry.order.OrderRefundMapper">
 
     <sql id="refundColumns">
-        id, order_id, user_id, amount, reason, status, prev_status,
-        applied_at, reviewed_at, reviewer_id, review_remark
+        id, order_id, user_id, amount, reason, kind, status, prev_status,
+        applied_at, reviewed_at, reviewer_id, review_remark,
+        return_tracking_no, return_shipped_at, received_at
     </sql>
 
     <insert id="insert" parameterType="com.sundry.order.OrderRefund"
             useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO order_refund (order_id, user_id, amount, reason, status, prev_status)
-        VALUES (#{orderId}, #{userId}, #{amount}, #{reason}, #{status}, #{prevStatus})
+        INSERT INTO order_refund (order_id, user_id, amount, reason, kind, status, prev_status)
+        VALUES (#{orderId}, #{userId}, #{amount}, #{reason}, #{kind}, #{status}, #{prevStatus})
     </insert>
 
     <select id="findLatestByOrderId" resultType="com.sundry.order.OrderRefund">
@@ -27,6 +28,27 @@
         SET status = 'APPROVED', reviewed_at = NOW(3),
             reviewer_id = #{reviewerId}, review_remark = #{remark}
         WHERE id = #{id} AND status = 'PENDING'
+    </update>
+
+    <update id="approveReturn">
+        UPDATE order_refund
+        SET status = 'RETURNING', reviewed_at = NOW(3),
+            reviewer_id = #{reviewerId}, review_remark = #{remark}
+        WHERE id = #{id} AND status = 'PENDING' AND kind = 'RETURN'
+    </update>
+
+    <update id="markReturnShipped">
+        UPDATE order_refund
+        SET status = 'RETURN_SHIPPED', return_tracking_no = #{trackingNo},
+            return_shipped_at = NOW(3)
+        WHERE id = #{id} AND user_id = #{userId}
+          AND status = 'RETURNING' AND kind = 'RETURN'
+    </update>
+
+    <update id="completeReturn">
+        UPDATE order_refund
+        SET status = 'COMPLETED', received_at = NOW(3), reviewer_id = #{reviewerId}
+        WHERE id = #{id} AND status = 'RETURN_SHIPPED' AND kind = 'RETURN'
     </update>
 
     <update id="reject">

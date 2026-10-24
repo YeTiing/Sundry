@@ -51,4 +51,12 @@ public interface OrderMapper {
     int approveRefund(@Param("orderNo") String orderNo);
 
     int revertRefund(@Param("orderNo") String orderNo, @Param("status") OrderStatus status);
+
+    int requestReturn(@Param("orderNo") String orderNo, @Param("userId") Long userId);
+
+    int approveReturn(@Param("orderNo") String orderNo);
+
+    int markReturnShipped(@Param("orderNo") String orderNo);
+
+    int completeReturn(@Param("orderNo") String orderNo);
 }

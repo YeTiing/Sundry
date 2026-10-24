@@ -16,6 +16,9 @@ const STATUS_OPTIONS: { value: OrderStatus | ''; label: string }[] = [
   { value: 'SHIPPED', label: '已发货' },
   { value: 'COMPLETED', label: '已完成' },
   { value: 'REFUND_REQUESTED', label: '退款审核中' },
+  { value: 'RETURN_REQUESTED', label: '退货审核中' },
+  { value: 'RETURNING', label: '待用户寄回' },
+  { value: 'RETURN_SHIPPED', label: '退货已寄回' },
   { value: 'REFUNDED', label: '已退款' },
   { value: 'CANCELLED', label: '已取消' },
 ]
@@ -28,12 +31,18 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
   COMPLETED: '已完成',
   CANCELLED: '已取消',
   REFUND_REQUESTED: '退款审核中',
+  RETURN_REQUESTED: '退货审核中',
+  RETURNING: '待用户寄回',
+  RETURN_SHIPPED: '退货已寄回',
   REFUNDED: '已退款',
 }
 
 const REFUND_LABELS: Record<RefundStatus, string> = {
   PENDING: '待审核',
   APPROVED: '已通过',
+  RETURNING: '已同意，待寄回',
+  RETURN_SHIPPED: '已寄回，待收货',
+  COMPLETED: '退货完成',
   REJECTED: '已拒绝',
   WITHDRAWN: '用户已撤销',
 }
@@ -55,6 +64,7 @@ const shipTarget = ref<string | null>(null)
 const trackingNo = ref('')
 const reviewTarget = ref<string | null>(null)
 const reviewAction = ref<'approve' | 'reject'>('approve')
+const reviewKind = ref<'refund' | 'return'>('refund')
 const reviewRemark = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
@@ -147,9 +157,10 @@ async function submitShip(order: Order): Promise<void> {
   if (ok) closeShip()
 }
 
-function openReview(order: Order, action: 'approve' | 'reject'): void {
+function openReview(order: Order, action: 'approve' | 'reject', kind: 'refund' | 'return' = 'refund'): void {
   reviewTarget.value = order.orderNo
   reviewAction.value = action
+  reviewKind.value = kind
   reviewRemark.value = ''
   shipTarget.value = null
   error.value = ''
@@ -163,8 +174,10 @@ function closeReview(): void {
 
 async function submitReview(order: Order): Promise<void> {
   const remark = reviewRemark.value.trim()
+  const isReturn = reviewKind.value === 'return'
+  const subject = isReturn ? '退货' : '退款'
   if (reviewAction.value === 'reject' && !remark) {
-    error.value = '拒绝退款必须填写理由'
+    error.value = `拒绝${subject}必须填写理由`
     return
   }
   if (remark.length > 200) {
@@ -173,14 +186,26 @@ async function submitReview(order: Order): Promise<void> {
   }
 
   const approving = reviewAction.value === 'approve'
-  const ok = await act(
-    order,
-    approving ? '已通过退款，库存已回补' : '已拒绝退款，订单回到原状态',
-    () => approving
+  const successMessage = isReturn
+    ? (approving ? '已同意退货，等待用户寄回' : '已拒绝退货，订单回到原状态')
+    : (approving ? '已通过退款，库存已回补' : '已拒绝退款，订单回到原状态')
+  const ok = await act(order, successMessage, () => {
+    if (isReturn) {
+      return approving
+        ? adminOrdersApi.approveReturn(order.orderNo, remark || null)
+        : adminOrdersApi.rejectReturn(order.orderNo, remark)
+    }
+    return approving
       ? adminOrdersApi.approveRefund(order.orderNo, remark || null)
-      : adminOrdersApi.rejectRefund(order.orderNo, remark),
-  )
+      : adminOrdersApi.rejectRefund(order.orderNo, remark)
+  })
   if (ok) closeReview()
+}
+
+function receiveReturn(order: Order): void {
+  if (!window.confirm('确认已收到退货？确认后会退款并回补库存。')) return
+  void act(order, '已收到退货，退款完成并回补库存',
+    () => adminOrdersApi.receiveReturn(order.orderNo))
 }
 
 async function logout(): Promise<void> {
@@ -297,7 +322,7 @@ onMounted(() => {
 
               <section v-if="order.refundReason" class="refund-box">
                 <p class="refund-box__head">
-                  退款申请
+                  {{ order.refundKind === 'RETURN' ? '退货申请' : '退款申请' }}
                   <span
                     v-if="order.refundStatus"
                     class="refund-tag"
@@ -307,6 +332,9 @@ onMounted(() => {
                   </span>
                 </p>
                 <p>原因：{{ order.refundReason }}</p>
+                <p v-if="order.returnTrackingNo" class="mono">
+                  退货单号：{{ order.returnTrackingNo }}
+                </p>
                 <p v-if="order.refundAmount" class="mono">
                   金额：{{ formatPrice(order.refundAmount) }}
                 </p>
@@ -351,6 +379,33 @@ onMounted(() => {
                 >
                   拒绝退款
                 </button>
+                <button
+                  v-if="order.status === 'RETURN_REQUESTED'"
+                  class="primary-button order-action"
+                  type="button"
+                  :disabled="busyOrderNo !== null"
+                  @click="openReview(order, 'approve', 'return')"
+                >
+                  同意退货
+                </button>
+                <button
+                  v-if="order.status === 'RETURN_REQUESTED'"
+                  class="secondary-button danger-button"
+                  type="button"
+                  :disabled="busyOrderNo !== null"
+                  @click="openReview(order, 'reject', 'return')"
+                >
+                  拒绝退货
+                </button>
+                <button
+                  v-if="order.status === 'RETURN_SHIPPED'"
+                  class="primary-button order-action"
+                  type="button"
+                  :disabled="busyOrderNo !== null"
+                  @click="receiveReturn(order)"
+                >
+                  确认收到退货
+                </button>
                 <span class="order-total mono">合计 {{ formatPrice(order.totalAmount) }}</span>
               </footer>
 
@@ -384,7 +439,11 @@ onMounted(() => {
               >
                 <label class="field">
                   <span class="field__label">
-                    {{ reviewAction === 'approve' ? '审核备注（选填）' : '拒绝理由（必填）' }}
+                    {{
+                      reviewKind === 'return'
+                        ? (reviewAction === 'approve' ? '同意退货备注（选填）' : '拒绝退货理由（必填）')
+                        : (reviewAction === 'approve' ? '审核备注（选填）' : '拒绝理由（必填）')
+                    }}
                   </span>
                   <textarea
                     v-model.trim="reviewRemark"
@@ -399,7 +458,11 @@ onMounted(() => {
                     type="submit"
                     :disabled="busyOrderNo !== null"
                   >
-                    {{ reviewAction === 'approve' ? '确认通过' : '确认拒绝' }}
+                    {{
+                      reviewKind === 'return'
+                        ? (reviewAction === 'approve' ? '同意退货' : '拒绝退货')
+                        : (reviewAction === 'approve' ? '确认通过' : '确认拒绝')
+                    }}
                   </button>
                   <button class="secondary-button" type="button" @click="closeReview">取消</button>
                 </div>

@@ -13,6 +13,14 @@ public interface OrderRefundMapper {
     int approve(@Param("id") Long id, @Param("reviewerId") Long reviewerId,
                 @Param("remark") String remark);
 
+    int approveReturn(@Param("id") Long id, @Param("reviewerId") Long reviewerId,
+                      @Param("remark") String remark);
+
+    int markReturnShipped(@Param("id") Long id, @Param("userId") Long userId,
+                          @Param("trackingNo") String trackingNo);
+
+    int completeReturn(@Param("id") Long id, @Param("reviewerId") Long reviewerId);
+
     int reject(@Param("id") Long id, @Param("reviewerId") Long reviewerId,
                @Param("remark") String remark);
 
