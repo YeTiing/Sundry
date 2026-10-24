@@ -1271,10 +1271,10 @@ sundry_seckill_compensation_total = 0
 
 ## 待办 / 下一步
 
-完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)。
+完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
-- 近期：A1 公告 + 已读 + 未读数
-- 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
+- 先做：滑动分页 / keyset（不依赖 AI）
+- 之后：A1 公告 + 已读 → A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
 
 ## 已知风险 / 上线前必须处理
