@@ -8,6 +8,8 @@ public class Order {
     private Long id;
     private String orderNo;
     private String requestId;
+    private Long activityId;
+    private OrderSource orderSource;
     private Long userId;
     private OrderStatus status;
     private BigDecimal totalAmount;
@@ -47,6 +49,22 @@ public class Order {
 
     public void setRequestId(String requestId) {
         this.requestId = requestId;
+    }
+
+    public Long getActivityId() {
+        return activityId;
+    }
+
+    public void setActivityId(Long activityId) {
+        this.activityId = activityId;
+    }
+
+    public OrderSource getOrderSource() {
+        return orderSource;
+    }
+
+    public void setOrderSource(OrderSource orderSource) {
+        this.orderSource = orderSource;
     }
 
     public Long getUserId() {

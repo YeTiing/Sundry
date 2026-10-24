@@ -44,6 +44,8 @@ app:
   order:
     pay-timeout: 30m
     cancel-batch-size: 100
+    # 多实例部署时每个实例必须不同，取值 0..1023
+    worker-id: ${ORDER_WORKER_ID:1}
   cleanup:
     enabled: true
     cron: "0 0 3 * * *"

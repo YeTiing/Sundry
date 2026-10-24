@@ -1,5 +1,5 @@
 import { http } from './http'
-import type { PageResponse, SeckillActivity, SeckillStatus } from './types'
+import type { Order, PageResponse, SeckillActivity, SeckillStatus } from './types'
 
 export interface SaveSeckillPayload {
   productId: number
@@ -14,6 +14,14 @@ export const seckillApi = {
   /** 商品详情用；没有进行中的活动时后端返回 404。 */
   productActivity(productId: number): Promise<SeckillActivity> {
     return http.get<SeckillActivity>(`/seckill/products/${productId}`)
+  },
+
+  activity(id: number): Promise<SeckillActivity> {
+    return http.get<SeckillActivity>(`/seckill/activities/${id}`)
+  },
+
+  createOrder(activityId: number, addressId: number | null): Promise<Order> {
+    return http.post<Order>('/seckill/orders', { activityId, addressId })
   },
 }
 

@@ -12,6 +12,7 @@ import OrdersView from '@/views/OrdersView.vue'
 import ProductDetailView from '@/views/ProductDetailView.vue'
 import ProductListView from '@/views/ProductListView.vue'
 import RegisterView from '@/views/RegisterView.vue'
+import SeckillBuyView from '@/views/SeckillBuyView.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -55,6 +56,12 @@ const router = createRouter({
       path: '/orders',
       name: 'orders',
       component: OrdersView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/seckill/:activityId',
+      name: 'seckill-buy',
+      component: SeckillBuyView,
       meta: { requiresAuth: true },
     },
     {

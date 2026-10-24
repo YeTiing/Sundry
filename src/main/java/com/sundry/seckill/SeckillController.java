@@ -23,4 +23,9 @@ public class SeckillController {
     public SeckillActivityView productActivity(@PathVariable Long productId) {
         return activityService.activeForProduct(productId);
     }
+
+    @GetMapping("/activities/{id}")
+    public SeckillActivityView activity(@PathVariable Long id) {
+        return activityService.activeById(id);
+    }
 }

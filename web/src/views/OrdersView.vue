@@ -278,7 +278,10 @@ onMounted(() => {
         <article v-for="order in orders" :key="order.orderNo" class="order-card admin-panel">
           <header class="order-card__head">
             <div>
-              <p class="order-card__no mono">{{ order.orderNo }}</p>
+              <p class="order-card__no mono">
+                {{ order.orderNo }}
+                <span v-if="order.orderSource === 'SECKILL'" class="seckill-badge">秒杀</span>
+              </p>
               <p class="panel-note">下单时间 {{ formatDate(order.createdAt) }}</p>
             </div>
             <span class="order-status" :data-status="order.status">

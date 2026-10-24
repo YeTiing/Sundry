@@ -1,0 +1,537 @@
+package com.sundry.seckill;
+
+import com.jayway.jsonpath.JsonPath;
+import com.sundry.auth.CapturingSmsSender;
+import com.sundry.auth.sms.SmsScene;
+import com.sundry.seckill.dto.CreateSeckillOrderRequest;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * 秒杀抢购：Redis 扣减、一人一单、超卖防护、失败回补与懒预热。
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class SeckillOrderIntegrationTest {
+
+    private static final String ADMIN_PHONE = "13900000000";
+    private static final String USER_PHONE = "13800138001";
+    private static final String USER2_PHONE = "13800138002";
+    private static final String PASSWORD = "secret123";
+    private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private StringRedisTemplate redis;
+
+    @Autowired
+    private CapturingSmsSender smsSender;
+
+    @Autowired
+    private SeckillOrderService seckillOrderService;
+
+    @Autowired
+    private SeckillStockService stockService;
+
+    @BeforeEach
+    void setUp() {
+        jdbcTemplate.update("DELETE FROM seckill_activity");
+        jdbcTemplate.update("DELETE FROM order_refund");
+        jdbcTemplate.update("DELETE FROM order_item");
+        jdbcTemplate.update("DELETE FROM orders");
+        jdbcTemplate.update("DELETE FROM cart_item");
+        jdbcTemplate.update("DELETE FROM user_address");
+        jdbcTemplate.update("DELETE FROM product");
+        jdbcTemplate.update("DELETE FROM file_object");
+        jdbcTemplate.update("DELETE FROM app_user");
+        clear(redis.keys("auth:*"));
+        clear(redis.keys("seckill:*"));
+        smsSender.clear();
+    }
+
+    @Test
+    void seckillOrderCreatesOrderAndDeductsStock() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "秒杀实物", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 2);
+        activate(admin.token(), activityId);
+        long addressId = createAddress(user.token());
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, addressId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.orderSource").value("SECKILL"))
+                .andExpect(jsonPath("$.activityId").value(activityId))
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
+                .andExpect(jsonPath("$.totalAmount").value(50.00));
+
+        assertThat(ordersOf(activityId)).isEqualTo(1);
+        assertThat(soldCount(activityId)).isEqualTo(1);
+        assertThat(stockOf(productId)).isEqualTo(4);
+        assertThat(stockService.remaining(activityId)).isEqualTo(1);
+    }
+
+    @Test
+    void repeatPurchaseReturnsSameOrder() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "重复抢购", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 2);
+        activate(admin.token(), activityId);
+        long addressId = createAddress(user.token());
+
+        String firstOrderNo = orderNoOf(mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, addressId)))
+                .andExpect(status().isCreated())
+                .andReturn());
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, addressId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.orderNo").value(firstOrderNo));
+
+        assertThat(ordersOf(activityId)).isEqualTo(1);
+        assertThat(stockService.remaining(activityId)).isEqualTo(1);
+    }
+
+    @Test
+    void soldOutDoesNotOversell() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        Session other = register(USER2_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "售罄商品", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 1);
+        activate(admin.token(), activityId);
+        long userAddress = createAddress(user.token());
+        long otherAddress = createAddress(other.token());
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, userAddress)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, otherAddress)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SECKILL_SOLD_OUT"));
+
+        assertThat(ordersOf(activityId)).isEqualTo(1);
+        assertThat(soldCount(activityId)).isEqualTo(1);
+        assertThat(stockService.remaining(activityId)).isZero();
+    }
+
+    @Test
+    void concurrentBuyersDoNotOversell() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        long productId = createDigitalProduct(admin.token(), "并发数字秒杀", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 3);
+        activate(admin.token(), activityId);
+
+        List<Session> users = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            users.add(register("1380013801" + i));
+        }
+
+        ExecutorService pool = Executors.newFixedThreadPool(6);
+        CountDownLatch ready = new CountDownLatch(6);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger success = new AtomicInteger();
+        List<Future<?>> futures = new ArrayList<>();
+        try {
+            for (Session user : users) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    try {
+                        seckillOrderService.create(user.id(),
+                                new CreateSeckillOrderRequest(activityId, null));
+                        success.incrementAndGet();
+                    } catch (RuntimeException ignored) {
+                        // 售罄或限购都算失败
+                    }
+                    return null;
+                }));
+            }
+            ready.await(5, TimeUnit.SECONDS);
+            start.countDown();
+            for (Future<?> future : futures) {
+                future.get(15, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(success.get()).isEqualTo(3);
+        assertThat(ordersOf(activityId)).isEqualTo(3);
+        assertThat(soldCount(activityId)).isEqualTo(3);
+        assertThat(stockService.remaining(activityId)).isZero();
+    }
+
+    @Test
+    void physicalSeckillRequiresAddress() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "需要地址", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 2);
+        activate(admin.token(), activityId);
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ADDRESS_REQUIRED"));
+
+        assertThat(stockService.remaining(activityId)).isEqualTo(2);
+        assertThat(soldCount(activityId)).isZero();
+    }
+
+    @Test
+    void dbStockFailureRollsBackRedisReservation() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "库存回滚", "100.00", 1);
+        long activityId = createActivity(admin.token(), productId, "50.00", 1);
+        activate(admin.token(), activityId);
+        long addressId = createAddress(user.token());
+
+        // 模拟商品库存在活动启用后被其他渠道买空
+        jdbcTemplate.update("UPDATE product SET stock = 0 WHERE id = ?", productId);
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, addressId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("STOCK_NOT_ENOUGH"));
+
+        assertThat(ordersOf(activityId)).isZero();
+        assertThat(soldCount(activityId)).isZero();
+        assertThat(stockService.remaining(activityId)).isEqualTo(1);
+        // 回滚时移除了购买标记，用户仍可再抢
+        assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
+                String.valueOf(user.id()))).isFalse();
+    }
+
+    @Test
+    void digitalSeckillNeedsNoAddressAndCanDownload() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createDigitalProduct(admin.token(), "数字秒杀", "100.00");
+        long activityId = createActivity(admin.token(), productId, "9.90", 5);
+        activate(admin.token(), activityId);
+
+        MvcResult created = mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, null)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String orderNo = orderNoOf(created);
+
+        MvcResult detail = mockMvc.perform(get("/api/orders/{orderNo}", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        long itemId = ((Number) JsonPath.read(
+                detail.getResponse().getContentAsString(StandardCharsets.UTF_8),
+                "$.items[0].id")).longValue();
+
+        mockMvc.perform(post("/api/orders/{orderNo}/pay", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/orders/{orderNo}/items/{itemId}/download", orderNo, itemId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").value(
+                        org.hamcrest.Matchers.startsWith("http://test-minio/download/")));
+    }
+
+    @Test
+    void cancelRestoresActivityStockButKeepsBuyerBlocked() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "取消秒杀", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 2);
+        activate(admin.token(), activityId);
+        long addressId = createAddress(user.token());
+
+        String orderNo = orderNoOf(mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, addressId)))
+                .andExpect(status().isCreated())
+                .andReturn());
+
+        mockMvc.perform(post("/api/orders/{orderNo}/cancel", orderNo)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        assertThat(soldCount(activityId)).isZero();
+        assertThat(stockOf(productId)).isEqualTo(5);
+        assertThat(stockService.remaining(activityId)).isEqualTo(2);
+
+        // 取消后不退购买资格，重复下单仍返回原订单
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, addressId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.orderNo").value(orderNo))
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        assertThat(ordersOf(activityId)).isEqualTo(1);
+    }
+
+    @Test
+    void draftActivityCannotBeBought() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "草稿活动", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 2);
+        long addressId = createAddress(user.token());
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, addressId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SECKILL_NOT_FOUND"));
+
+        assertThat(ordersOf(activityId)).isZero();
+    }
+
+    @Test
+    void redisLossIsRepairedLazily() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        Session other = register(USER2_PHONE);
+        long productId = createDigitalProduct(admin.token(), "懒预热", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 5);
+        activate(admin.token(), activityId);
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, null)))
+                .andExpect(status().isCreated());
+
+        stockService.clear(activityId);
+
+        // 第二个用户触发懒重建：库存按 DB 已售数量恢复，购买标记也从订单表重建
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, null)))
+                .andExpect(status().isCreated());
+
+        assertThat(stockService.remaining(activityId)).isEqualTo(3);
+        assertThat(ordersOf(activityId)).isEqualTo(2);
+        assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
+                String.valueOf(user.id()))).isTrue();
+    }
+
+    private long createActivity(String token, long productId, String price, int stock) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/admin/seckill/activities")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"productId":%d,"seckillPrice":%s,"stock":%d,
+                                 "startAt":"%s","endAt":"%s"}
+                                """.formatted(productId, price, stock,
+                                LocalDateTime.now().minusMinutes(1).format(ISO),
+                                LocalDateTime.now().plusHours(1).format(ISO))))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return ((Number) JsonPath.read(
+                result.getResponse().getContentAsString(StandardCharsets.UTF_8), "$.id")).longValue();
+    }
+
+    private void activate(String token, long activityId) throws Exception {
+        mockMvc.perform(post("/api/admin/seckill/activities/{id}/activate", activityId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeNow").value(true));
+    }
+
+    private String orderBody(long activityId, Long addressId) {
+        if (addressId == null) {
+            return "{\"activityId\":%d}".formatted(activityId);
+        }
+        return "{\"activityId\":%d,\"addressId\":%d}".formatted(activityId, addressId);
+    }
+
+    private String orderNoOf(MvcResult result) throws Exception {
+        return JsonPath.read(result.getResponse().getContentAsString(StandardCharsets.UTF_8),
+                "$.orderNo");
+    }
+
+    private long createPhysicalProduct(String token, String name, String price, int stock)
+            throws Exception {
+        Long categoryId = jdbcTemplate.queryForObject(
+                "SELECT id FROM category WHERE name = '实物'", Long.class);
+        MvcResult result = mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"%s","description":"测试","price":%s,"stock":%d,
+                                 "categoryId":%d,"type":"PHYSICAL","status":"ON_SALE"}
+                                """.formatted(name, price, stock, categoryId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return ((Number) JsonPath.read(
+                result.getResponse().getContentAsString(StandardCharsets.UTF_8), "$.id")).longValue();
+    }
+
+    private long createDigitalProduct(String token, String name, String price) throws Exception {
+        MvcResult init = mockMvc.perform(post("/api/admin/uploads/digital/init")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"fileName":"seckill.zip","contentType":"application/zip","sizeBytes":1024}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        String initBody = init.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        String uploadId = JsonPath.read(initBody, "$.uploadId");
+        String key = JsonPath.read(initBody, "$.key");
+        MvcResult completed = mockMvc.perform(post("/api/admin/uploads/digital/complete")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"uploadId":"%s","key":"%s"}
+                                """.formatted(uploadId, key)))
+                .andExpect(status().isOk())
+                .andReturn();
+        long fileId = ((Number) JsonPath.read(
+                completed.getResponse().getContentAsString(StandardCharsets.UTF_8), "$.id")).longValue();
+
+        Long categoryId = jdbcTemplate.queryForObject(
+                "SELECT id FROM category WHERE name = '软件'", Long.class);
+        MvcResult product = mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"%s","description":"测试","price":%s,
+                                 "categoryId":%d,"type":"DIGITAL","digitalFileId":%d,
+                                 "status":"ON_SALE"}
+                                """.formatted(name, price, categoryId, fileId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return ((Number) JsonPath.read(
+                product.getResponse().getContentAsString(StandardCharsets.UTF_8), "$.id")).longValue();
+    }
+
+    private long createAddress(String token) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/addresses")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"receiverName":"张三","receiverPhone":"13800138000",
+                                 "province":"浙江","city":"杭州","district":"西湖",
+                                 "detail":"文三路 1 号","isDefault":true}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return ((Number) JsonPath.read(
+                result.getResponse().getContentAsString(StandardCharsets.UTF_8), "$.id")).longValue();
+    }
+
+    private int stockOf(long productId) {
+        Integer stock = jdbcTemplate.queryForObject(
+                "SELECT stock FROM product WHERE id = ?", Integer.class, productId);
+        return stock == null ? 0 : stock;
+    }
+
+    private int soldCount(long activityId) {
+        Integer sold = jdbcTemplate.queryForObject(
+                "SELECT sold_count FROM seckill_activity WHERE id = ?", Integer.class, activityId);
+        return sold == null ? 0 : sold;
+    }
+
+    private long ordersOf(long activityId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM orders WHERE activity_id = ?", Long.class, activityId);
+    }
+
+    private Session register(String phone) throws Exception {
+        redis.delete("auth:sms:cooldown:" + phone);
+        mockMvc.perform(post("/api/auth/sms-code")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"%s","scene":"REGISTER"}
+                                """.formatted(phone)))
+                .andExpect(status().isNoContent());
+        String code = smsSender.code(SmsScene.REGISTER, phone);
+        assertThat(code).isNotNull();
+        MvcResult result = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"%s","code":"%s","password":"%s"}
+                                """.formatted(phone, code, PASSWORD)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        Number id = JsonPath.read(body, "$.user.id");
+        return new Session(JsonPath.read(body, "$.accessToken"), id.longValue());
+    }
+
+    private String bearer(String token) {
+        return "Bearer " + token;
+    }
+
+    private void clear(Set<String> keys) {
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
+    }
+
+    private record Session(String token, Long id) {
+    }
+}

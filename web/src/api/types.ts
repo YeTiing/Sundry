@@ -138,6 +138,8 @@ export type RefundStatus =
 
 export type RefundKind = 'REFUND' | 'RETURN'
 
+export type OrderSource = 'NORMAL' | 'SECKILL'
+
 export interface OrderItem {
   id: number
   productId: number
@@ -152,6 +154,8 @@ export interface OrderItem {
 export interface Order {
   orderNo: string
   status: OrderStatus
+  orderSource: OrderSource | null
+  activityId: number | null
   totalAmount: number
   hasPhysical: boolean
   buyerPhone: string | null

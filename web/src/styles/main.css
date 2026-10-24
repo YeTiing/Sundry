@@ -1868,3 +1868,34 @@ a:hover {
   border-color: var(--rule-strong);
   text-decoration: line-through;
 }
+
+a.buy-row__action {
+  display: inline-block;
+  text-align: center;
+  text-decoration: none;
+}
+
+.seckill-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 24px;
+  padding: 26px 28px;
+  border: 1px solid var(--stamp);
+  background: var(--sheet);
+}
+
+.seckill-hero__price {
+  margin: 10px 0 0;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.seckill-hero__badge {
+  margin-left: 0;
+  padding: 6px 14px;
+  font-size: 13px;
+}

@@ -59,4 +59,9 @@ public interface OrderMapper {
     int markReturnShipped(@Param("orderNo") String orderNo);
 
     int completeReturn(@Param("orderNo") String orderNo);
+
+    Order findSeckillOrder(@Param("userId") Long userId,
+                           @Param("activityId") Long activityId);
+
+    List<Long> findSeckillBuyerIds(@Param("activityId") Long activityId);
 }

@@ -14,6 +14,7 @@ public class OrderProperties {
 
     private Duration payTimeout = Duration.ofMinutes(30);
     private int cancelBatchSize = 100;
+    private long workerId = 1;
 
     public Duration getPayTimeout() {
         return payTimeout;
@@ -29,5 +30,13 @@ public class OrderProperties {
 
     public void setCancelBatchSize(int cancelBatchSize) {
         this.cancelBatchSize = cancelBatchSize;
+    }
+
+    public long getWorkerId() {
+        return workerId;
+    }
+
+    public void setWorkerId(long workerId) {
+        this.workerId = workerId;
     }
 }

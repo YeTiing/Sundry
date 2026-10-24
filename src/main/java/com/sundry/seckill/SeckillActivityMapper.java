@@ -34,4 +34,10 @@ public interface SeckillActivityMapper {
     int cancel(@Param("id") Long id);
 
     int end(@Param("id") Long id);
+
+    int incrementSold(@Param("id") Long id);
+
+    int decrementSold(@Param("id") Long id);
+
+    List<SeckillActivity> findActiveForWarmUp();
 }

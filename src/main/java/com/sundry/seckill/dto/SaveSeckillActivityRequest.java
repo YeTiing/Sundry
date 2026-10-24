@@ -26,7 +26,7 @@ public record SaveSeckillActivityRequest(
         Integer stock,
 
         @Min(value = 1, message = "每人限购至少为 1")
-        @Max(value = 99, message = "每人限购最多 99")
+        @Max(value = 1, message = "每人限购固定为 1")
         Integer perUserLimit,
 
         @NotNull(message = "开始时间不能为空")

@@ -138,9 +138,12 @@ onMounted(async () => {
 
           <div class="buy-row">
             <template v-if="seckill">
-              <button class="primary-button buy-row__action" type="button" disabled>
-                秒杀进行中 · 抢购通道准备中
-              </button>
+              <RouterLink
+                class="primary-button buy-row__action"
+                :to="`/seckill/${seckill.id}`"
+              >
+                立即秒杀
+              </RouterLink>
             </template>
             <template v-else>
               <label class="field buy-row__qty">

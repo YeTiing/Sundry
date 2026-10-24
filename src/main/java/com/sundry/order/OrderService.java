@@ -18,6 +18,8 @@ import com.sundry.order.dto.CreateOrderRequest;
 import com.sundry.order.dto.DownloadView;
 import com.sundry.order.dto.OrderItemView;
 import com.sundry.order.dto.OrderView;
+import com.sundry.seckill.SeckillActivityMapper;
+import com.sundry.seckill.SeckillStockService;
 import com.sundry.storage.ObjectStorage;
 import com.sundry.user.User;
 import com.sundry.user.UserMapper;
@@ -29,11 +31,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 一套订单流程：
@@ -42,8 +42,6 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 public class OrderService {
 
-    private static final DateTimeFormatter ORDER_NO_TIME =
-            DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final Duration DOWNLOAD_TTL = Duration.ofMinutes(10);
     private static final int RETURN_WINDOW_DAYS = 7;
 
@@ -59,6 +57,9 @@ public class OrderService {
     private final DigitalUploadGateway digitalGateway;
     private final TransactionTemplate transactionTemplate;
     private final OrderProperties properties;
+    private final OrderNoGenerator orderNoGenerator;
+    private final SeckillActivityMapper seckillActivityMapper;
+    private final SeckillStockService seckillStockService;
 
     public OrderService(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                         OrderRefundMapper refundMapper,
@@ -66,7 +67,10 @@ public class OrderService {
                         UserAddressMapper addressMapper, ObjectStorage storage,
                         FileObjectMapper fileObjectMapper, UserMapper userMapper,
                         DigitalUploadGateway digitalGateway,
-                        TransactionTemplate transactionTemplate, OrderProperties properties) {
+                        TransactionTemplate transactionTemplate, OrderProperties properties,
+                        OrderNoGenerator orderNoGenerator,
+                        SeckillActivityMapper seckillActivityMapper,
+                        SeckillStockService seckillStockService) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.refundMapper = refundMapper;
@@ -79,6 +83,9 @@ public class OrderService {
         this.digitalGateway = digitalGateway;
         this.transactionTemplate = transactionTemplate;
         this.properties = properties;
+        this.orderNoGenerator = orderNoGenerator;
+        this.seckillActivityMapper = seckillActivityMapper;
+        this.seckillStockService = seckillStockService;
     }
 
     public OrderView create(Long userId, CreateOrderRequest request, String rawRequestId) {
@@ -148,8 +155,9 @@ public class OrderService {
                 .setScale(2, RoundingMode.HALF_UP);
 
         Order order = new Order();
-        order.setOrderNo(newOrderNo());
+        order.setOrderNo(orderNoGenerator.next());
         order.setRequestId(requestId);
+        order.setOrderSource(OrderSource.NORMAL);
         order.setUserId(userId);
         order.setStatus(OrderStatus.PENDING_PAYMENT);
         order.setTotalAmount(total);
@@ -680,6 +688,11 @@ public class OrderService {
                 productMapper.restoreStock(item.getProductId(), item.getQuantity());
             }
         }
+        // 秒杀订单取消后归还活动配额；购买标记保留，同一用户不能重复抢
+        if (order.getOrderSource() == OrderSource.SECKILL && order.getActivityId() != null) {
+            seckillActivityMapper.decrementSold(order.getActivityId());
+            seckillStockService.restoreStock(order.getActivityId(), 1);
+        }
     }
 
     private Order requireUserOrder(Long userId, String orderNo) {
@@ -710,11 +723,6 @@ public class OrderService {
         return storage.publicUrl(item.getCoverBucket(), item.getCoverObjectKey());
     }
 
-    private String newOrderNo() {
-        return LocalDateTime.now().format(ORDER_NO_TIME)
-                + String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
-    }
-
     private String normalize(String requestId) {
         if (requestId == null || requestId.isBlank()) {
             return null;
@@ -734,7 +742,8 @@ public class OrderService {
                 ? order.getRefundAmount()
                 : (refund == null ? null : refund.getAmount());
         User buyer = userMapper.findById(order.getUserId());
-        return new OrderView(order.getOrderNo(), order.getStatus(), order.getTotalAmount(),
+        return new OrderView(order.getOrderNo(), order.getStatus(), order.getOrderSource(),
+                order.getActivityId(), order.getTotalAmount(),
                 order.getHasPhysical() != null && order.getHasPhysical() == 1,
                 buyer == null ? null : buyer.getPhone(),
                 buyer == null ? null : buyer.getNickname(),

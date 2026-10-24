@@ -106,4 +106,28 @@
         WHERE id = #{id} AND status = 'ACTIVE'
     </update>
 
+    <!-- 数据库层兜底：活动在有效期内且还有余量才 +1 -->
+    <update id="incrementSold">
+        UPDATE seckill_activity
+        SET sold_count = sold_count + 1
+        WHERE id = #{id}
+          AND status = 'ACTIVE'
+          AND start_at &lt;= NOW(3)
+          AND end_at &gt; NOW(3)
+          AND stock - sold_count &gt;= 1
+    </update>
+
+    <update id="decrementSold">
+        UPDATE seckill_activity
+        SET sold_count = sold_count - 1
+        WHERE id = #{id} AND sold_count &gt; 0
+    </update>
+
+    <select id="findActiveForWarmUp" resultType="com.sundry.seckill.SeckillActivity">
+        SELECT <include refid="joinedColumns"/>
+        FROM seckill_activity s
+        JOIN product p ON p.id = s.product_id
+        WHERE s.status = 'ACTIVE' AND s.end_at &gt; NOW(3)
+    </select>
+
 </mapper>

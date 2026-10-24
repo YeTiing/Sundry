@@ -4,7 +4,7 @@
 <mapper namespace="com.sundry.order.OrderMapper">
 
     <sql id="orderColumns">
-        id, order_no, request_id, user_id, status, total_amount, has_physical,
+        id, order_no, request_id, activity_id, order_source, user_id, status, total_amount, has_physical,
         receiver_name, receiver_phone, receiver_address, tracking_no,
         created_at, paid_at, packed_at, shipped_at, completed_at, cancelled_at,
         refunded_at, refund_amount
@@ -12,9 +12,11 @@
 
     <insert id="insert" parameterType="com.sundry.order.Order"
             useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO orders (order_no, request_id, user_id, status, total_amount, has_physical,
+        INSERT INTO orders (order_no, request_id, activity_id, order_source, user_id, status,
+                            total_amount, has_physical,
                             receiver_name, receiver_phone, receiver_address)
-        VALUES (#{orderNo}, #{requestId}, #{userId}, #{status}, #{totalAmount}, #{hasPhysical},
+        VALUES (#{orderNo}, #{requestId}, #{activityId}, #{orderSource}, #{userId}, #{status},
+                #{totalAmount}, #{hasPhysical},
                 #{receiverName}, #{receiverPhone}, #{receiverAddress})
     </insert>
 
@@ -68,6 +70,19 @@
                 status = #{status}
             </if>
         </where>
+    </select>
+
+    <select id="findSeckillOrder" resultType="com.sundry.order.Order">
+        SELECT <include refid="orderColumns"/>
+        FROM orders
+        WHERE user_id = #{userId} AND activity_id = #{activityId}
+        LIMIT 1
+    </select>
+
+    <select id="findSeckillBuyerIds" resultType="long">
+        SELECT DISTINCT user_id
+        FROM orders
+        WHERE activity_id = #{activityId} AND order_source = 'SECKILL'
     </select>
 
     <select id="findTimeoutCandidates" resultType="com.sundry.order.Order">

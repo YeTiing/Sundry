@@ -9,6 +9,8 @@ import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
 import com.sundry.seckill.dto.SaveSeckillActivityRequest;
 import com.sundry.seckill.dto.SeckillActivityView;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -21,13 +23,17 @@ import java.util.List;
 public class SeckillActivityService {
 
     private static final int DEFAULT_PER_USER_LIMIT = 1;
+    private static final Logger log = LoggerFactory.getLogger(SeckillActivityService.class);
 
     private final SeckillActivityMapper activityMapper;
     private final ProductMapper productMapper;
+    private final SeckillStockService stockService;
 
-    public SeckillActivityService(SeckillActivityMapper activityMapper, ProductMapper productMapper) {
+    public SeckillActivityService(SeckillActivityMapper activityMapper, ProductMapper productMapper,
+                                  SeckillStockService stockService) {
         this.activityMapper = activityMapper;
         this.productMapper = productMapper;
+        this.stockService = stockService;
     }
 
     public SeckillActivityView create(SaveSeckillActivityRequest request) {
@@ -60,6 +66,7 @@ public class SeckillActivityService {
     public SeckillActivityView activate(Long id) {
         SeckillActivity existing = requireActivity(id);
         if (existing.getStatus() == SeckillStatus.ACTIVE) {
+            ensureWarm(existing);
             return view(existing);
         }
         if (existing.getStatus() != SeckillStatus.DRAFT) {
@@ -73,11 +80,14 @@ public class SeckillActivityService {
         if (activityMapper.activate(id) == 0) {
             SeckillActivity refreshed = requireActivity(id);
             if (refreshed.getStatus() == SeckillStatus.ACTIVE) {
+                ensureWarm(refreshed);
                 return view(refreshed);
             }
             throw new BusinessException(ErrorCode.SECKILL_STATUS_INVALID);
         }
-        return view(requireActivity(id));
+        SeckillActivity activated = requireActivity(id);
+        ensureWarm(activated);
+        return view(activated);
     }
 
     public SeckillActivityView cancel(Long id) {
@@ -92,10 +102,12 @@ public class SeckillActivityService {
         if (activityMapper.cancel(id) == 0) {
             SeckillActivity refreshed = requireActivity(id);
             if (refreshed.getStatus() == SeckillStatus.CANCELLED) {
+                stockService.clear(id);
                 return view(refreshed);
             }
             throw new BusinessException(ErrorCode.SECKILL_STATUS_INVALID);
         }
+        stockService.clear(id);
         return view(requireActivity(id));
     }
 
@@ -110,10 +122,12 @@ public class SeckillActivityService {
         if (activityMapper.end(id) == 0) {
             SeckillActivity refreshed = requireActivity(id);
             if (refreshed.getStatus() == SeckillStatus.ENDED) {
+                stockService.clear(id);
                 return view(refreshed);
             }
             throw new BusinessException(ErrorCode.SECKILL_STATUS_INVALID);
         }
+        stockService.clear(id);
         return view(requireActivity(id));
     }
 
@@ -137,6 +151,28 @@ public class SeckillActivityService {
             throw new BusinessException(ErrorCode.SECKILL_NOT_FOUND);
         }
         return view(activity);
+    }
+
+    public SeckillActivityView activeById(Long id) {
+        SeckillActivity activity = requireActivity(id);
+        LocalDateTime now = LocalDateTime.now();
+        if (activity.getStatus() != SeckillStatus.ACTIVE
+                || now.isBefore(activity.getStartAt())
+                || !now.isBefore(activity.getEndAt())) {
+            throw new BusinessException(ErrorCode.SECKILL_NOT_FOUND);
+        }
+        return view(activity);
+    }
+
+    private void ensureWarm(SeckillActivity activity) {
+        try {
+            if (!stockService.ensureWarm(activity)) {
+                log.warn("秒杀库存预热失败 activityId={}", activity.getId());
+            }
+        } catch (RuntimeException ex) {
+            // Redis 不可用时活动仍可启用，抢购会直接返回未就绪
+            log.warn("秒杀库存预热异常 activityId={}", activity.getId(), ex);
+        }
     }
 
     private void applyRequest(SeckillActivity activity, SaveSeckillActivityRequest request) {

@@ -287,7 +287,8 @@ onMounted(async () => {
 
               <label class="field">
                 <span class="field__label">每人限购</span>
-                <input v-model.trim="limitInput" type="text" inputmode="numeric" placeholder="1" />
+                <input v-model.trim="limitInput" type="text" disabled />
+                <span class="field__hint">当前版本固定为 1 件</span>
               </label>
 
               <label class="field">

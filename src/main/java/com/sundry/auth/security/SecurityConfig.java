@@ -2,6 +2,7 @@ package com.sundry.auth.security;
 
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
@@ -62,10 +63,14 @@ public class SecurityConfig {
                                 "/api/auth/refresh",
                                 "/api/auth/logout",
                                 "/api/products/**",
-                                "/api/seckill/**",
                                 "/api/categories",
                                 "/api/shop",
                                 "/actuator/health")
+                        .permitAll()
+                        // 秒杀只开放查询，下单接口仍然要求登录
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/seckill/products/**",
+                                "/api/seckill/activities/**")
                         .permitAll()
                         .anyRequest().authenticated())
                 // 未登录 / 无权限时也返回 JSON，避免默认的 HTML 错误页
