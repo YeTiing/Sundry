@@ -199,6 +199,10 @@ event_type: VIEW / CLICK / CART / FAVORITE / ORDER / SEARCH
 - 请求链路不直接写 MySQL，峰值只写 Redis。
 - Redis 不可用时降级为直接写库。
 - Feed 快照不因浏览立即失效；整页刷新时带 `refresh=true` 重算。
+- 偏好计算窗口：
+  - 最近 14 天、最近 100 次浏览
+  - 最近 10 笔订单，购买权重 ×3
+- 浏览明细保留 30 天，每天 4 点分批清理。
 
 后续可扩展：
 
