@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import SiteHeader from '@/components/SiteHeader.vue'
 import { catalogApi } from '@/api/catalog'
 import type { Category, Product } from '@/api/types'
@@ -9,15 +9,22 @@ const PAGE_SIZE = 12
 const categories = ref<Category[]>([])
 const products = ref<Product[]>([])
 const activeCategory = ref<number | null>(null)
-const page = ref(1)
-const total = ref(0)
+const cursor = ref<number | null>(null)
+const hasMore = ref(true)
 const loading = ref(false)
+const loadingMore = ref(false)
 const error = ref('')
+const sentinel = ref<HTMLElement | null>(null)
 
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
+let observer: IntersectionObserver | null = null
+let requestSeq = 0
 
 function formatPrice(value: number): string {
   return `¥${Number(value).toFixed(2)}`
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : '商品加载失败'
 }
 
 async function loadCategories(): Promise<void> {
@@ -28,30 +35,75 @@ async function loadCategories(): Promise<void> {
   }
 }
 
-async function loadProducts(target = page.value): Promise<void> {
+async function loadFirst(): Promise<void> {
+  const seq = ++requestSeq
   loading.value = true
   error.value = ''
+  products.value = []
+  cursor.value = null
+  hasMore.value = true
   try {
-    const data = await catalogApi.products(activeCategory.value, target, PAGE_SIZE)
+    const data = await catalogApi.scrollProducts(activeCategory.value, null, PAGE_SIZE)
+    if (seq !== requestSeq) return
     products.value = data.items
-    total.value = data.total
-    page.value = data.page
+    cursor.value = data.nextCursor
+    hasMore.value = data.hasMore
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '商品加载失败'
+    if (seq === requestSeq) {
+      error.value = messageOf(err)
+      hasMore.value = false
+    }
   } finally {
-    loading.value = false
+    if (seq === requestSeq) loading.value = false
+  }
+}
+
+async function loadMore(): Promise<void> {
+  if (loading.value || loadingMore.value || !hasMore.value) return
+  const seq = requestSeq
+  loadingMore.value = true
+  error.value = ''
+  try {
+    const data = await catalogApi.scrollProducts(activeCategory.value, cursor.value, PAGE_SIZE)
+    if (seq !== requestSeq) return
+    const existing = new Set(products.value.map((product) => product.id))
+    products.value = [
+      ...products.value,
+      ...data.items.filter((product) => !existing.has(product.id)),
+    ]
+    cursor.value = data.nextCursor
+    hasMore.value = data.hasMore
+  } catch (err) {
+    if (seq === requestSeq) error.value = messageOf(err)
+  } finally {
+    if (seq === requestSeq) loadingMore.value = false
   }
 }
 
 function selectCategory(id: number | null): void {
   if (activeCategory.value === id) return
   activeCategory.value = id
-  void loadProducts(1)
+  void loadFirst()
+}
+
+function setupObserver(): void {
+  if (typeof IntersectionObserver === 'undefined') return
+  observer = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) {
+      void loadMore()
+    }
+  }, { rootMargin: '400px 0px' })
+  if (sentinel.value) observer.observe(sentinel.value)
 }
 
 onMounted(() => {
   void loadCategories()
-  void loadProducts(1)
+  void loadFirst()
+  setupObserver()
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
 })
 </script>
 
@@ -113,23 +165,18 @@ onMounted(() => {
         </RouterLink>
       </div>
 
-      <div v-if="totalPages > 1" class="pager">
+      <div ref="sentinel" class="scroll-sentinel" aria-hidden="true"></div>
+
+      <div v-if="products.length > 0" class="load-more-bar">
+        <span v-if="loadingMore" class="panel-note">加载中…</span>
+        <span v-else-if="!hasMore" class="panel-note">没有更多了</span>
         <button
-          class="secondary-button"
+          v-else
+          class="secondary-button load-more-button"
           type="button"
-          :disabled="loading || page <= 1"
-          @click="loadProducts(page - 1)"
+          @click="loadMore"
         >
-          上一页
-        </button>
-        <span>{{ page }} / {{ totalPages }} · 共 {{ total }} 件</span>
-        <button
-          class="secondary-button"
-          type="button"
-          :disabled="loading || page >= totalPages"
-          @click="loadProducts(page + 1)"
-        >
-          下一页
+          加载更多
         </button>
       </div>
     </main>

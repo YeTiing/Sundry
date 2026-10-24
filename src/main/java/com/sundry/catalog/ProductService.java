@@ -4,6 +4,7 @@ import com.sundry.catalog.dto.CategoryView;
 import com.sundry.catalog.dto.ProductView;
 import com.sundry.catalog.dto.SaveProductRequest;
 import com.sundry.common.api.PageResponse;
+import com.sundry.common.api.ScrollPage;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
 import com.sundry.file.FileKind;
@@ -63,6 +64,26 @@ public class ProductService {
                 .filter(Objects::nonNull)
                 .toList();
         return new PageResponse<>(items, idPage.total(), idPage.page(), idPage.size());
+    }
+
+    /**
+     * 游标分页：按 id 倒序，多取一条判断 hasMore。
+     */
+    public ScrollPage<ProductView> findPublicScroll(Long categoryId, Long cursor, int size) {
+        List<Long> ids = productMapper.findPublicIdsByCursor(categoryId, cursor, size + 1);
+        boolean hasMore = ids.size() > size;
+        List<Long> pageIds = hasMore ? ids.subList(0, size) : ids;
+        List<ProductView> items = pageIds.stream()
+                .map(id -> cache.detail(id, () -> {
+                    Product product = productMapper.findPublicById(id);
+                    return product == null ? null : toView(product);
+                }))
+                .filter(Objects::nonNull)
+                .toList();
+        Long nextCursor = hasMore && !pageIds.isEmpty()
+                ? pageIds.get(pageIds.size() - 1)
+                : null;
+        return new ScrollPage<>(items, nextCursor, hasMore);
     }
 
     public PageResponse<ProductView> findAdminPage(ProductStatus status, int page, int size) {

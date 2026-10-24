@@ -1,5 +1,5 @@
 import { http } from './http'
-import type { Category, PageResponse, Product } from './types'
+import type { Category, PageResponse, Product, ScrollPage } from './types'
 
 /**
  * 商城公开接口，不需要登录。
@@ -15,6 +15,17 @@ export const catalogApi = {
       params.set('categoryId', String(categoryId))
     }
     return http.get<PageResponse<Product>>(`/products?${params.toString()}`)
+  },
+
+  scrollProducts(
+    categoryId: number | null,
+    cursor: number | null,
+    size: number,
+  ): Promise<ScrollPage<Product>> {
+    const params = new URLSearchParams({ size: String(size) })
+    if (categoryId !== null) params.set('categoryId', String(categoryId))
+    if (cursor !== null) params.set('cursor', String(cursor))
+    return http.get<ScrollPage<Product>>(`/products/scroll?${params.toString()}`)
   },
 
   product(id: number): Promise<Product> {

@@ -46,6 +46,12 @@ export interface PageResponse<T> {
   size: number
 }
 
+export interface ScrollPage<T> {
+  items: T[]
+  nextCursor: number | null
+  hasMore: boolean
+}
+
 export interface FileView {
   id: number
   key: string

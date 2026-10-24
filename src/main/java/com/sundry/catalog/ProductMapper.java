@@ -32,6 +32,10 @@ public interface ProductMapper {
 
     Product findPublicById(@Param("id") Long id);
 
+    List<Long> findPublicIdsByCursor(@Param("categoryId") Long categoryId,
+                                     @Param("lastId") Long lastId,
+                                     @Param("limit") int limit);
+
     List<Product> findPageAdmin(@Param("status") ProductStatus status,
                                 @Param("offset") long offset,
                                 @Param("size") int size);

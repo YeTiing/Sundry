@@ -4,6 +4,7 @@ import com.sundry.catalog.ProductService;
 import com.sundry.catalog.dto.CategoryView;
 import com.sundry.catalog.dto.ProductView;
 import com.sundry.common.api.PageResponse;
+import com.sundry.common.api.ScrollPage;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.validation.annotation.Validated;
@@ -40,6 +41,14 @@ public class CatalogController {
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "12") @Min(1) @Max(50) int size) {
         return productService.findPublicPage(categoryId, page, size);
+    }
+
+    @GetMapping("/products/scroll")
+    public ScrollPage<ProductView> scroll(
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) @Min(1) Long cursor,
+            @RequestParam(defaultValue = "12") @Min(1) @Max(50) int size) {
+        return productService.findPublicScroll(categoryId, cursor, size);
     }
 
     @GetMapping("/products/{id}")
