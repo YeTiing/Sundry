@@ -37,3 +37,7 @@ application-secret.yml
 uploads/
 logs/
 data/
+
+# Load test generated data
+loadtest/tokens.txt
+loadtest/activity.txt

@@ -12,16 +12,24 @@ docker compose -f docker-compose.kafka.yml up -d
 
 后端使用 `local` profile 启动。
 
-## 2. 准备秒杀活动
+## 2. 一键准备活动和用户
 
-在后台 `/admin/seckill` 创建一个**数字商品**活动并启用，记下活动 ID。
-数字商品不需要收货地址，压测脚本只传 `activityId`。
+```bash
+USERS=200 STOCK=50 \
+LOG_FILE="C:\\Users\\Lenovo\\AppData\\Local\\Temp\\sundry-backend.log" \
+node loadtest/prepare.mjs
+```
 
-为了避免“一人限购”干扰压测，需要准备一批不同的用户 token：
+脚本会：
 
-1. 用不同手机号注册一批账号（开发环境验证码看后端日志 `[dev-sms] phone=... code=xxxxxx`）。
-2. 从注册/登录接口响应里取出 `accessToken`。
-3. 用逗号拼成 `TOKENS` 环境变量。
+- 用超管账号 `13800138000/secret123` 登录
+- 上传一个 1KB 数字文件，创建数字商品
+- 创建并启用一个 50 库存的秒杀活动
+- 注册 1 个用户，复制其 BCrypt 哈希，批量插入 199 个测试用户（手机号前缀 `1370000`）
+- 逐个登录，把 token 写到 `loadtest/tokens.txt`（已 gitignore）
+- 活动 ID 写到 `loadtest/activity.txt`
+
+依赖：本机 `mysql` 命令、后端日志可读、开发短信仍在日志里输出。
 
 ## 3. 浏览压测（缓存）
 
@@ -38,17 +46,18 @@ k6 run \
 ## 4. 秒杀压测
 
 ```bash
+ACTIVITY_ID=$(cat loadtest/activity.txt) \
 k6 run \
   -e BASE_URL=http://127.0.0.1:8080 \
-  -e ACTIVITY_ID=1 \
-  -e TOKENS="token1,token2,token3" \
-  -e VUS=100 \
-  -e ITERATIONS=1000 \
+  -e ACTIVITY_ID=$ACTIVITY_ID \
+  -e VUS=200 \
+  -e ITERATIONS=200 \
   loadtest/seckill.js
 ```
 
-每个 VU 固定使用一个 token，避免同一用户被限购拦截。
-默认限流是每用户每秒 5 次，压测时尽量让 `TOKENS` 数量接近 `VUS`。
+脚本自动读取 `loadtest/tokens.txt`，每个 VU 固定一个 token，避免同一用户被限购拦截。
+409 售罄和 429 限流是**预期结果**，脚本用 `seckill_unexpected_status == 0` 作为通过条件，不把 409 计为失败。
+默认限流是每用户每秒 5 次，压测时尽量让 token 数量接近 VUS。
 
 ## 5. 结果校验
 
@@ -91,3 +100,30 @@ curl -s http://127.0.0.1:8080/actuator/prometheus | grep sundry_seckill
 - 没有重复订单：同一 `activity_id + user_id` 只有一行
 - 有效订单数、`sold_count`、Redis 剩余库存三者一致
 - `sundry_seckill_compensation_total` 为 0，或每次补偿都能在日志里解释
+
+## 7. 本机实测（2026-10-24）
+
+环境：Windows 11、单机 MySQL 8.0 / Redis / MinIO / Kafka（Docker）、Spring Boot 本地进程。
+
+场景：200 个用户并发抢 50 件数字商品，每人 1 次。
+
+第二轮（Kafka producer 已预热）：
+
+```text
+200 requests, 50 accepted, 150 sold out
+p99 = 139ms
+unexpected status = 0
+吞吐约 2000 req/s（本机短时突发）
+```
+
+一致性校验：
+
+```text
+seckill_activity: stock=50, sold_count=50
+orders: 50 行，50 个不同 user_id
+redis seckill:stock = 0
+redis seckill:buyer HLEN = 50
+sundry_seckill_compensation_total = 0
+```
+
+第一轮 p99 约 1.16s，原因是 Kafka producer 首次初始化；预热后恢复正常。

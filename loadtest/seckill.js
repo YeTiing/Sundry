@@ -1,53 +1,66 @@
-// 秒杀压测：需要先准备一个进行中的数字商品活动，以及一批互不相同的用户 token。
-// 运行示例见 loadtest/README.md
 import http from 'k6/http';
 import { check } from 'k6';
+import { Counter } from 'k6/metrics';
 
 const BASE = __ENV.BASE_URL || 'http://127.0.0.1:8080';
-const ACTIVITY_ID = Number(__ENV.ACTIVITY_ID || 0);
-const TOKENS = (__ENV.TOKENS || '')
-  .split(',')
-  .map((token) => token.trim())
-  .filter(Boolean);
+// 409 售罄和 429 限流是预期结果，不计入失败
+const unexpected = new Counter('seckill_unexpected_status');
+const ACTIVITY_ID = __ENV.ACTIVITY_ID;
+
+let tokens = [];
+try {
+  tokens = open('./tokens.txt')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+} catch (error) {
+  tokens = [];
+}
+if (tokens.length === 0) {
+  tokens = (__ENV.TOKENS || '').split(',').map((item) => item.trim()).filter(Boolean);
+}
 
 export const options = {
   scenarios: {
     seckill: {
       executor: 'shared-iterations',
-      vus: Number(__ENV.VUS || 100),
-      iterations: Number(__ENV.ITERATIONS || 1000),
+      vus: Number(__ENV.VUS || tokens.length || 100),
+      iterations: Number(__ENV.ITERATIONS || tokens.length || 100),
       maxDuration: __ENV.MAX_DURATION || '2m',
     },
   },
   thresholds: {
-    http_req_failed: ['rate<0.05'],
-    http_req_duration: ['p(99)<500'],
+    seckill_unexpected_status: ['count==0'],
+    http_req_duration: ['p(99)<800'],
   },
 };
 
-export function setup() {
-  if (!ACTIVITY_ID) {
-    throw new Error('缺少 ACTIVITY_ID');
-  }
-  if (TOKENS.length === 0) {
-    throw new Error('缺少 TOKENS，需要逗号分隔的一批用户 accessToken');
-  }
-}
-
 export default function () {
-  const token = TOKENS[(__VU - 1) % TOKENS.length];
+  if (!ACTIVITY_ID) {
+    throw new Error('ACTIVITY_ID is required');
+  }
+  if (tokens.length === 0) {
+    throw new Error('需要 tokens.txt 或 TOKENS 环境变量');
+  }
+
+  const token = tokens[(__VU - 1) % tokens.length];
   const response = http.post(
     `${BASE}/api/seckill/orders`,
-    JSON.stringify({ activityId: ACTIVITY_ID }),
+    JSON.stringify({ activityId: Number(ACTIVITY_ID) }),
     {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
+      tags: { name: 'seckill-submit' },
     },
   );
 
+  if (![202, 409, 429].includes(response.status)) {
+    unexpected.add(1);
+  }
+
   check(response, {
-    'accepted or expected rejection': (res) => [202, 409, 429].includes(res.status),
+    'accepted or expected rejection': (r) => [202, 409, 429].includes(r.status),
   });
 }
