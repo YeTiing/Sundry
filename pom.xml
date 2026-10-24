@@ -48,8 +48,8 @@
         </dependency>
         <!-- 秒杀异步建单 -->
         <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
         </dependency>
         <!-- 商品浏览本地缓存 -->
         <dependency>
