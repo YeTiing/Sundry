@@ -1,8 +1,11 @@
+import logging
 from typing import Protocol
 
 from openai import AsyncOpenAI
 
 from app.config import Settings, get_settings
+
+logger = logging.getLogger("sundry.ai")
 
 
 class LlmClient(Protocol):
@@ -23,18 +26,32 @@ class DeepSeekClient:
         )
 
     async def complete(self, system: str, user: str) -> str:
-        response = await self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.2,
-            max_tokens=2500,
-            timeout=self._timeout,
-        )
-        return response.choices[0].message.content or ""
+        last = ""
+        # DeepSeek 偶发返回空 content；重试一次，仍为空则交给 Java 侧降级
+        for attempt in range(2):
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.2,
+                max_tokens=2500,
+                timeout=self._timeout,
+            )
+            choice = response.choices[0]
+            content = choice.message.content or ""
+            if content.strip():
+                return content
+            last = content
+            logger.warning(
+                "empty llm content attempt=%d finish_reason=%s message=%s",
+                attempt + 1,
+                getattr(choice, "finish_reason", None),
+                str(choice.message)[:500],
+            )
+        return last
 
 
 _client: LlmClient | None = None

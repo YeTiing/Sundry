@@ -48,6 +48,9 @@ async def rerank(
         build_user_prompt(request.profile, request.candidates, request.limit),
     )
 
+    if not raw.strip():
+        raise HTTPException(status_code=503, detail="model returned empty output")
+
     try:
         parsed = LlmOutput.model_validate(json.loads(raw))
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:

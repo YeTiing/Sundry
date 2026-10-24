@@ -1496,14 +1496,17 @@ sundry_seckill_compensation_total = 0
 - Java 的 `RestClient` 直接发送对象会使用 `Transfer-Encoding: chunked`，本地 uvicorn 收不到完整请求，报 `content type [application/octet-stream]`。改为先用 `ObjectMapper` 序列化成 String 再发送，固定 `Content-Length`
 - 60 个候选的 LLM 调用实测 4~11 秒，原来的 5 秒读超时让 Java 先断开连接，uvicorn 的 200 响应到达时客户端已经关闭。`app.ai.timeout` 调到 30 秒，前端轮询改为 10 次（15 秒）
 - 60 个候选下模型偶发非法 JSON；温度降到 0.2、`max_tokens` 提到 2500，并在 Python 侧记录非法输出原文，便于排查
+- DeepSeek 偶发返回空 content（日志里 `invalid llm output:` 后为空）；Python 内部重试一次，仍为空返回 503，由 Java worker 再重试/降级
 - 审计里的 `returned_count` 改为模型实际返回数量，不再用合并后的快照长度
 
 **验证**
 
 - `TEST_DB_PASSWORD=123456 mvn test` → 157 个用例全部通过（新增 7 个 AI 推流用例）
-- `cd ai && uv run pytest -q` → 10 个用例通过
+- `cd ai && uv run pytest -q` → 11 个用例通过
 - `npm run build` 通过
 - 真实 DeepSeek 调用：只返回候选内 ID，顺序为 74 → 362 → 70 → 85 → 19，`promptVersion=feed_rerank_v1`
+- 端到端实测（Hazel）：`PENDING` → 约 11.5 秒后 `READY`，`returned_count=20`；首屏顺序由
+  `354, 269, 268, 88, 19, ...` 变为 `85, 354, 88, 269, 276, ...`
 - 未启动 Python 服务时：接口返回 `FALLBACK`，列表仍可用
 
 **提交**

@@ -141,6 +141,16 @@ def test_invalid_json_returns_422():
     assert response.status_code == 422
 
 
+def test_empty_model_output_returns_503():
+    client = make_client("")
+    response = client.post(
+        "/internal/feed/rerank",
+        json=body(),
+        headers={"X-Internal-Token": "test-token"},
+    )
+    assert response.status_code == 503
+
+
 def test_empty_items_is_valid():
     client = make_client('{"items":[]}')
     response = client.post(
