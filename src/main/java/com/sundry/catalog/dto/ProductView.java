@@ -13,5 +13,6 @@ import java.time.LocalDateTime;
 public record ProductView(Long id, String name, String description, ProductType type,
                           BigDecimal price, Integer stock, Long categoryId, String categoryName,
                           Long coverFileId, String coverUrl, Long digitalFileId,
-                          ProductStatus status, LocalDateTime deletedAt, LocalDateTime createdAt) {
+                          ProductStatus status, LocalDateTime deletedAt, LocalDateTime createdAt,
+                          String reason) {
 }

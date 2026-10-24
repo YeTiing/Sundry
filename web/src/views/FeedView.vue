@@ -4,48 +4,106 @@ import { storeToRefs } from 'pinia'
 import SiteHeader from '@/components/SiteHeader.vue'
 import ProductGrid from '@/components/ProductGrid.vue'
 import { feedApi } from '@/api/feed'
+import type { AiFeedStatus, FeedPage } from '@/api/types'
+import { useAuthStore } from '@/stores/auth'
 import { useFeedStore } from '@/stores/feed'
 
 const PAGE_SIZE = 12
+const POLL_TIMES = 3
+const POLL_INTERVAL_MS = 1500
 
+const auth = useAuthStore()
 const store = useFeedStore()
 const { products, cursor, hasMore } = storeToRefs(store)
 
 const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
+const aiNotice = ref('')
+const aiStatus = ref<AiFeedStatus>('DISABLED')
+const aiBuildId = ref<string | null>(null)
 const sentinel = ref<HTMLElement | null>(null)
 
 let observer: IntersectionObserver | null = null
 let requestSeq = 0
+let pollToken = 0
 let scrollTicking = false
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : '推荐加载失败'
 }
 
-async function loadFirst(): Promise<void> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function loadFirst(
+  refresh: boolean,
+  buildId: string | null = null,
+): Promise<FeedPage | null> {
   const seq = ++requestSeq
   loading.value = true
   error.value = ''
-  products.value = []
-  cursor.value = null
-  hasMore.value = true
   try {
-    const data = await feedApi.getFeed(null, PAGE_SIZE, true)
-    if (seq !== requestSeq) return
+    const data = await feedApi.getFeed(null, PAGE_SIZE, refresh, buildId)
+    if (seq !== requestSeq) return null
     products.value = data.items
     cursor.value = data.nextCursor
     hasMore.value = data.hasMore
+    aiStatus.value = data.aiStatus
+    aiBuildId.value = data.aiBuildId
     store.loaded = true
+    return data
   } catch (err) {
     if (seq === requestSeq) {
       error.value = messageOf(err)
       hasMore.value = false
     }
+    return null
   } finally {
     if (seq === requestSeq) loading.value = false
   }
+}
+
+/**
+ * 换一批走异步链路：请求立即返回 PENDING，随后轮询拿 AI 排序结果。
+ */
+async function refreshWithAi(): Promise<void> {
+  const token = ++pollToken
+  aiNotice.value = 'AI 正在重新排序…'
+  const first = await loadFirst(true)
+  if (!first || token !== pollToken) return
+
+  if (first.aiStatus === 'DISABLED') {
+    aiNotice.value = ''
+    return
+  }
+  if (first.aiStatus !== 'PENDING' || !first.aiBuildId) {
+    aiNotice.value = 'AI 排序暂不可用，已使用规则排序'
+    return
+  }
+
+  const target = first.aiBuildId
+  for (let i = 0; i < POLL_TIMES; i++) {
+    await sleep(POLL_INTERVAL_MS)
+    if (token !== pollToken) return
+    try {
+      const page = await feedApi.getFeed(null, PAGE_SIZE, false, target)
+      if (token !== pollToken) return
+      if (page.aiStatus === 'READY' && page.aiBuildId === target) {
+        products.value = page.items
+        cursor.value = page.nextCursor
+        hasMore.value = page.hasMore
+        aiStatus.value = page.aiStatus
+        aiBuildId.value = page.aiBuildId
+        aiNotice.value = 'AI 排序已更新'
+        return
+      }
+    } catch {
+      // 单次轮询失败不打断，继续等下一轮
+    }
+  }
+  aiNotice.value = 'AI 排序稍后生效，先按当前列表展示'
 }
 
 async function loadMore(): Promise<void> {
@@ -54,8 +112,13 @@ async function loadMore(): Promise<void> {
   loadingMore.value = true
   error.value = ''
   try {
-    const data = await feedApi.getFeed(cursor.value, PAGE_SIZE)
+    const data = await feedApi.getFeed(cursor.value, PAGE_SIZE, false, aiBuildId.value)
     if (seq !== requestSeq) return
+    // 快照切换后游标含义变了，回到第一页重新加载，避免重复或漏项
+    if (data.aiBuildId !== aiBuildId.value || data.aiStatus !== aiStatus.value) {
+      await loadFirst(false)
+      return
+    }
     const existing = new Set(products.value.map((product) => product.id))
     products.value = [
       ...products.value,
@@ -100,7 +163,11 @@ onMounted(async () => {
     await nextTick()
     restoreScroll()
   } else {
-    await loadFirst()
+    const data = await loadFirst(false)
+    // 登录用户首次进入时，如果还没有 AI 快照，自动触发一次构建
+    if (data && data.aiStatus === 'FALLBACK' && auth.isAuthenticated) {
+      await refreshWithAi()
+    }
   }
   setupObserver()
   window.addEventListener('scroll', onScroll, { passive: true })
@@ -108,6 +175,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   store.scrollY = window.scrollY
+  pollToken++
   observer?.disconnect()
   window.removeEventListener('scroll', onScroll)
 })
@@ -122,12 +190,18 @@ onBeforeUnmount(() => {
         <p class="store-kicker">自营 · 单商户</p>
         <h1 class="store-title">为你推荐</h1>
         <p class="store-lede">根据你的浏览和购买偏好，混排热销、新品和探索商品。</p>
-        <RouterLink class="secondary-button feed-browse-link" to="/products">
-          按分类浏览
-        </RouterLink>
+        <div class="feed-actions">
+          <RouterLink class="secondary-button feed-browse-link" to="/products">
+            按分类浏览
+          </RouterLink>
+          <button class="secondary-button" type="button" :disabled="loading" @click="refreshWithAi">
+            换一批
+          </button>
+        </div>
       </section>
 
       <p v-if="error" class="form-error">{{ error }}</p>
+      <p v-if="aiNotice" class="panel-note feed-ai-note">{{ aiNotice }}</p>
 
       <p v-if="loading" class="store-empty">加载中…</p>
       <p v-else-if="products.length === 0" class="store-empty">

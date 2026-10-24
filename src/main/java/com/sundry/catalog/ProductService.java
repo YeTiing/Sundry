@@ -299,6 +299,6 @@ public class ProductService {
                 product.getType(), product.getPrice(), product.getStock(),
                 product.getCategoryId(), product.getCategoryName(),
                 product.getCoverFileId(), coverUrl, product.getDigitalFileId(),
-                product.getStatus(), product.getDeletedAt(), product.getCreatedAt());
+                product.getStatus(), product.getDeletedAt(), product.getCreatedAt(), null);
     }
 }

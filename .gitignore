@@ -41,3 +41,9 @@ data/
 # Load test generated data
 loadtest/tokens.txt
 loadtest/activity.txt
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

@@ -1,8 +1,7 @@
 package com.sundry.feed;
 
 import com.sundry.auth.security.AuthenticatedUser;
-import com.sundry.catalog.dto.ProductView;
-import com.sundry.common.api.ScrollPage;
+import com.sundry.feed.dto.FeedPage;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -13,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 首页推荐 Feed。未登录时返回匿名 Feed。
+ * 首页推荐 Feed。未登录时返回匿名 Feed；登录用户的 AI 排序由后台异步构建。
  */
 @RestController
 @RequestMapping("/api/feed")
@@ -27,11 +26,12 @@ public class FeedController {
     }
 
     @GetMapping
-    public ScrollPage<ProductView> feed(
+    public FeedPage feed(
             @RequestParam(required = false) @Min(0) Long cursor,
             @RequestParam(defaultValue = "12") @Min(1) @Max(50) int size,
             @RequestParam(defaultValue = "false") boolean refresh,
+            @RequestParam(required = false) String buildId,
             @AuthenticationPrincipal AuthenticatedUser user) {
-        return feedService.feed(user == null ? null : user.id(), cursor, size, refresh);
+        return feedService.feed(user == null ? null : user.id(), cursor, size, refresh, buildId);
     }
 }

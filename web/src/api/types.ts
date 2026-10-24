@@ -52,6 +52,16 @@ export interface ScrollPage<T> {
   hasMore: boolean
 }
 
+export type AiFeedStatus = 'DISABLED' | 'PENDING' | 'READY' | 'FALLBACK'
+
+export interface FeedPage {
+  items: Product[]
+  nextCursor: number | null
+  hasMore: boolean
+  aiStatus: AiFeedStatus
+  aiBuildId: string | null
+}
+
 export interface FileView {
   id: number
   key: string
@@ -85,6 +95,7 @@ export interface Product {
   status: ProductStatus
   deletedAt: string | null
   createdAt: string
+  reason?: string | null
 }
 
 export interface CartItem {

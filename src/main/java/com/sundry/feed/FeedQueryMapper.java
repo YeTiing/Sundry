@@ -15,4 +15,11 @@ public interface FeedQueryMapper {
 
     List<CategoryWeight> findViewCategoryWeights(@Param("userId") Long userId,
                                                  @Param("since") LocalDateTime since);
+
+    PriceRange findPriceRange(@Param("userId") Long userId,
+                              @Param("since") LocalDateTime since);
+
+    List<String> findRecentViewedNames(@Param("userId") Long userId,
+                                       @Param("since") LocalDateTime since,
+                                       @Param("limit") int limit);
 }

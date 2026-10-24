@@ -1,0 +1,20 @@
+[project]
+name = "sundry-ai"
+version = "0.1.0"
+description = "Sundry AI 编排服务：只做理解与生成，不连接业务库"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic>=2.9",
+    "openai>=1.50",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

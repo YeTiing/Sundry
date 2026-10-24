@@ -1,5 +1,8 @@
 package com.sundry.feed;
 
+import com.sundry.ai.AiFeedStore;
+import com.sundry.ai.AiProperties;
+import com.sundry.ai.FeedSnapshot;
 import com.sundry.catalog.Product;
 import com.sundry.catalog.ProductMapper;
 import com.sundry.catalog.ProductService;
@@ -7,6 +10,7 @@ import com.sundry.catalog.ProductType;
 import com.sundry.catalog.dto.ProductView;
 import com.sundry.common.api.ScrollPage;
 import com.sundry.common.exception.BusinessException;
+import com.sundry.feed.dto.FeedPage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -27,12 +31,17 @@ import java.util.stream.Collectors;
 
 /**
  * 首页推荐 Feed：单路候选 + 规则打分 + 多样性重排。
- * 结果按用户缓存成 Redis List，游标是列表下标，避免重复和漏项。
+ * 登录用户在规则候选的基础上，由后台 worker 调 LLM 重排并写入 Redis 快照。
  */
 @Service
 public class FeedService {
 
     private static final Logger log = LoggerFactory.getLogger(FeedService.class);
+
+    public static final String STATUS_DISABLED = "DISABLED";
+    public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_READY = "READY";
+    public static final String STATUS_FALLBACK = "FALLBACK";
 
     private static final int CANDIDATE_LIMIT = 500;
     private static final int DIVERSITY_BLOCK = 12;
@@ -44,17 +53,108 @@ public class FeedService {
     private final FeedQueryMapper feedQueryMapper;
     private final ProductService productService;
     private final StringRedisTemplate redis;
+    private final AiProperties aiProperties;
+    private final AiFeedStore aiFeedStore;
 
     public FeedService(ProductMapper productMapper, FeedQueryMapper feedQueryMapper,
-                       ProductService productService, StringRedisTemplate redis) {
+                       ProductService productService, StringRedisTemplate redis,
+                       AiProperties aiProperties, AiFeedStore aiFeedStore) {
         this.productMapper = productMapper;
         this.feedQueryMapper = feedQueryMapper;
         this.productService = productService;
         this.redis = redis;
+        this.aiProperties = aiProperties;
+        this.aiFeedStore = aiFeedStore;
     }
 
-    public ScrollPage<ProductView> feed(Long userId, Long cursor, int size, boolean refresh) {
+    public FeedPage feed(Long userId, Long cursor, int size, boolean refresh, String buildId) {
         int offset = cursor == null ? 0 : Math.max(0, cursor.intValue());
+        if (userId == null || !aiProperties.isEnabled()) {
+            ScrollPage<ProductView> page = rulePage(userId, offset, size, refresh);
+            return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
+                    STATUS_DISABLED, null);
+        }
+        if (aiProperties.getInternalToken() == null || aiProperties.getInternalToken().isBlank()) {
+            ScrollPage<ProductView> page = rulePage(userId, offset, size, refresh);
+            return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
+                    STATUS_FALLBACK, null);
+        }
+        return aiPage(userId, offset, size, refresh);
+    }
+
+    private FeedPage aiPage(Long userId, int offset, int size, boolean refresh) {
+        if (refresh) {
+            String newBuildId;
+            try {
+                newBuildId = aiFeedStore.enqueue(userId);
+            } catch (RuntimeException ex) {
+                log.warn("AI 推流入队失败，降级规则排序 userId={}", userId, ex);
+                newBuildId = null;
+            }
+            if (newBuildId == null) {
+                ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
+                return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
+                        STATUS_FALLBACK, null);
+            }
+
+            FeedSnapshot snapshot = safeSnapshot(userId);
+            if (snapshot != null) {
+                return pageFromSnapshot(snapshot, offset, size, STATUS_PENDING, newBuildId);
+            }
+            ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
+            return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
+                    STATUS_PENDING, newBuildId);
+        }
+
+        FeedSnapshot snapshot = safeSnapshot(userId);
+        if (snapshot != null) {
+            return pageFromSnapshot(snapshot, offset, size, STATUS_READY, snapshot.buildId());
+        }
+
+        String pending = safePending(userId);
+        ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
+        return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
+                pending == null ? STATUS_FALLBACK : STATUS_PENDING, pending);
+    }
+
+    private FeedPage pageFromSnapshot(FeedSnapshot snapshot, int offset, int size,
+                                      String status, String buildId) {
+        List<FeedSnapshot.SnapshotItem> items = snapshot.items() == null
+                ? List.of()
+                : snapshot.items();
+        List<ProductView> views = new ArrayList<>();
+        int index = Math.min(Math.max(0, offset), items.size());
+        while (views.size() < size && index < items.size()) {
+            FeedSnapshot.SnapshotItem item = items.get(index++);
+            ProductView view = hydrate(item.id());
+            if (view != null) {
+                views.add(withReason(view, item.reason()));
+            }
+        }
+        boolean hasMore = index < items.size();
+        Long nextCursor = hasMore ? (long) index : null;
+        return new FeedPage(views, nextCursor, hasMore, status, buildId);
+    }
+
+    private FeedSnapshot safeSnapshot(Long userId) {
+        try {
+            return aiFeedStore.snapshot(userId);
+        } catch (RuntimeException ex) {
+            log.warn("读取 AI 快照失败 userId={}", userId, ex);
+            return null;
+        }
+    }
+
+    private String safePending(Long userId) {
+        try {
+            return aiFeedStore.pending(userId);
+        } catch (RuntimeException ex) {
+            log.warn("读取 AI 待处理标记失败 userId={}", userId, ex);
+            return null;
+        }
+    }
+
+    private ScrollPage<ProductView> rulePage(Long userId, int offset, int size, boolean refresh) {
         String key = SNAPSHOT_KEY.formatted(userId == null ? "anon" : userId);
         try {
             if (refresh) {
@@ -121,6 +221,30 @@ public class FeedService {
         } catch (BusinessException ex) {
             return null;
         }
+    }
+
+    private ProductView withReason(ProductView view, String reason) {
+        if (reason == null || reason.isBlank()) {
+            return view;
+        }
+        return new ProductView(view.id(), view.name(), view.description(), view.type(),
+                view.price(), view.stock(), view.categoryId(), view.categoryName(),
+                view.coverFileId(), view.coverUrl(), view.digitalFileId(), view.status(),
+                view.deletedAt(), view.createdAt(), reason);
+    }
+
+    /**
+     * 规则排序后的商品 ID。AI worker 用它在同一份候选上做重排。
+     */
+    public List<Long> rankIds(Long userId) {
+        return rank(userId);
+    }
+
+    /**
+     * 单个商品视图；不存在或已下架返回 null。
+     */
+    public ProductView viewOrNull(Long productId) {
+        return hydrate(productId);
     }
 
     private List<Long> rank(Long userId) {

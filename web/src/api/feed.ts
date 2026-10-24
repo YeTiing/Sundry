@@ -1,12 +1,13 @@
 import { http } from './http'
-import type { Product, ScrollPage } from './types'
+import type { FeedPage } from './types'
 
 export const feedApi = {
   getFeed(
     cursor: number | null,
     size: number,
     refresh = false,
-  ): Promise<ScrollPage<Product>> {
+    buildId: string | null = null,
+  ): Promise<FeedPage> {
     const params = new URLSearchParams({ size: String(size) })
     if (cursor !== null) {
       params.set('cursor', String(cursor))
@@ -14,7 +15,10 @@ export const feedApi = {
     if (refresh) {
       params.set('refresh', 'true')
     }
-    return http.get<ScrollPage<Product>>(`/feed?${params.toString()}`)
+    if (buildId) {
+      params.set('buildId', buildId)
+    }
+    return http.get<FeedPage>(`/feed?${params.toString()}`)
   },
 }
 
