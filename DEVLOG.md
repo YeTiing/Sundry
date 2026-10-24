@@ -30,12 +30,13 @@
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
 | 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
-| 推荐 | 首页 Feed：浏览行为、分类偏好、热销/新品/探索混排、Redis 快照、无限滑动 |
+| 推荐 | 首页 Feed：浏览行为、分类偏好、热销/新品/探索混排、Redis 快照、无限滑动；登录用户 AI 异步重排与推荐理由 |
+| AI | `ai/` FastAPI 服务 + DeepSeek 重排；异步队列、buildId 防覆盖、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 150 个集成测试，`mvn test` 全绿 |
+| 测试 | 157 个 Java 集成测试 + 10 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
-| 未完成 | 真实支付、退款真实资金流、通知公告 |
+| 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
 ### 本地启动
 
@@ -44,7 +45,12 @@
 2. IDEA：JDK 17，Active profiles 填 `local`，或 VM options 加 `-Dspring.profiles.active=local`
 3. 运行 `SundryApplication`，健康检查 `http://localhost:8080/actuator/health`
 4. 前端：`cd web && npm install && npm run dev`，访问 `http://localhost:5173`
-5. 测试：`TEST_DB_PASSWORD=123456 mvn test`
+5. AI 服务（可选，没启动时自动降级为规则排序）：
+   - `cd ai && uv sync`
+   - 复制 `ai/.env.example` 为 `ai/.env`，填 `AI_INTERNAL_TOKEN` 和 `DEEPSEEK_API_KEY`
+   - `uv run --env-file .env uvicorn app.main:app --host 127.0.0.1 --port 8000`
+   - 后端启动时设置同样的 `AI_INTERNAL_TOKEN`；`AI_BASE_URL` 默认 `http://127.0.0.1:8000`
+6. 测试：`TEST_DB_PASSWORD=123456 mvn test`；Python：`cd ai && uv run pytest -q`
 
 超级管理员手机号在 `application-local.yml` 的 `app.security.super-admin-phone`。改成自己的号并重启，用该号注册即成为超级管理员。MinIO 控制台：`http://localhost:9001`（账号 `sundry`）。
 
@@ -1455,10 +1461,54 @@ sundry_seckill_compensation_total = 0
 
 - `daf5e6b` feat: Feed 偏好窗口收敛与行为清理
 
+## 2026-10-24 · AI 智能推流（异步 LLM 重排）
+
+**做了什么**
+
+- 新增 `ai/` Python 服务，`POST /internal/feed/rerank`：
+  - DeepSeek（OpenAI 兼容）JSON 模式，`temperature=0.3`
+  - `X-Internal-Token` 内部令牌，密钥只放 Python 环境变量
+  - 只接受 Java 下发的候选 ID，越界和重复 ID 丢弃
+  - 提示词版本 `feed_rerank_v1`
+- Java 异步链路：
+  - `refresh=true` 生成 buildId、写 pending、入 Redis 队列，请求立即返回规则排序 + `PENDING`
+  - `AiFeedBuildJob` 每秒消费，`RPOPLPUSH` 到 processing，失败可重试
+  - 用户锁 + buildId 二次校验，构建期间的旧结果不会覆盖新请求
+  - 失败最多重试 2 次，之后清 pending 降级
+  - V20 `ai_feed_log` 记录模型、候选数、返回数、耗时、状态
+- Feed 响应新增 `aiStatus` / `aiBuildId`，商品新增 `reason`
+- 前端：换一批 → 轮询 3 次（1.5 秒）→ 拿到 READY 再替换列表；卡片显示 AI 理由
+- 匿名用户、AI 未配置或关闭时，行为与之前完全一致
+
+**方案说明**
+
+- LLM 只做重排，不做召回；候选 Top60 仍由规则产出
+- 不是每次请求都调 LLM：每个用户每次"换一批"最多一次，快照缓存 10 分钟
+- Python 不连数据库、不持有用户 JWT、不做写操作
+- LLM 不可用时首页照常返回规则排序
+
+**遇到问题**
+
+- 冒烟测试时中文 JSON 直接写在命令行里会编码错误，改为 UTF-8 文件 + `--data-binary @file`
+- 异步化后 `refresh=true` 不再同步返回新排序；测试改为 AI 关闭时保持原行为，AI 开启用单独用例验证
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 157 个用例全部通过（新增 7 个 AI 推流用例）
+- `cd ai && uv run pytest -q` → 10 个用例通过
+- `npm run build` 通过
+- 真实 DeepSeek 调用：返回候选内 ID、中文理由、`promptVersion=feed_rerank_v1`
+- 未启动 Python 服务时：接口返回 `FALLBACK`，列表仍可用
+
+**提交**
+
+- `c00976f` feat: AI 智能推流（异步 LLM 重排）
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
+- 已完成：AI 智能推流（异步 LLM 重排 + 推荐理由）
 - 下一步：A1 公告 + 已读 + 未读数
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
