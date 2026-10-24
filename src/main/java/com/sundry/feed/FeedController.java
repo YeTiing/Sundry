@@ -30,7 +30,8 @@ public class FeedController {
     public ScrollPage<ProductView> feed(
             @RequestParam(required = false) @Min(0) Long cursor,
             @RequestParam(defaultValue = "12") @Min(1) @Max(50) int size,
+            @RequestParam(defaultValue = "false") boolean refresh,
             @AuthenticationPrincipal AuthenticatedUser user) {
-        return feedService.feed(user == null ? null : user.id(), cursor, size);
+        return feedService.feed(user == null ? null : user.id(), cursor, size, refresh);
     }
 }

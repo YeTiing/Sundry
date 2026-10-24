@@ -32,7 +32,7 @@ async function loadFirst(): Promise<void> {
   cursor.value = null
   hasMore.value = true
   try {
-    const data = await feedApi.getFeed(null, PAGE_SIZE)
+    const data = await feedApi.getFeed(null, PAGE_SIZE, true)
     if (seq !== requestSeq) return
     products.value = data.items
     cursor.value = data.nextCursor

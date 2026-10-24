@@ -53,10 +53,13 @@ public class FeedService {
         this.redis = redis;
     }
 
-    public ScrollPage<ProductView> feed(Long userId, Long cursor, int size) {
+    public ScrollPage<ProductView> feed(Long userId, Long cursor, int size, boolean refresh) {
         int offset = cursor == null ? 0 : Math.max(0, cursor.intValue());
         String key = SNAPSHOT_KEY.formatted(userId == null ? "anon" : userId);
         try {
+            if (refresh) {
+                redis.delete(key);
+            }
             if (!Boolean.TRUE.equals(redis.hasKey(key))) {
                 List<Long> ranked = rank(userId);
                 redis.delete(key);

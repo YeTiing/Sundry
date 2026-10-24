@@ -5,8 +5,18 @@
 
     <insert id="insert" parameterType="com.sundry.feed.UserBehavior"
             useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO user_behavior (user_id, event_type, product_id, category_id)
-        VALUES (#{userId}, #{eventType}, #{productId}, #{categoryId})
+        INSERT INTO user_behavior (event_id, user_id, event_type, product_id, category_id)
+        VALUES (#{eventId}, #{userId}, #{eventType}, #{productId}, #{categoryId})
+    </insert>
+
+    <insert id="insertBatch">
+        INSERT IGNORE INTO user_behavior
+            (event_id, user_id, event_type, product_id, category_id, created_at)
+        VALUES
+        <foreach collection="items" item="item" separator=",">
+            (#{item.eventId}, #{item.userId}, #{item.eventType}, #{item.productId},
+             #{item.categoryId}, #{item.createdAt})
+        </foreach>
     </insert>
 
 </mapper>

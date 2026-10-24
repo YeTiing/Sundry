@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 public class UserBehavior {
 
     private Long id;
+    private String eventId;
     private Long userId;
     private String eventType;
     private Long productId;
@@ -17,6 +18,14 @@ public class UserBehavior {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getEventId() {
+        return eventId;
+    }
+
+    public void setEventId(String eventId) {
+        this.eventId = eventId;
     }
 
     public Long getUserId() {

@@ -56,6 +56,9 @@ class FeedIntegrationTest {
     @Autowired
     private ProductCacheService cache;
 
+    @Autowired
+    private BehaviorFlushProcessor behaviorFlushProcessor;
+
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("DELETE FROM user_behavior");
@@ -134,6 +137,7 @@ class FeedIntegrationTest {
                                     """.formatted(softwareIds.get(i))))
                     .andExpect(status().isNoContent());
         }
+        behaviorFlushProcessor.flush();
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM user_behavior WHERE user_id = ?", Long.class, user.id()))
                 .isEqualTo(5);
@@ -207,9 +211,63 @@ class FeedIntegrationTest {
                                     """.formatted(productId)))
                     .andExpect(status().isNoContent());
         }
+        behaviorFlushProcessor.flush();
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM user_behavior WHERE user_id = ? AND product_id = ?",
                 Long.class, user.id(), productId)).isEqualTo(1);
+    }
+
+    @Test
+    void feedSnapshotStaysStableUntilRefresh() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long software = categoryId("软件");
+        long physical = categoryId("实物");
+        List<Long> softwareIds = new ArrayList<>();
+        for (int i = 1; i <= 6; i++) {
+            softwareIds.add(createProduct(admin.token(), software, "稳定软件" + i, 5));
+            createProduct(admin.token(), physical, "稳定实物" + i, 5);
+        }
+
+        MvcResult before = mockMvc.perform(get("/api/feed")
+                        .param("size", "10")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        List<Long> beforeIds = ids(before);
+        assertThat(beforeIds).hasSize(10);
+
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(post("/api/behaviors/view")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"productId":%d}
+                                    """.formatted(softwareIds.get(i))))
+                    .andExpect(status().isNoContent());
+        }
+        behaviorFlushProcessor.flush();
+
+        // 浏览不改变当前快照，返回时列表和游标保持稳定
+        MvcResult stable = mockMvc.perform(get("/api/feed")
+                        .param("size", "10")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(ids(stable)).isEqualTo(beforeIds);
+
+        // 只有 refresh=true 才按最新行为重新计算
+        MvcResult refreshed = mockMvc.perform(get("/api/feed")
+                        .param("size", "10")
+                        .param("refresh", "true")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        // 连续同分类最多 2 个，所以前 5 个里软件至少 4 个
+        long softwareInTopFive = categories(refreshed).subList(0, 5).stream()
+                .filter(id -> id == software)
+                .count();
+        assertThat(softwareInTopFive).isGreaterThanOrEqualTo(4);
     }
 
     private long createProduct(String token, long categoryId, String name, int stock) throws Exception {

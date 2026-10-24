@@ -9,15 +9,18 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.UUID;
 
 /**
- * 浏览行为记录。同一用户同一商品 5 分钟内只记一次，Redis 不可用时降级为直接写库。
+ * 浏览行为记录：Redis 去重后进入队列，由定时任务批量落库。
+ * Redis 不可用时降级为直接写库。
  */
 @Service
 public class BehaviorService {
 
     private static final Logger log = LoggerFactory.getLogger(BehaviorService.class);
     private static final Duration DEDUPE_TTL = Duration.ofMinutes(5);
+    private static final String QUEUE_KEY = "behavior:queue";
 
     private final UserBehaviorMapper behaviorMapper;
     private final ProductMapper productMapper;
@@ -47,21 +50,16 @@ public class BehaviorService {
             log.warn("浏览行为去重失败，按未重复处理 userId={} productId={}", userId, productId, ex);
         }
 
-        UserBehavior behavior = new UserBehavior();
-        behavior.setUserId(userId);
-        behavior.setEventType("VIEW");
-        behavior.setProductId(productId);
-        behavior.setCategoryId(product.getCategoryId());
+        BehaviorEvent event = new BehaviorEvent(UUID.randomUUID().toString(), userId, productId,
+                product.getCategoryId(), "VIEW", System.currentTimeMillis());
         try {
-            behaviorMapper.insert(behavior);
-            // 行为变化后让该用户的 Feed 快照失效，下次进入首页重新算
-            redis.delete("feed:home:" + userId);
+            redis.opsForList().rightPush(QUEUE_KEY, event.encode());
         } catch (RuntimeException ex) {
-            log.warn("浏览行为写入失败 userId={} productId={}", userId, productId, ex);
+            log.warn("行为入队失败，降级直接写库 userId={} productId={}", userId, productId, ex);
             try {
-                redis.delete(dedupeKey);
-            } catch (RuntimeException ignored) {
-                // 清理失败不影响主流程
+                behaviorMapper.insert(event.toEntity());
+            } catch (RuntimeException insertError) {
+                log.warn("行为直接写库失败 userId={} productId={}", userId, productId, insertError);
             }
         }
     }
