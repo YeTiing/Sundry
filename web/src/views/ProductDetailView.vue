@@ -5,6 +5,7 @@ import SiteHeader from '@/components/SiteHeader.vue'
 import { adminApi } from '@/api/admin'
 import { cartApi } from '@/api/cart'
 import { catalogApi } from '@/api/catalog'
+import { behaviorApi } from '@/api/feed'
 import { seckillApi } from '@/api/seckill'
 import { shopApi } from '@/api/shop'
 import { useAuthStore } from '@/stores/auth'
@@ -22,6 +23,7 @@ const quantity = ref(1)
 const adding = ref(false)
 const cartNotice = ref('')
 const cartError = ref('')
+let reportedViewId: number | null = null
 
 function formatPrice(value: number): string {
   return `¥${Number(value).toFixed(2)}`
@@ -145,6 +147,12 @@ async function load(): Promise<void> {
     } catch {
       // 没有进行中的秒杀活动时后端返回 404，按普通商品处理
       seckill.value = null
+    }
+    if (auth.isAuthenticated && !auth.isAdmin && reportedViewId !== id) {
+      reportedViewId = id
+      void behaviorApi.recordView(id).catch(() => {
+        // 行为上报失败不影响商品详情
+      })
     }
   } catch (err) {
     product.value = null

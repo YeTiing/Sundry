@@ -63,6 +63,7 @@ public class SecurityConfig {
                                 "/api/auth/refresh",
                                 "/api/auth/logout",
                                 "/api/products/**",
+                                "/api/feed",
                                 "/api/categories",
                                 "/api/shop",
                                 "/actuator/health",

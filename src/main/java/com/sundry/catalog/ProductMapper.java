@@ -36,6 +36,8 @@ public interface ProductMapper {
                                      @Param("lastId") Long lastId,
                                      @Param("limit") int limit);
 
+    List<Product> findForFeed(@Param("limit") int limit);
+
     List<Product> findPageAdmin(@Param("status") ProductStatus status,
                                 @Param("offset") long offset,
                                 @Param("size") int size);

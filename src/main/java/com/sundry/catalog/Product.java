@@ -26,6 +26,7 @@ public class Product {
     private String categoryName;
     private String coverBucket;
     private String coverObjectKey;
+    private Long salesCount;
 
     public Long getId() {
         return id;
@@ -161,5 +162,13 @@ public class Product {
 
     public void setCoverObjectKey(String coverObjectKey) {
         this.coverObjectKey = coverObjectKey;
+    }
+
+    public Long getSalesCount() {
+        return salesCount;
+    }
+
+    public void setSalesCount(Long salesCount) {
+        this.salesCount = salesCount;
     }
 }

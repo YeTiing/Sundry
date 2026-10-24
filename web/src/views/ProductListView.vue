@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import SiteHeader from '@/components/SiteHeader.vue'
+import ProductGrid from '@/components/ProductGrid.vue'
 import { catalogApi } from '@/api/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 
@@ -18,10 +19,6 @@ const sentinel = ref<HTMLElement | null>(null)
 let observer: IntersectionObserver | null = null
 let requestSeq = 0
 let scrollTicking = false
-
-function formatPrice(value: number): string {
-  return `¥${Number(value).toFixed(2)}`
-}
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : '商品加载失败'
@@ -172,24 +169,7 @@ onBeforeUnmount(() => {
         这个分类下还没有上架商品。
       </p>
 
-      <div v-else class="product-grid">
-        <RouterLink
-          v-for="product in products"
-          :key="product.id"
-          class="product-card"
-          :to="`/products/${product.id}`"
-        >
-          <div class="product-card__media">
-            <img v-if="product.coverUrl" :src="product.coverUrl" :alt="product.name" loading="lazy" />
-            <span v-else class="product-card__placeholder">{{ product.name.slice(0, 1) }}</span>
-          </div>
-          <div class="product-card__body">
-            <span class="product-card__category">{{ product.categoryName }}</span>
-            <h2 class="product-card__name">{{ product.name }}</h2>
-            <p class="product-card__price">{{ formatPrice(product.price) }}</p>
-          </div>
-        </RouterLink>
-      </div>
+      <ProductGrid v-else :products="products" />
 
       <div ref="sentinel" class="scroll-sentinel" aria-hidden="true"></div>
 
