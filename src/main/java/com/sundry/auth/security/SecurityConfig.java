@@ -65,7 +65,8 @@ public class SecurityConfig {
                                 "/api/products/**",
                                 "/api/categories",
                                 "/api/shop",
-                                "/actuator/health")
+                                "/actuator/health",
+                                "/actuator/prometheus")
                         .permitAll()
                         // 秒杀只开放查询，下单接口仍然要求登录
                         .requestMatchers(HttpMethod.GET,

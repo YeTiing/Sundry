@@ -16,6 +16,9 @@ spring:
 app:
   security:
     super-admin-phone: "13900000000"
+  seckill:
+    rate-limit-per-second: 2
+    rate-limit-window-seconds: 60
   storage:
     max-image-bytes: 5242880
   jwt:

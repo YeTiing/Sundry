@@ -51,6 +51,8 @@ public class SeckillOrderService {
     private final SeckillOrderPublisher publisher;
     private final OrderNoGenerator orderNoGenerator;
     private final OrderProperties orderProperties;
+    private final SeckillRateLimiter rateLimiter;
+    private final SeckillMetrics metrics;
     private final TransactionTemplate transactionTemplate;
 
     public SeckillOrderService(SeckillActivityMapper activityMapper, OrderMapper orderMapper,
@@ -59,7 +61,8 @@ public class SeckillOrderService {
                                SeckillStockService stockService, SeckillResultService resultService,
                                SeckillTimeoutService timeoutService,
                                SeckillOrderPublisher publisher, OrderNoGenerator orderNoGenerator,
-                               OrderProperties orderProperties,
+                               OrderProperties orderProperties, SeckillRateLimiter rateLimiter,
+                               SeckillMetrics metrics,
                                TransactionTemplate transactionTemplate) {
         this.activityMapper = activityMapper;
         this.orderMapper = orderMapper;
@@ -73,6 +76,8 @@ public class SeckillOrderService {
         this.publisher = publisher;
         this.orderNoGenerator = orderNoGenerator;
         this.orderProperties = orderProperties;
+        this.rateLimiter = rateLimiter;
+        this.metrics = metrics;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -80,42 +85,57 @@ public class SeckillOrderService {
      * 抢购入口：校验、Redis 预占、投递消息，立即返回 requestId。
      */
     public SeckillSubmitView submit(Long userId, CreateSeckillOrderRequest request) {
-        SeckillActivity activity = requireRunningActivity(request.activityId());
-        Product product = requireSaleableProduct(activity);
-
-        Order existing = orderMapper.findSeckillOrder(userId, activity.getId());
-        if (existing != null) {
-            return successSubmit(userId, activity.getId(), existing.getOrderNo());
-        }
-
-        resolveAddress(userId, product, request.addressId());
-
-        if (!stockService.ensureWarm(activity)) {
-            throw new BusinessException(ErrorCode.SECKILL_NOT_READY);
-        }
-        int code = stockService.tryDeduct(activity.getId(), userId, activity.getPerUserLimit());
-        if (code == SeckillStockService.LIMIT_REACHED) {
-            throw new BusinessException(ErrorCode.SECKILL_LIMIT_REACHED);
-        }
-        if (code == SeckillStockService.SOLD_OUT) {
-            throw new BusinessException(ErrorCode.SECKILL_SOLD_OUT);
-        }
-        if (code != SeckillStockService.OK) {
-            throw new BusinessException(ErrorCode.SECKILL_NOT_READY);
-        }
-
-        String requestId = UUID.randomUUID().toString();
-        resultService.start(requestId, userId, activity.getId());
+        long start = System.nanoTime();
         try {
-            publisher.publish(new SeckillOrderMessage(requestId, activity.getId(),
-                    userId, request.addressId()));
-        } catch (RuntimeException ex) {
-            stockService.rollbackReservation(activity.getId(), userId, 1);
-            resultService.fail(requestId, ErrorCode.SECKILL_NOT_READY.name(),
-                    ErrorCode.SECKILL_NOT_READY.message());
+            if (!rateLimiter.tryAcquire(userId)) {
+                throw new BusinessException(ErrorCode.RATE_LIMITED);
+            }
+
+            SeckillActivity activity = requireRunningActivity(request.activityId());
+            Product product = requireSaleableProduct(activity);
+
+            Order existing = orderMapper.findSeckillOrder(userId, activity.getId());
+            if (existing != null) {
+                metrics.submitResult("existing");
+                return successSubmit(userId, activity.getId(), existing.getOrderNo());
+            }
+
+            resolveAddress(userId, product, request.addressId());
+
+            if (!stockService.ensureWarm(activity)) {
+                throw new BusinessException(ErrorCode.SECKILL_NOT_READY);
+            }
+            int code = stockService.tryDeduct(activity.getId(), userId, activity.getPerUserLimit());
+            if (code == SeckillStockService.LIMIT_REACHED) {
+                throw new BusinessException(ErrorCode.SECKILL_LIMIT_REACHED);
+            }
+            if (code == SeckillStockService.SOLD_OUT) {
+                throw new BusinessException(ErrorCode.SECKILL_SOLD_OUT);
+            }
+            if (code != SeckillStockService.OK) {
+                throw new BusinessException(ErrorCode.SECKILL_NOT_READY);
+            }
+
+            String requestId = UUID.randomUUID().toString();
+            resultService.start(requestId, userId, activity.getId());
+            try {
+                publisher.publish(new SeckillOrderMessage(requestId, activity.getId(),
+                        userId, request.addressId()));
+            } catch (RuntimeException ex) {
+                stockService.rollbackReservation(activity.getId(), userId, 1);
+                metrics.compensation();
+                resultService.fail(requestId, ErrorCode.SECKILL_NOT_READY.name(),
+                        ErrorCode.SECKILL_NOT_READY.message());
+                throw ex;
+            }
+            metrics.submitResult("accepted");
+            return new SeckillSubmitView(requestId, "PROCESSING");
+        } catch (BusinessException ex) {
+            metrics.submitResult(ex.getErrorCode().name());
             throw ex;
+        } finally {
+            metrics.submitDuration(System.nanoTime() - start);
         }
-        return new SeckillSubmitView(requestId, "PROCESSING");
     }
 
     /**
@@ -133,6 +153,7 @@ public class SeckillOrderService {
             Order existing = orderMapper.findSeckillOrder(userId, activityId);
             if (existing != null) {
                 resultService.success(message.requestId(), existing.getOrderNo());
+                metrics.orderSuccess();
                 return;
             }
 
@@ -145,12 +166,15 @@ public class SeckillOrderService {
             // 放入延迟队列，支付截止后由 worker 取消；DB 扫描任务仍然兜底
             timeoutService.add(orderNo, LocalDateTime.now().plus(orderProperties.getPayTimeout()));
             resultService.success(message.requestId(), orderNo);
+            metrics.orderSuccess();
         } catch (DuplicateKeyException ex) {
             Order duplicate = orderMapper.findSeckillOrder(userId, activityId);
             if (duplicate != null) {
                 // 并发下另一条消息已建单，多扣的一份库存还回去
                 stockService.restoreStock(activityId, 1);
+                metrics.compensation();
                 resultService.success(message.requestId(), duplicate.getOrderNo());
+                metrics.orderSuccess();
             } else {
                 failAndRollback(message, ErrorCode.INTERNAL_ERROR);
             }
@@ -171,6 +195,8 @@ public class SeckillOrderService {
 
     private void failAndRollback(SeckillOrderMessage message, ErrorCode errorCode) {
         stockService.rollbackReservation(message.activityId(), message.userId(), 1);
+        metrics.compensation();
+        metrics.orderFailed(errorCode.name());
         resultService.fail(message.requestId(), errorCode.name(), errorCode.message());
     }
 

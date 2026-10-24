@@ -5,6 +5,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.sundry.auth.CapturingSmsSender;
 import com.sundry.auth.sms.SmsScene;
 import com.sundry.seckill.dto.CreateSeckillOrderRequest;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,8 +33,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -81,6 +84,9 @@ class SeckillOrderIntegrationTest {
     @Autowired
     private SeckillTimeoutProcessor timeoutProcessor;
 
+    @Autowired
+    private MeterRegistry meterRegistry;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
@@ -96,6 +102,7 @@ class SeckillOrderIntegrationTest {
         jdbcTemplate.update("DELETE FROM app_user");
         clear(redis.keys("auth:*"));
         clear(redis.keys("seckill:*"));
+        clear(redis.keys("rate:seckill:*"));
         publisher.clear();
         smsSender.clear();
     }
@@ -282,6 +289,9 @@ class SeckillOrderIntegrationTest {
         assertThat(stockService.remaining(activityId)).isEqualTo(1);
         assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
                 String.valueOf(user.id()))).isFalse();
+        double compensation = meterRegistry.get("sundry.seckill.compensation")
+                .counter().count();
+        assertThat(compensation).isGreaterThanOrEqualTo(1.0);
     }
 
     @Test
@@ -530,6 +540,72 @@ class SeckillOrderIntegrationTest {
         assertThat(statusOf(orderNo)).isEqualTo("CANCELLED");
         assertThat(stockOf(productId)).isEqualTo(5);
         assertThat(stockService.remaining(activityId)).isEqualTo(2);
+    }
+
+    @Test
+    void tooManySubmitsAreRateLimited() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createDigitalProduct(admin.token(), "限流商品", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 5);
+
+        // 测试 profile 限流窗口 60 秒、上限 2 次
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(post("/api/seckill/orders")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(orderBody(activityId, null)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("SECKILL_NOT_FOUND"));
+        }
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, null)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"));
+
+        double limited = meterRegistry.get("sundry.seckill.submit")
+                .tag("result", "RATE_LIMITED").counter().count();
+        assertThat(limited).isGreaterThanOrEqualTo(1.0);
+    }
+
+    @Test
+    void metricsRecordSuccessfulOrderAndCompensation() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createDigitalProduct(admin.token(), "指标商品", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 2);
+        activate(admin.token(), activityId);
+
+        submitAndProcess(user.token(), activityId, null);
+
+        double accepted = meterRegistry.get("sundry.seckill.submit")
+                .tag("result", "accepted").counter().count();
+        double success = meterRegistry.get("sundry.seckill.order")
+                .tag("result", "success").counter().count();
+        assertThat(accepted).isGreaterThanOrEqualTo(1.0);
+        assertThat(success).isGreaterThanOrEqualTo(1.0);
+    }
+
+    @Test
+    void prometheusEndpointExposesSeckillMetrics() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createDigitalProduct(admin.token(), "指标端点", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 2);
+
+        // 触发一次指标注册
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, null)))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("sundry_seckill_submit")));
     }
 
     private String submit(String token, long activityId, Long addressId) throws Exception {

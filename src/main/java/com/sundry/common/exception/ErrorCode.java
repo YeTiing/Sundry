@@ -50,6 +50,7 @@ public enum ErrorCode {
     SECKILL_STOCK_INVALID(HttpStatus.BAD_REQUEST, "活动库存不能超过商品库存"),
     SECKILL_TIME_INVALID(HttpStatus.BAD_REQUEST, "活动时间不合法"),
     SECKILL_CONFLICT(HttpStatus.CONFLICT, "同一商品已有时间重叠的进行中活动"),
+    RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "请求过于频繁，请稍后再试"),
     SECKILL_STATUS_INVALID(HttpStatus.CONFLICT, "当前活动状态不允许此操作"),
     SECKILL_SOLD_OUT(HttpStatus.CONFLICT, "已售罄"),
     SECKILL_LIMIT_REACHED(HttpStatus.CONFLICT, "已达到该活动的限购数量"),

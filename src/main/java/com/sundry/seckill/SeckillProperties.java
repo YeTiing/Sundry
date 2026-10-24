@@ -12,6 +12,8 @@ public class SeckillProperties {
     private String topic = "sundry.seckill.order.create";
     private Duration resultTtl = Duration.ofMinutes(30);
     private int timeoutBatchSize = 100;
+    private int rateLimitPerSecond = 5;
+    private int rateLimitWindowSeconds = 1;
 
     public String getTopic() {
         return topic;
@@ -35,5 +37,21 @@ public class SeckillProperties {
 
     public void setTimeoutBatchSize(int timeoutBatchSize) {
         this.timeoutBatchSize = timeoutBatchSize;
+    }
+
+    public int getRateLimitPerSecond() {
+        return rateLimitPerSecond;
+    }
+
+    public void setRateLimitPerSecond(int rateLimitPerSecond) {
+        this.rateLimitPerSecond = rateLimitPerSecond;
+    }
+
+    public int getRateLimitWindowSeconds() {
+        return rateLimitWindowSeconds;
+    }
+
+    public void setRateLimitWindowSeconds(int rateLimitWindowSeconds) {
+        this.rateLimitWindowSeconds = rateLimitWindowSeconds;
     }
 }
