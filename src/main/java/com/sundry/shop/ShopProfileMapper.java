@@ -11,5 +11,6 @@ public interface ShopProfileMapper {
     int update(@Param("shopName") String shopName,
                @Param("description") String description,
                @Param("contact") String contact,
+               @Param("shippingAddress") String shippingAddress,
                @Param("logoFileId") Long logoFileId);
 }

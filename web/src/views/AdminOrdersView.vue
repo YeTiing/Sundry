@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminOrdersApi } from '@/api/adminOrders'
-import type { Order, OrderStatus, RefundStatus } from '@/api/types'
+import { shopApi } from '@/api/shop'
+import type { Order, OrderStatus, RefundStatus, ShopView } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 
 const PAGE_SIZE = 20
@@ -40,6 +41,7 @@ const REFUND_LABELS: Record<RefundStatus, string> = {
 const auth = useAuthStore()
 const router = useRouter()
 
+const shop = ref<ShopView | null>(null)
 const orders = ref<Order[]>([])
 const page = ref(1)
 const total = ref(0)
@@ -186,8 +188,17 @@ async function logout(): Promise<void> {
   await router.replace('/login')
 }
 
+async function loadShop(): Promise<void> {
+  try {
+    shop.value = await shopApi.get()
+  } catch {
+    // 发货地址加载失败不影响订单处理
+  }
+}
+
 onMounted(() => {
   void load(1)
+  void loadShop()
 })
 </script>
 
@@ -263,13 +274,19 @@ onMounted(() => {
                 </div>
               </div>
 
-              <dl v-if="order.receiverAddress" class="order-meta">
+              <dl class="order-meta">
                 <div>
+                  <dt>买家</dt>
+                  <dd>
+                    {{ order.buyerNickname ? `${order.buyerNickname} · ` : '' }}{{ order.buyerPhone }}
+                  </dd>
+                </div>
+                <div v-if="order.receiverAddress">
                   <dt>收货人</dt>
                   <dd>{{ order.receiverName }} · {{ order.receiverPhone }}</dd>
                 </div>
-                <div>
-                  <dt>地址</dt>
+                <div v-if="order.receiverAddress">
+                  <dt>收货地址</dt>
                   <dd>{{ order.receiverAddress }}</dd>
                 </div>
                 <div v-if="order.trackingNo">
@@ -343,6 +360,10 @@ onMounted(() => {
                 novalidate
                 @submit.prevent="submitShip(order)"
               >
+                <p class="panel-note">
+                  发货地址：{{ shop?.shippingAddress || '未设置' }}
+                  <RouterLink v-if="!shop?.shippingAddress" to="/admin">去店铺资料设置</RouterLink>
+                </p>
                 <label class="field">
                   <span class="field__label">快递单号</span>
                   <input v-model.trim="trackingNo" type="text" maxlength="64" placeholder="例如：SF1234567890" />

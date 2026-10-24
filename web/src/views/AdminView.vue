@@ -36,6 +36,7 @@ const notice = ref('')
 const shopName = ref('')
 const shopDescription = ref('')
 const shopContact = ref('')
+const shopShippingAddress = ref('')
 const shopLogoFileId = ref<number | null>(null)
 const shopLogoUrl = ref('')
 const shopSaving = ref(false)
@@ -177,6 +178,7 @@ async function loadShop(): Promise<void> {
     shopName.value = shop.shopName
     shopDescription.value = shop.description ?? ''
     shopContact.value = shop.contact ?? ''
+    shopShippingAddress.value = shop.shippingAddress ?? ''
     shopLogoFileId.value = shop.logoFileId
     shopLogoUrl.value = shop.logoUrl ?? ''
   } catch (error) {
@@ -223,11 +225,13 @@ async function saveShop(): Promise<void> {
       shopName: shopName.value.trim(),
       description: shopDescription.value.trim(),
       contact: shopContact.value.trim(),
+      shippingAddress: shopShippingAddress.value.trim(),
       logoFileId: shopLogoFileId.value,
     })
     shopName.value = updated.shopName
     shopDescription.value = updated.description ?? ''
     shopContact.value = updated.contact ?? ''
+    shopShippingAddress.value = updated.shippingAddress ?? ''
     shopLogoFileId.value = updated.logoFileId
     shopLogoUrl.value = updated.logoUrl ?? ''
     shopNotice.value = '店铺资料已保存'
@@ -381,6 +385,16 @@ onBeforeUnmount(() => {
               rows="3"
               maxlength="500"
               placeholder="店铺介绍"
+            />
+          </label>
+
+          <label class="field">
+            <span class="field__label">发货地址</span>
+            <textarea
+              v-model.trim="shopShippingAddress"
+              rows="2"
+              maxlength="300"
+              placeholder="商家寄件/退货地址，发货时在订单页显示"
             />
           </label>
 

@@ -36,7 +36,7 @@ public class ShopService {
             logoUrl = storage.publicUrl(profile.getLogoBucket(), profile.getLogoObjectKey());
         }
         return new ShopView(profile.getShopName(), logoUrl, profile.getLogoFileId(),
-                profile.getDescription(), profile.getContact());
+                profile.getDescription(), profile.getContact(), profile.getShippingAddress());
     }
 
     public ShopView update(UpdateShopRequest request) {
@@ -50,6 +50,7 @@ public class ShopService {
                 request.shopName().trim(),
                 normalize(request.description()),
                 normalize(request.contact()),
+                normalize(request.shippingAddress()),
                 request.logoFileId());
         return view();
     }

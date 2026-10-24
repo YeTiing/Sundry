@@ -12,6 +12,7 @@ public class ShopProfile {
     private Long logoFileId;
     private String description;
     private String contact;
+    private String shippingAddress;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -56,6 +57,14 @@ public class ShopProfile {
 
     public void setContact(String contact) {
         this.contact = contact;
+    }
+
+    public String getShippingAddress() {
+        return shippingAddress;
+    }
+
+    public void setShippingAddress(String shippingAddress) {
+        this.shippingAddress = shippingAddress;
     }
 
     public LocalDateTime getCreatedAt() {

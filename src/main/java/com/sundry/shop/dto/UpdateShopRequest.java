@@ -17,5 +17,8 @@ public record UpdateShopRequest(
         @Size(max = 200, message = "联系方式不能超过 200 个字符")
         String contact,
 
+        @Size(max = 300, message = "发货地址不能超过 300 个字符")
+        String shippingAddress,
+
         Long logoFileId) {
 }

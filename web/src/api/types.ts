@@ -15,6 +15,7 @@ export interface ShopView {
   logoFileId: number | null
   description: string | null
   contact: string | null
+  shippingAddress: string | null
 }
 
 export interface TokenResponse {
@@ -141,6 +142,8 @@ export interface Order {
   status: OrderStatus
   totalAmount: number
   hasPhysical: boolean
+  buyerPhone: string | null
+  buyerNickname: string | null
   receiverName: string | null
   receiverPhone: string | null
   receiverAddress: string | null

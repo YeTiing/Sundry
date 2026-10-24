@@ -158,7 +158,8 @@ class OrderFlowIntegrationTest {
         mockMvc.perform(get("/api/admin/orders")
                         .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.total").value(1));
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].buyerPhone").value(USER_PHONE));
     }
 
     @Test

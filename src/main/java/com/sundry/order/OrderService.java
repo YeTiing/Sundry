@@ -19,6 +19,8 @@ import com.sundry.order.dto.DownloadView;
 import com.sundry.order.dto.OrderItemView;
 import com.sundry.order.dto.OrderView;
 import com.sundry.storage.ObjectStorage;
+import com.sundry.user.User;
+import com.sundry.user.UserMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -52,6 +54,7 @@ public class OrderService {
     private final UserAddressMapper addressMapper;
     private final ObjectStorage storage;
     private final FileObjectMapper fileObjectMapper;
+    private final UserMapper userMapper;
     private final DigitalUploadGateway digitalGateway;
     private final TransactionTemplate transactionTemplate;
     private final OrderProperties properties;
@@ -60,7 +63,8 @@ public class OrderService {
                         OrderRefundMapper refundMapper,
                         CartItemMapper cartItemMapper, ProductMapper productMapper,
                         UserAddressMapper addressMapper, ObjectStorage storage,
-                        FileObjectMapper fileObjectMapper, DigitalUploadGateway digitalGateway,
+                        FileObjectMapper fileObjectMapper, UserMapper userMapper,
+                        DigitalUploadGateway digitalGateway,
                         TransactionTemplate transactionTemplate, OrderProperties properties) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
@@ -70,6 +74,7 @@ public class OrderService {
         this.addressMapper = addressMapper;
         this.storage = storage;
         this.fileObjectMapper = fileObjectMapper;
+        this.userMapper = userMapper;
         this.digitalGateway = digitalGateway;
         this.transactionTemplate = transactionTemplate;
         this.properties = properties;
@@ -519,8 +524,11 @@ public class OrderService {
         BigDecimal refundAmount = order.getRefundAmount() != null
                 ? order.getRefundAmount()
                 : (refund == null ? null : refund.getAmount());
+        User buyer = userMapper.findById(order.getUserId());
         return new OrderView(order.getOrderNo(), order.getStatus(), order.getTotalAmount(),
                 order.getHasPhysical() != null && order.getHasPhysical() == 1,
+                buyer == null ? null : buyer.getPhone(),
+                buyer == null ? null : buyer.getNickname(),
                 order.getReceiverName(), order.getReceiverPhone(), order.getReceiverAddress(),
                 order.getTrackingNo(), order.getCreatedAt(), order.getPaidAt(), order.getPackedAt(),
                 order.getShippedAt(), order.getCompletedAt(), order.getCancelledAt(),

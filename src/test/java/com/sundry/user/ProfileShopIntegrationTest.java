@@ -65,7 +65,7 @@ class ProfileShopIntegrationTest {
         jdbcTemplate.update("""
                 UPDATE shop_profile
                 SET shop_name = 'Sundry', description = '自营杂货。',
-                    contact = NULL, logo_file_id = NULL
+                    contact = NULL, shipping_address = NULL, logo_file_id = NULL
                 WHERE id = 1
                 """);
         Set<String> keys = redis.keys("auth:*");
@@ -127,16 +127,19 @@ class ProfileShopIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(superAdmin.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"shopName":"测试杂货铺","description":"只卖自己做的","contact":"微信 sundry"}
+                                {"shopName":"测试杂货铺","description":"只卖自己做的",
+                                 "contact":"微信 sundry","shippingAddress":"浙江省杭州市西湖区文三路 1 号"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.shopName").value("测试杂货铺"))
-                .andExpect(jsonPath("$.contact").value("微信 sundry"));
+                .andExpect(jsonPath("$.contact").value("微信 sundry"))
+                .andExpect(jsonPath("$.shippingAddress").value("浙江省杭州市西湖区文三路 1 号"));
 
         mockMvc.perform(get("/api/shop"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.shopName").value("测试杂货铺"))
-                .andExpect(jsonPath("$.description").value("只卖自己做的"));
+                .andExpect(jsonPath("$.description").value("只卖自己做的"))
+                .andExpect(jsonPath("$.shippingAddress").value("浙江省杭州市西湖区文三路 1 号"));
     }
 
     @Test

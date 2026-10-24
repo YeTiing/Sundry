@@ -5,6 +5,7 @@ export interface UpdateShopPayload {
   shopName: string
   description: string
   contact: string
+  shippingAddress: string
   logoFileId: number | null
 }
 
