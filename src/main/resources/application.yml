@@ -18,6 +18,23 @@ spring:
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
       timeout: 3s
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: sundry-seckill
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      max-poll-records: 50
+    listener:
+      ack-mode: record
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -46,6 +63,9 @@ app:
     cancel-batch-size: 100
     # 多实例部署时每个实例必须不同，取值 0..1023
     worker-id: ${ORDER_WORKER_ID:1}
+  seckill:
+    topic: ${SECKILL_ORDER_TOPIC:sundry.seckill.order.create}
+    result-ttl: 30m
   cleanup:
     enabled: true
     cron: "0 0 3 * * *"

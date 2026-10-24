@@ -66,16 +66,40 @@ async function load(): Promise<void> {
   }
 }
 
+async function waitForResult(requestId: string): Promise<void> {
+  for (let i = 0; i < 120; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    try {
+      const result = await seckillApi.result(requestId)
+      if (result.status === 'SUCCESS') {
+        await router.push({ name: 'orders' })
+        return
+      }
+      if (result.status === 'FAILED') {
+        error.value = result.errorMessage || '抢购失败，请稍后重试'
+        return
+      }
+    } catch {
+      // 结果还没写入时继续轮询，超时后统一提示
+    }
+  }
+  error.value = '抢购结果确认超时，请到订单页查看'
+}
+
 async function submit(): Promise<void> {
   if (!activity.value || !canSubmit.value) return
   submitting.value = true
   error.value = ''
   try {
-    await seckillApi.createOrder(
+    const submitted = await seckillApi.createOrder(
       activity.value.id,
       physical.value ? addressId.value : null,
     )
-    await router.push({ name: 'orders' })
+    if (submitted.status === 'SUCCESS') {
+      await router.push({ name: 'orders' })
+      return
+    }
+    await waitForResult(submitted.requestId)
   } catch (err) {
     error.value = messageOf(err)
   } finally {
@@ -164,7 +188,7 @@ onMounted(load)
             :disabled="!canSubmit"
             @click="submit"
           >
-            {{ soldOut ? '已售罄' : submitting ? '抢购中…' : '立即抢购' }}
+            {{ soldOut ? '已售罄' : submitting ? '订单生成中…' : '立即抢购' }}
           </button>
         </footer>
       </template>

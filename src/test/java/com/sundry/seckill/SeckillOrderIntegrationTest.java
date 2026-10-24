@@ -1,5 +1,6 @@
 package com.sundry.seckill;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
 import com.sundry.auth.CapturingSmsSender;
 import com.sundry.auth.sms.SmsScene;
@@ -37,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 秒杀抢购：Redis 扣减、一人一单、超卖防护、失败回补与懒预热。
+ * 秒杀抢购：Lua 预占、Kafka 消息（测试用内存发布器）、幂等建单与失败回补。
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -68,6 +69,14 @@ class SeckillOrderIntegrationTest {
     @Autowired
     private SeckillStockService stockService;
 
+    @Autowired
+    private SeckillOrderMessageConsumer consumer;
+
+    @Autowired
+    private RecordingSeckillOrderPublisher publisher;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("DELETE FROM seckill_activity");
@@ -81,6 +90,7 @@ class SeckillOrderIntegrationTest {
         jdbcTemplate.update("DELETE FROM app_user");
         clear(redis.keys("auth:*"));
         clear(redis.keys("seckill:*"));
+        publisher.clear();
         smsSender.clear();
     }
 
@@ -93,20 +103,25 @@ class SeckillOrderIntegrationTest {
         activate(admin.token(), activityId);
         long addressId = createAddress(user.token());
 
-        mockMvc.perform(post("/api/seckill/orders")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(activityId, addressId)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.orderSource").value("SECKILL"))
-                .andExpect(jsonPath("$.activityId").value(activityId))
-                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
-                .andExpect(jsonPath("$.totalAmount").value(50.00));
+        String requestId = submit(user.token(), activityId, addressId);
+        assertThat(publisher.last()).isNotNull();
+        assertThat(publisher.last().requestId()).isEqualTo(requestId);
+        processLastMessage();
+
+        mockMvc.perform(get("/api/seckill/results/{requestId}", requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.orderNo").isNotEmpty());
 
         assertThat(ordersOf(activityId)).isEqualTo(1);
         assertThat(soldCount(activityId)).isEqualTo(1);
         assertThat(stockOf(productId)).isEqualTo(4);
         assertThat(stockService.remaining(activityId)).isEqualTo(1);
+
+        // 同一消息重复消费不会重复建单
+        processLastMessage();
+        assertThat(ordersOf(activityId)).isEqualTo(1);
     }
 
     @Test
@@ -118,18 +133,22 @@ class SeckillOrderIntegrationTest {
         activate(admin.token(), activityId);
         long addressId = createAddress(user.token());
 
-        String firstOrderNo = orderNoOf(mockMvc.perform(post("/api/seckill/orders")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(activityId, addressId)))
-                .andExpect(status().isCreated())
-                .andReturn());
+        String firstRequestId = submitAndProcess(user.token(), activityId, addressId);
+        String firstOrderNo = orderNoOfResult(user.token(), firstRequestId);
 
-        mockMvc.perform(post("/api/seckill/orders")
+        MvcResult second = mockMvc.perform(post("/api/seckill/orders")
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(orderBody(activityId, addressId)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andReturn();
+        String secondRequestId = requestIdOf(second);
+
+        mockMvc.perform(get("/api/seckill/results/{requestId}", secondRequestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.orderNo").value(firstOrderNo));
 
         assertThat(ordersOf(activityId)).isEqualTo(1);
@@ -147,11 +166,7 @@ class SeckillOrderIntegrationTest {
         long userAddress = createAddress(user.token());
         long otherAddress = createAddress(other.token());
 
-        mockMvc.perform(post("/api/seckill/orders")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(activityId, userAddress)))
-                .andExpect(status().isCreated());
+        submitAndProcess(user.token(), activityId, userAddress);
 
         mockMvc.perform(post("/api/seckill/orders")
                         .header(HttpHeaders.AUTHORIZATION, bearer(other.token()))
@@ -188,11 +203,11 @@ class SeckillOrderIntegrationTest {
                     ready.countDown();
                     start.await();
                     try {
-                        seckillOrderService.create(user.id(),
+                        seckillOrderService.submit(user.id(),
                                 new CreateSeckillOrderRequest(activityId, null));
                         success.incrementAndGet();
                     } catch (RuntimeException ignored) {
-                        // 售罄或限购都算失败
+                        // 售罄
                     }
                     return null;
                 }));
@@ -207,6 +222,11 @@ class SeckillOrderIntegrationTest {
         }
 
         assertThat(success.get()).isEqualTo(3);
+        assertThat(publisher.messages()).hasSize(3);
+        for (SeckillOrderMessage message : publisher.messages()) {
+            consumer.handle(objectMapper.writeValueAsString(message));
+        }
+
         assertThat(ordersOf(activityId)).isEqualTo(3);
         assertThat(soldCount(activityId)).isEqualTo(3);
         assertThat(stockService.remaining(activityId)).isZero();
@@ -240,20 +260,20 @@ class SeckillOrderIntegrationTest {
         activate(admin.token(), activityId);
         long addressId = createAddress(user.token());
 
-        // 模拟商品库存在活动启用后被其他渠道买空
         jdbcTemplate.update("UPDATE product SET stock = 0 WHERE id = ?", productId);
 
-        mockMvc.perform(post("/api/seckill/orders")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(activityId, addressId)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("STOCK_NOT_ENOUGH"));
+        String requestId = submit(user.token(), activityId, addressId);
+        processLastMessage();
+
+        mockMvc.perform(get("/api/seckill/results/{requestId}", requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.errorCode").value("STOCK_NOT_ENOUGH"));
 
         assertThat(ordersOf(activityId)).isZero();
         assertThat(soldCount(activityId)).isZero();
         assertThat(stockService.remaining(activityId)).isEqualTo(1);
-        // 回滚时移除了购买标记，用户仍可再抢
         assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
                 String.valueOf(user.id()))).isFalse();
     }
@@ -266,17 +286,13 @@ class SeckillOrderIntegrationTest {
         long activityId = createActivity(admin.token(), productId, "9.90", 5);
         activate(admin.token(), activityId);
 
-        MvcResult created = mockMvc.perform(post("/api/seckill/orders")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(activityId, null)))
-                .andExpect(status().isCreated())
-                .andReturn();
-        String orderNo = orderNoOf(created);
+        String requestId = submitAndProcess(user.token(), activityId, null);
+        String orderNo = orderNoOfResult(user.token(), requestId);
 
         MvcResult detail = mockMvc.perform(get("/api/orders/{orderNo}", orderNo)
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderSource").value("SECKILL"))
                 .andReturn();
         long itemId = ((Number) JsonPath.read(
                 detail.getResponse().getContentAsString(StandardCharsets.UTF_8),
@@ -302,12 +318,8 @@ class SeckillOrderIntegrationTest {
         activate(admin.token(), activityId);
         long addressId = createAddress(user.token());
 
-        String orderNo = orderNoOf(mockMvc.perform(post("/api/seckill/orders")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(activityId, addressId)))
-                .andExpect(status().isCreated())
-                .andReturn());
+        String requestId = submitAndProcess(user.token(), activityId, addressId);
+        String orderNo = orderNoOfResult(user.token(), requestId);
 
         mockMvc.perform(post("/api/orders/{orderNo}/cancel", orderNo)
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
@@ -318,14 +330,17 @@ class SeckillOrderIntegrationTest {
         assertThat(stockOf(productId)).isEqualTo(5);
         assertThat(stockService.remaining(activityId)).isEqualTo(2);
 
-        // 取消后不退购买资格，重复下单仍返回原订单
-        mockMvc.perform(post("/api/seckill/orders")
+        MvcResult again = mockMvc.perform(post("/api/seckill/orders")
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(orderBody(activityId, addressId)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.orderNo").value(orderNo))
-                .andExpect(jsonPath("$.status").value("CANCELLED"));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andReturn();
+        mockMvc.perform(get("/api/seckill/results/{requestId}", requestIdOf(again))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderNo").value(orderNo));
         assertThat(ordersOf(activityId)).isEqualTo(1);
     }
 
@@ -356,25 +371,97 @@ class SeckillOrderIntegrationTest {
         long activityId = createActivity(admin.token(), productId, "10.00", 5);
         activate(admin.token(), activityId);
 
-        mockMvc.perform(post("/api/seckill/orders")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(activityId, null)))
-                .andExpect(status().isCreated());
-
+        submitAndProcess(user.token(), activityId, null);
         stockService.clear(activityId);
 
-        // 第二个用户触发懒重建：库存按 DB 已售数量恢复，购买标记也从订单表重建
-        mockMvc.perform(post("/api/seckill/orders")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(other.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(activityId, null)))
-                .andExpect(status().isCreated());
+        submitAndProcess(other.token(), activityId, null);
 
         assertThat(stockService.remaining(activityId)).isEqualTo(3);
         assertThat(ordersOf(activityId)).isEqualTo(2);
         assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
                 String.valueOf(user.id()))).isTrue();
+    }
+
+    @Test
+    void publisherFailureRestoresReservation() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createDigitalProduct(admin.token(), "投递失败", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 2);
+        activate(admin.token(), activityId);
+
+        publisher.failNextPublish();
+
+        mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, null)))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("SECKILL_NOT_READY"));
+
+        assertThat(stockService.remaining(activityId)).isEqualTo(2);
+        assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
+                String.valueOf(user.id()))).isFalse();
+        assertThat(ordersOf(activityId)).isZero();
+    }
+
+    @Test
+    void resultOnlyVisibleToOwner() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        Session other = register(USER2_PHONE);
+        long productId = createDigitalProduct(admin.token(), "结果权限", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 2);
+        activate(admin.token(), activityId);
+
+        String requestId = submitAndProcess(user.token(), activityId, null);
+
+        mockMvc.perform(get("/api/seckill/results/{requestId}", requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other.token())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SECKILL_RESULT_NOT_FOUND"));
+    }
+
+    private String submit(String token, long activityId, Long addressId) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/seckill/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(activityId, addressId)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("PROCESSING"))
+                .andReturn();
+        return requestIdOf(result);
+    }
+
+    private String submitAndProcess(String token, long activityId, Long addressId) throws Exception {
+        String requestId = submit(token, activityId, addressId);
+        processLastMessage();
+        return requestId;
+    }
+
+    private void processLastMessage() throws Exception {
+        SeckillOrderMessage message = publisher.last();
+        assertThat(message).isNotNull();
+        orderServiceProcess(message);
+    }
+
+    private void orderServiceProcess(SeckillOrderMessage message) throws Exception {
+        consumer.handle(objectMapper.writeValueAsString(message));
+    }
+
+    private String orderNoOfResult(String token, String requestId) throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/seckill/results/{requestId}", requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andReturn();
+        return JsonPath.read(result.getResponse().getContentAsString(StandardCharsets.UTF_8),
+                "$.orderNo");
+    }
+
+    private String requestIdOf(MvcResult result) throws Exception {
+        return JsonPath.read(result.getResponse().getContentAsString(StandardCharsets.UTF_8),
+                "$.requestId");
     }
 
     private long createActivity(String token, long productId, String price, int stock) throws Exception {
@@ -405,11 +492,6 @@ class SeckillOrderIntegrationTest {
             return "{\"activityId\":%d}".formatted(activityId);
         }
         return "{\"activityId\":%d,\"addressId\":%d}".formatted(activityId, addressId);
-    }
-
-    private String orderNoOf(MvcResult result) throws Exception {
-        return JsonPath.read(result.getResponse().getContentAsString(StandardCharsets.UTF_8),
-                "$.orderNo");
     }
 
     private long createPhysicalProduct(String token, String name, String price, int stock)

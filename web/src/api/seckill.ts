@@ -1,5 +1,11 @@
 import { http } from './http'
-import type { Order, PageResponse, SeckillActivity, SeckillStatus } from './types'
+import type {
+  PageResponse,
+  SeckillActivity,
+  SeckillResult,
+  SeckillStatus,
+  SeckillSubmit,
+} from './types'
 
 export interface SaveSeckillPayload {
   productId: number
@@ -20,8 +26,12 @@ export const seckillApi = {
     return http.get<SeckillActivity>(`/seckill/activities/${id}`)
   },
 
-  createOrder(activityId: number, addressId: number | null): Promise<Order> {
-    return http.post<Order>('/seckill/orders', { activityId, addressId })
+  createOrder(activityId: number, addressId: number | null): Promise<SeckillSubmit> {
+    return http.post<SeckillSubmit>('/seckill/orders', { activityId, addressId })
+  },
+
+  result(requestId: string): Promise<SeckillResult> {
+    return http.get<SeckillResult>(`/seckill/results/${requestId}`)
   },
 }
 

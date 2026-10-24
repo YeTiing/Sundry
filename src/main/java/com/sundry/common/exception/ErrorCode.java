@@ -54,6 +54,7 @@ public enum ErrorCode {
     SECKILL_SOLD_OUT(HttpStatus.CONFLICT, "已售罄"),
     SECKILL_LIMIT_REACHED(HttpStatus.CONFLICT, "已达到该活动的限购数量"),
     SECKILL_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "秒杀通道未就绪，请稍后重试"),
+    SECKILL_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "抢购结果不存在或已过期"),
     DIGITAL_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "数字商品文件不存在"),
     CATEGORY_NOT_FOUND(HttpStatus.BAD_REQUEST, "分类不存在或已停用"),
     COVER_NOT_FOUND(HttpStatus.BAD_REQUEST, "封面图片不存在"),

@@ -1,4 +1,10 @@
 spring:
+  kafka:
+    # 测试不连真实 Kafka，消费由测试直接调用
+    listener:
+      auto-startup: false
+    admin:
+      fail-fast: false
   datasource:
     url: ${TEST_DB_URL:jdbc:mysql://127.0.0.1:3306/sundry_test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${TEST_DB_USERNAME:root}

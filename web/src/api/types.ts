@@ -191,6 +191,19 @@ export interface DownloadInfo {
 
 export type SeckillStatus = 'DRAFT' | 'ACTIVE' | 'ENDED' | 'CANCELLED'
 
+export interface SeckillSubmit {
+  requestId: string
+  status: string
+}
+
+export interface SeckillResult {
+  requestId: string
+  status: string
+  orderNo?: string | null
+  errorCode?: string | null
+  errorMessage?: string | null
+}
+
 export interface SeckillActivity {
   id: number
   productId: number

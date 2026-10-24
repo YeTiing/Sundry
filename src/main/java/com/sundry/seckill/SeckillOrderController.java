@@ -3,8 +3,8 @@ package com.sundry.seckill;
 import com.sundry.auth.security.AuthenticatedUser;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
-import com.sundry.order.dto.OrderView;
 import com.sundry.seckill.dto.CreateSeckillOrderRequest;
+import com.sundry.seckill.dto.SeckillSubmitView;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -28,12 +28,12 @@ public class SeckillOrderController {
     }
 
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public OrderView create(@Valid @RequestBody CreateSeckillOrderRequest request,
-                            @AuthenticationPrincipal AuthenticatedUser user) {
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public SeckillSubmitView submit(@Valid @RequestBody CreateSeckillOrderRequest request,
+                                    @AuthenticationPrincipal AuthenticatedUser user) {
         if (user == null) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
-        return orderService.create(user.id(), request);
+        return orderService.submit(user.id(), request);
     }
 }
