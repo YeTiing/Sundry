@@ -838,7 +838,7 @@ ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
 
 **提交**
 
-- 待填
+- `5ec1ace` fix: 管理员账户页隐藏买家入口
 
 ## 待办 / 下一步
 
