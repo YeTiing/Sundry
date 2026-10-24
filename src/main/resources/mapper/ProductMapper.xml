@@ -131,6 +131,18 @@
         LIMIT #{offset}, #{size}
     </select>
 
+    <select id="findPublicIds" resultType="long">
+        SELECT p.id
+        FROM product p
+        WHERE p.status = 'ON_SALE'
+          AND p.deleted_at IS NULL
+        <if test="categoryId != null">
+            AND p.category_id = #{categoryId}
+        </if>
+        ORDER BY p.id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
     <select id="countPublic" resultType="long">
         SELECT COUNT(*)
         FROM product p

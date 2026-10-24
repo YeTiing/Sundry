@@ -33,7 +33,7 @@ public class ProductCacheService {
 
     private static final String DETAIL_KEY = "cache:product:detail:%d";
     private static final String DETAIL_NULL_KEY = "cache:product:null:%d";
-    private static final String LIST_KEY = "cache:products:%s:%s:%d:%d";
+    private static final String LIST_KEY = "cache:product-ids:%s:%s:%d:%d";
     private static final String LIST_VERSION_KEY = "cache:products:version";
     private static final String CATEGORY_KEY = "cache:categories";
     private static final String LOCK_KEY = "cache:lock:%s";
@@ -59,7 +59,7 @@ public class ProductCacheService {
             .maximumSize(1000)
             .expireAfterWrite(Duration.ofSeconds(30))
             .build();
-    private final Cache<String, PageResponse<ProductView>> listLocal = Caffeine.newBuilder()
+    private final Cache<String, ProductIdPage> listLocal = Caffeine.newBuilder()
             .maximumSize(500)
             .expireAfterWrite(Duration.ofSeconds(30))
             .build();
@@ -142,15 +142,17 @@ public class ProductCacheService {
         }
     }
 
-    public PageResponse<ProductView> list(Long categoryId, int page, int size,
-                                          Supplier<PageResponse<ProductView>> loader) {
+    /**
+     * 列表只缓存商品 ID 和总数；卡片通过 {@link #detail(Long, Supplier)} 单独缓存。
+     */
+    public ProductIdPage idPage(Long categoryId, int page, int size,
+                                Supplier<ProductIdPage> loader) {
         String key = LIST_KEY.formatted(version(), categoryId == null ? "all" : categoryId, page, size);
-        PageResponse<ProductView> local = listLocal.getIfPresent(key);
+        ProductIdPage local = listLocal.getIfPresent(key);
         if (local != null) {
             return local;
         }
-        PageResponse<ProductView> cached = read(key, new TypeReference<>() {
-        });
+        ProductIdPage cached = read(key, ProductIdPage.class);
         if (cached != null) {
             listLocal.put(key, cached);
             return cached;
@@ -165,8 +167,7 @@ public class ProductCacheService {
             if (local != null) {
                 return local;
             }
-            cached = read(key, new TypeReference<>() {
-            });
+            cached = read(key, ProductIdPage.class);
             if (cached != null) {
                 listLocal.put(key, cached);
                 return cached;
@@ -176,13 +177,12 @@ public class ProductCacheService {
                 return safeLoad(loader);
             }
             try {
-                cached = read(key, new TypeReference<>() {
-                });
+                cached = read(key, ProductIdPage.class);
                 if (cached != null) {
                     listLocal.put(key, cached);
                     return cached;
                 }
-                PageResponse<ProductView> value = loader.get();
+                ProductIdPage value = loader.get();
                 write(key, value, jitter(LIST_TTL, 15_000));
                 listLocal.put(key, value);
                 return value;

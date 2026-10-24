@@ -96,12 +96,13 @@ class ProductCacheIntegrationTest {
     }
 
     @Test
-    void adminUpdateInvalidatesDetailAndList() throws Exception {
+    void adminUpdateRefreshesCardWithoutBumpingListVersion() throws Exception {
         Session admin = register(ADMIN_PHONE);
         long productId = createProduct(admin.token(), "改名前");
 
         assertThat(publicName(productId)).isEqualTo("改名前");
         assertThat(listNames()).contains("改名前");
+        String versionBefore = redis.opsForValue().get("cache:products:version");
 
         long categoryId = categoryId();
         mockMvc.perform(put("/api/admin/products/{id}", productId)
@@ -114,8 +115,44 @@ class ProductCacheIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("改名后"));
 
+        // 普通编辑只刷新卡片，不升级列表版本
+        assertThat(redis.opsForValue().get("cache:products:version")).isEqualTo(versionBefore);
         assertThat(publicName(productId)).isEqualTo("改名后");
         assertThat(listNames()).contains("改名后").doesNotContain("改名前");
+    }
+
+    @Test
+    void listCachesIdsAndCardsSeparately() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        long productId = createProduct(admin.token(), "拆开缓存");
+
+        assertThat(listNames()).contains("拆开缓存");
+
+        Set<String> idPageKeys = redis.keys("cache:product-ids:*");
+        assertThat(idPageKeys).isNotNull().isNotEmpty();
+        assertThat(redis.hasKey("cache:product:detail:" + productId)).isTrue();
+    }
+
+    @Test
+    void categoryChangeBumpsListVersion() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        long productId = createProduct(admin.token(), "换分类商品");
+        assertThat(listNames()).contains("换分类商品");
+        String versionBefore = redis.opsForValue().get("cache:products:version");
+
+        long softwareCategoryId = categoryId("软件");
+        mockMvc.perform(put("/api/admin/products/{id}", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"换分类商品","description":"测试","price":100.00,"stock":10,
+                                 "categoryId":%d,"type":"PHYSICAL"}
+                                """.formatted(softwareCategoryId)))
+                .andExpect(status().isOk());
+
+        String versionAfter = redis.opsForValue().get("cache:products:version");
+        assertThat(versionAfter).isNotEqualTo(versionBefore);
+        assertThat(listNames(softwareCategoryId)).contains("换分类商品");
     }
 
     @Test
@@ -212,9 +249,17 @@ class ProductCacheIntegrationTest {
                 "$.name");
     }
 
-    @SuppressWarnings("unchecked")
     private List<String> listNames() throws Exception {
-        MvcResult result = mockMvc.perform(get("/api/products").param("page", "1").param("size", "50"))
+        return listNames(null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> listNames(Long categoryId) throws Exception {
+        var request = get("/api/products").param("page", "1").param("size", "50");
+        if (categoryId != null) {
+            request = request.param("categoryId", String.valueOf(categoryId));
+        }
+        MvcResult result = mockMvc.perform(request)
                 .andExpect(status().isOk())
                 .andReturn();
         return JsonPath.read(result.getResponse().getContentAsString(StandardCharsets.UTF_8),
@@ -236,8 +281,12 @@ class ProductCacheIntegrationTest {
     }
 
     private long categoryId() {
+        return categoryId("实物");
+    }
+
+    private long categoryId(String name) {
         return jdbcTemplate.queryForObject(
-                "SELECT id FROM category WHERE name = '实物'", Long.class);
+                "SELECT id FROM category WHERE name = ?", Long.class, name);
     }
 
     private Session register(String phone) throws Exception {

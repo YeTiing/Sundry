@@ -42,6 +42,10 @@ public interface ProductMapper {
                                  @Param("offset") long offset,
                                  @Param("size") int size);
 
+    List<Long> findPublicIds(@Param("categoryId") Long categoryId,
+                             @Param("offset") long offset,
+                             @Param("size") int size);
+
     long countPublic(@Param("categoryId") Long categoryId);
 
     long countByDigitalFileId(@Param("fileId") Long fileId);

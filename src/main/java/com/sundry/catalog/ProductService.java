@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 商品读写。前台只读已上架；管理端可以读写全部状态。
@@ -44,14 +45,19 @@ public class ProductService {
     }
 
     public PageResponse<ProductView> findPublicPage(Long categoryId, int page, int size) {
-        return cache.list(categoryId, page, size, () -> doFindPublicPage(categoryId, page, size));
-    }
-
-    private PageResponse<ProductView> doFindPublicPage(Long categoryId, int page, int size) {
-        long offset = (long) (page - 1) * size;
-        List<ProductView> items = productMapper.findPagePublic(categoryId, offset, size)
-                .stream().map(this::toView).toList();
-        return new PageResponse<>(items, productMapper.countPublic(categoryId), page, size);
+        ProductIdPage idPage = cache.idPage(categoryId, page, size, () -> {
+            long offset = (long) (page - 1) * size;
+            List<Long> ids = productMapper.findPublicIds(categoryId, offset, size);
+            return new ProductIdPage(ids, productMapper.countPublic(categoryId), page, size);
+        });
+        List<ProductView> items = idPage.ids().stream()
+                .map(id -> cache.detail(id, () -> {
+                    Product product = productMapper.findPublicById(id);
+                    return product == null ? null : toView(product);
+                }))
+                .filter(Objects::nonNull)
+                .toList();
+        return new PageResponse<>(items, idPage.total(), idPage.page(), idPage.size());
     }
 
     public PageResponse<ProductView> findAdminPage(ProductStatus status, int page, int size) {
@@ -126,7 +132,8 @@ public class ProductService {
     }
 
     public ProductView update(Long id, SaveProductRequest request) {
-        if (productMapper.findById(id) == null) {
+        Product existing = productMapper.findById(id);
+        if (existing == null) {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
         requireCategory(request.categoryId());
@@ -137,7 +144,13 @@ public class ProductService {
         product.setId(id);
         apply(product, request);
         productMapper.update(product);
-        evict(id);
+
+        // 卡片按商品独立缓存，普通编辑只失效这张卡片
+        cache.evictDetail(id);
+        // 换分类会改变列表归属，需要升级列表版本
+        if (!Objects.equals(existing.getCategoryId(), request.categoryId())) {
+            cache.evictLists();
+        }
         return toView(productMapper.findById(id));
     }
 
