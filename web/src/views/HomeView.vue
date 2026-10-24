@@ -156,11 +156,22 @@ async function logout(): Promise<void> {
       </div>
     </dl>
 
-    <RouterLink class="secondary-button home-admin-link" to="/cart">我的购物车</RouterLink>
+    <template v-if="!auth.isAdmin">
+      <RouterLink class="secondary-button home-admin-link" to="/cart">我的购物车</RouterLink>
 
-    <RouterLink class="secondary-button home-admin-link" to="/orders">我的订单</RouterLink>
+      <RouterLink class="secondary-button home-admin-link" to="/orders">我的订单</RouterLink>
 
-    <RouterLink class="secondary-button home-admin-link" to="/addresses">收货地址</RouterLink>
+      <RouterLink class="secondary-button home-admin-link" to="/addresses">收货地址</RouterLink>
+    </template>
+
+    <RouterLink
+      v-if="auth.isSuperAdmin"
+      class="secondary-button home-admin-link"
+      to="/admin"
+      title="在管理后台的店铺资料里修改"
+    >
+      店铺发货地址
+    </RouterLink>
 
     <RouterLink class="quiet-button home-admin-link" to="/">返回商城</RouterLink>
 
