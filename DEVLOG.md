@@ -1156,10 +1156,57 @@ ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
 
 - `34a0e13` feat: 秒杀对账与 k6 压测脚本
 
+## 2026-10-24 · 秒杀压测实测
+
+**做了什么**
+
+- 修正 Boot 4 Kafka 依赖：`spring-kafka` 换成 `spring-boot-starter-kafka`
+  - 之前本地启动时报 `KafkaTemplate` 不存在，测试 profile 关掉了 listener 所以没暴露
+- 新增 `loadtest/prepare.mjs`：
+  - 超管登录、上传 1KB 数字文件、创建数字商品和活动
+  - 注册 1 个用户取 BCrypt 哈希，批量插入 199 个测试用户
+  - 逐个登录生成 `tokens.txt`，活动 ID 写入 `activity.txt`
+- k6 阈值修正：409 售罄、429 限流属于预期结果，改用 `seckill_unexpected_status == 0` 判定
+
+**实测结果**
+
+环境：Windows 11 单机，MySQL / Redis / MinIO / Kafka（Docker）+ 后端本地进程。
+场景：200 个用户并发抢 50 件数字商品，每人 1 次。
+
+```text
+第二轮（Kafka producer 已预热）：
+200 requests，50 accepted，150 sold out
+p99 = 139ms
+unexpected status = 0
+短时吞吐约 2000 req/s
+```
+
+一致性：
+
+```text
+seckill_activity: stock=50, sold_count=50
+orders: 50 行，50 个不同 user_id
+redis seckill:stock = 0
+redis seckill:buyer HLEN = 50
+sundry_seckill_compensation_total = 0
+```
+
+第一轮 p99 约 1.16s，原因是 Kafka producer 首次初始化；预热后恢复。
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 131 个用例全部通过
+- 压测实测完成，零超卖、零重复、零补偿
+
+**提交**
+
+- `28b57bb` fix: 使用 spring-boot-starter-kafka 启用自动配置
+- `5233039` test: 秒杀压测脚本与实测
+
 ## 待办 / 下一步
 
 - 分类管理（新增/排序/停用；目前只有迁移种子）
-- 并发压测；热点 SKU/秒杀再引入 Redis（当前 DB-only）
+- 热点 SKU 库存分桶（当前单 key，压测已够用）
 - 真实支付渠道接入（当前模拟支付，商户资质是前置）
 - 后台「未绑定文件」列表（可选，便于复用或立即清理）
 - 站内通知、公告已读
