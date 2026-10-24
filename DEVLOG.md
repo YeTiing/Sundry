@@ -27,7 +27,8 @@
 | 地址簿 | 收货地址 CRUD、默认地址、最多 20 条 |
 | 订单 | 购物车下单、条件扣库存、模拟支付、打包/发货/确认收货、30 分钟超时取消、数字下载；后台订单带买家手机号/昵称 |
 | 退款 | 用户申请（已支付/打包中且含实物）→ 商家通过/拒绝；审核前可撤销；通过后回补库存 |
-| 测试 | 82 个集成测试，`mvn test` 全绿 |
+| 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
+| 测试 | 92 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop`、`main`、`origin/main` 在 `dcf6a53`；本次退款提交后 develop 领先 |
 | 未完成 | 真实支付、退款真实资金流、通知公告 |
 
@@ -839,6 +840,49 @@ ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
 **提交**
 
 - `5ec1ace` fix: 管理员账户页隐藏买家入口
+
+## 2026-10-24 · 退货退款
+
+**做了什么**
+
+- V13：`order_refund` 增加 `kind`、`return_tracking_no`、`return_shipped_at`、`received_at`
+- 订单状态新增 `RETURN_REQUESTED`、`RETURNING`、`RETURN_SHIPPED`
+- 流程：
+  - 已发货，或确认收货后 7 天内（按 `completed_at`）且含实物，可以申请退货
+  - 商家同意 → 等待用户寄回；拒绝或用户撤销 → 回到原状态
+  - 用户填写退货快递单号 → 等待商家收货
+  - 商家确认收到 → 订单 `REFUNDED`，同一事务回补库存
+- 退货不建模退货运费，整单全额退款
+- 接口：
+  - 用户：`POST /api/orders/{orderNo}/return`、`/return/withdraw`、`/return/ship`
+  - 商家：`POST /api/admin/orders/{orderNo}/return/approve`、`/return/reject`、`/return/receive`
+- 前端：
+  - 用户订单页：申请退货、撤销、填写退货单号、退货进度展示
+  - 后台订单页：同意/拒绝退货、确认收到退货
+- 所有状态变更仍是条件更新；确认收货的回补只在状态成功流转时执行
+
+**遇到问题**
+
+- 退款和退货共用 `revertRefund` 回退状态，原 SQL 只匹配 `REFUND_REQUESTED`，退货拒绝/撤销返回 409
+
+**解决**
+
+- `revertRefund` 同时匹配 `REFUND_REQUESTED` 和 `RETURN_REQUESTED`
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 92 个用例全部通过（新增 10 个退货用例）
+  - 完整退货链路、确认收货才回补库存、重复确认幂等
+  - 拒绝和撤销回到 `SHIPPED`
+  - 确认收货 7 天内可退、超过 7 天 `RETURN_WINDOW_EXPIRED`
+  - 未发货、纯数字、未同意先寄回均被拒
+  - 越权、角色、空原因
+  - 并发申请只产生一条流水；并发确认收货只回补一次
+- `npm run build` 通过
+
+**提交**
+
+- `5456981` feat: 退货退款流程
 
 ## 待办 / 下一步
 
