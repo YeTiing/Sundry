@@ -85,6 +85,14 @@
         WHERE activity_id = #{activityId} AND order_source = 'SECKILL'
     </select>
 
+    <select id="countActiveSeckillOrders" resultType="long">
+        SELECT COUNT(*)
+        FROM orders
+        WHERE activity_id = #{activityId}
+          AND order_source = 'SECKILL'
+          AND status NOT IN ('CANCELLED', 'REFUNDED')
+    </select>
+
     <select id="findTimeoutCandidates" resultType="com.sundry.order.Order">
         SELECT <include refid="orderColumns"/>
         FROM orders

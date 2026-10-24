@@ -3,6 +3,7 @@ package com.sundry.seckill;
 import com.sundry.common.api.PageResponse;
 import com.sundry.seckill.dto.SaveSeckillActivityRequest;
 import com.sundry.seckill.dto.SeckillActivityView;
+import com.sundry.seckill.dto.SeckillReconcileView;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -29,9 +30,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminSeckillController {
 
     private final SeckillActivityService activityService;
+    private final SeckillReconcileService reconcileService;
 
-    public AdminSeckillController(SeckillActivityService activityService) {
+    public AdminSeckillController(SeckillActivityService activityService,
+                                  SeckillReconcileService reconcileService) {
         this.activityService = activityService;
+        this.reconcileService = reconcileService;
     }
 
     @GetMapping
@@ -72,5 +76,14 @@ public class AdminSeckillController {
     @PostMapping("/{id}/end")
     public SeckillActivityView end(@PathVariable Long id) {
         return activityService.end(id);
+    }
+
+    /**
+     * 对账：默认只报告，repair=true 且已售数一致时按 DB 重建 Redis 库存。
+     */
+    @PostMapping("/{id}/reconcile")
+    public SeckillReconcileView reconcile(@PathVariable Long id,
+                                          @RequestParam(defaultValue = "false") boolean repair) {
+        return reconcileService.reconcile(id, repair);
     }
 }

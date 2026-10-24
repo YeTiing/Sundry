@@ -66,4 +66,6 @@ public interface OrderMapper {
                            @Param("activityId") Long activityId);
 
     List<Long> findSeckillBuyerIds(@Param("activityId") Long activityId);
+
+    long countActiveSeckillOrders(@Param("activityId") Long activityId);
 }

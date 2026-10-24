@@ -87,6 +87,9 @@ class SeckillOrderIntegrationTest {
     @Autowired
     private MeterRegistry meterRegistry;
 
+    @Autowired
+    private SeckillReconcileService reconcileService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
@@ -606,6 +609,56 @@ class SeckillOrderIntegrationTest {
         mockMvc.perform(get("/actuator/prometheus"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("sundry_seckill_submit")));
+    }
+
+    @Test
+    void reconcileReportsAndRepairsRedisDrift() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createDigitalProduct(admin.token(), "对账商品", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 5);
+        activate(admin.token(), activityId);
+        submitAndProcess(user.token(), activityId, null);
+
+        var consistent = reconcileService.reconcile(activityId, false);
+        assertThat(consistent.stockConsistent()).isTrue();
+        assertThat(consistent.soldConsistent()).isTrue();
+        assertThat(consistent.repaired()).isFalse();
+        assertThat(consistent.redisRemaining()).isEqualTo(4);
+        assertThat(consistent.activeOrders()).isEqualTo(1);
+
+        // 人为制造 Redis 库存漂移
+        redis.opsForValue().set("seckill:stock:" + activityId, "99");
+        var drifted = reconcileService.reconcile(activityId, false);
+        assertThat(drifted.stockConsistent()).isFalse();
+        assertThat(drifted.soldConsistent()).isTrue();
+        assertThat(drifted.redisRemaining()).isEqualTo(99);
+        assertThat(drifted.repaired()).isFalse();
+
+        var repaired = reconcileService.reconcile(activityId, true);
+        assertThat(repaired.repaired()).isTrue();
+        assertThat(repaired.redisRemaining()).isEqualTo(4);
+        assertThat(repaired.stockConsistent()).isTrue();
+    }
+
+    @Test
+    void reconcileEndpointRequiresAdmin() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createDigitalProduct(admin.token(), "对账权限", "100.00");
+        long activityId = createActivity(admin.token(), productId, "10.00", 5);
+        activate(admin.token(), activityId);
+
+        mockMvc.perform(post("/api/admin/seckill/activities/{id}/reconcile", activityId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/admin/seckill/activities/{id}/reconcile", activityId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activityId").value(activityId))
+                .andExpect(jsonPath("$.stockConsistent").value(true))
+                .andExpect(jsonPath("$.soldConsistent").value(true));
     }
 
     private String submit(String token, long activityId, Long addressId) throws Exception {
