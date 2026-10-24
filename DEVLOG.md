@@ -28,14 +28,15 @@
 | 订单 | 购物车下单、条件扣库存、模拟支付、打包/发货/确认收货、30 分钟超时取消、数字下载；后台订单带买家手机号/昵称 |
 | 退款 | 用户申请（已支付/打包中且含实物）→ 商家通过/拒绝；审核前可撤销；通过后回补库存 |
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
-| 秒杀 | 活动管理、Redis Lua 抢购、一人一单、同步建单、失败回补；Kafka 异步与延迟关单待做 |
-| 测试 | 111 个集成测试，`mvn test` 全绿 |
+| 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补；延迟关单待做 |
+| 测试 | 113 个集成测试，`mvn test` 全绿 |
 | 分支 | `develop`、`main`、`origin/main` 在 `dcf6a53`；本次退款提交后 develop 领先 |
 | 未完成 | 真实支付、退款真实资金流、通知公告 |
 
 ### 本地启动
 
 1. MySQL 3306、Redis 6379、MinIO 9000 在跑（容器没起时：`docker start sundry-redis sundry-minio`）
+   - 秒杀功能需要 Kafka：`docker compose -f docker-compose.kafka.yml up -d`（KRaft 单节点，9092）
 2. IDEA：JDK 17，Active profiles 填 `local`，或 VM options 加 `-Dspring.profiles.active=local`
 3. 运行 `SundryApplication`，健康检查 `http://localhost:8080/actuator/health`
 4. 前端：`cd web && npm install && npm run dev`，访问 `http://localhost:5173`
@@ -972,9 +973,47 @@ ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
 
 - `f056945` feat: 秒杀 Redis 抢购与同步建单
 
+## 2026-10-24 · 秒杀 S3：Kafka 异步建单
+
+**做了什么**
+
+- 引入 `spring-kafka`，新增 `docker-compose.kafka.yml`（KRaft 单节点）
+- 抢购链路改为异步：
+  - Lua 预占成功后生成 `requestId`，投递 Kafka，接口返回 202 `PROCESSING`
+  - 消费端幂等建单，结果写 Redis（`seckill:result:{requestId}`，TTL 30 分钟）
+  - 前端轮询 `GET /api/seckill/results/{requestId}`，成功跳订单页，失败显示原因
+- 结果状态：`PROCESSING / SUCCESS / FAILED`；只能查询自己的结果
+- 失败补偿：
+  - 投递失败立即回补 Redis 并返回 503
+  - 消费端业务失败（售罄、商品下架、地址失效）回补 Redis、移除购买标记、记录失败原因
+  - 重复消息或重复建单命中唯一索引时返回已有订单，并归还多扣的库存
+- 测试用内存发布器 `RecordingSeckillOrderPublisher`，不依赖真实 Kafka；测试 profile 关闭 listener 自动启动
+- Kafka 主题 `sundry.seckill.order.create`，按活动 ID 分区保证同活动消息顺序
+
+**说明**
+
+- 消费端不重抛异常，避免 Kafka 无限重投；失败结果直接返回给用户。瞬时 DB 故障会让本次抢购失败并回补库存，后续可加 DLT 和告警
+- 结果 TTL 30 分钟，过期后用户可在订单页查看实际订单
+- 本机必须启动 Kafka，否则抢购返回 503
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 113 个用例全部通过（新增 2 个异步结果与投递失败用例）
+  - 抢购 202 → 消费建单 → 结果 SUCCESS
+  - 重复消费不重复建单
+  - 6 人并发抢 3 件只成功 3 单
+  - DB 扣库存失败 → 结果 FAILED 且 Redis 回补
+  - 投递失败 → 503 且 Redis 回补
+  - 结果只有本人可见
+- `npm run build` 通过
+
+**提交**
+
+- `ac8e81d` feat: 秒杀 Kafka 异步建单
+
 ## 待办 / 下一步
 
-- 秒杀 S3：Kafka 异步建单与补偿
+- 秒杀 S4：Redis ZSET 超时关单
 - 秒杀 S4：Redis ZSET 超时关单
 - 秒杀 S5：三级缓存与防击穿/穿透/雪崩
 - 秒杀 S6：限流与可观测性
