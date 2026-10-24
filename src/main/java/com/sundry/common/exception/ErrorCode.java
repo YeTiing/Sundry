@@ -57,6 +57,7 @@ public enum ErrorCode {
     SECKILL_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "秒杀通道未就绪，请稍后重试"),
     SECKILL_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "抢购结果不存在或已过期"),
     DIGITAL_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "数字商品文件不存在"),
+    PRODUCT_DOWNLOAD_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "该商品没有可下载的数字文件"),
     CATEGORY_NOT_FOUND(HttpStatus.BAD_REQUEST, "分类不存在或已停用"),
     CATEGORY_NAME_DUPLICATED(HttpStatus.CONFLICT, "分类名称已存在"),
     CATEGORY_IN_USE(HttpStatus.CONFLICT, "分类下还有商品，不能删除"),

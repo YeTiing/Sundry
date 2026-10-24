@@ -9,11 +9,14 @@ import com.sundry.common.exception.ErrorCode;
 import com.sundry.file.FileKind;
 import com.sundry.file.FileObject;
 import com.sundry.file.FileObjectMapper;
+import com.sundry.file.digital.DigitalUploadGateway;
+import com.sundry.order.dto.DownloadView;
 import com.sundry.storage.ObjectStorage;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 
@@ -27,15 +30,17 @@ public class ProductService {
     private final CategoryMapper categoryMapper;
     private final FileObjectMapper fileObjectMapper;
     private final ObjectStorage storage;
+    private final DigitalUploadGateway digitalGateway;
     private final ProductCacheService cache;
 
     public ProductService(ProductMapper productMapper, CategoryMapper categoryMapper,
                           FileObjectMapper fileObjectMapper, ObjectStorage storage,
-                          ProductCacheService cache) {
+                          DigitalUploadGateway digitalGateway, ProductCacheService cache) {
         this.productMapper = productMapper;
         this.categoryMapper = categoryMapper;
         this.fileObjectMapper = fileObjectMapper;
         this.storage = storage;
+        this.digitalGateway = digitalGateway;
         this.cache = cache;
     }
 
@@ -84,6 +89,25 @@ public class ProductService {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
         return toView(product);
+    }
+
+    /**
+     * 管理员直接下载数字商品文件，不需要下单。
+     */
+    public DownloadView adminDownload(Long id) {
+        Product product = productMapper.findById(id);
+        if (product == null) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        if (product.getType() != ProductType.DIGITAL || product.getDigitalFileId() == null) {
+            throw new BusinessException(ErrorCode.PRODUCT_DOWNLOAD_NOT_SUPPORTED);
+        }
+        FileObject file = fileObjectMapper.findById(product.getDigitalFileId());
+        if (file == null || file.getKind() != FileKind.DIGITAL) {
+            throw new BusinessException(ErrorCode.DIGITAL_ITEM_NOT_FOUND);
+        }
+        Duration ttl = Duration.ofMinutes(10);
+        return new DownloadView(digitalGateway.presignGet(file.getObjectKey(), ttl), ttl.toSeconds());
     }
 
     /**

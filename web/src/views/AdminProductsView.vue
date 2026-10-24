@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { adminApi, type SaveProductPayload } from '@/api/admin'
 import { catalogApi } from '@/api/catalog'
 import type { Category, Product, ProductStatus, ProductType, ReusableImage } from '@/api/types'
@@ -12,6 +12,7 @@ const PRICE_PATTERN = /^\d{1,8}(\.\d{1,2})?$/
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const categories = ref<Category[]>([])
 const products = ref<Product[]>([])
@@ -327,6 +328,15 @@ onMounted(async () => {
   await loadCategories()
   resetForm()
   await loadProducts(1)
+
+  const editId = Number(route.query.edit)
+  if (Number.isInteger(editId) && editId > 0) {
+    try {
+      startEdit(await adminApi.getProduct(editId))
+    } catch {
+      // 商品不存在或已删除时忽略深链
+    }
+  }
 })
 </script>
 

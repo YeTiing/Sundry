@@ -65,6 +65,7 @@ class CatalogFlowIntegrationTest {
         jdbcTemplate.update("DELETE FROM orders");
         jdbcTemplate.update("DELETE FROM seckill_activity");
         jdbcTemplate.update("DELETE FROM product");
+        jdbcTemplate.update("DELETE FROM category WHERE name NOT IN ('秒杀券', '软件', '实物')");
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");
         Set<String> keys = redis.keys("auth:*");

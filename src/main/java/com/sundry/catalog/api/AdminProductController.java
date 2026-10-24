@@ -6,6 +6,7 @@ import com.sundry.catalog.dto.ChangeProductStatusRequest;
 import com.sundry.catalog.dto.ProductView;
 import com.sundry.catalog.dto.SaveProductRequest;
 import com.sundry.common.api.PageResponse;
+import com.sundry.order.dto.DownloadView;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -57,6 +58,11 @@ public class AdminProductController {
     @GetMapping("/{id}")
     public ProductView detail(@PathVariable Long id) {
         return productService.findAdmin(id);
+    }
+
+    @GetMapping("/{id}/download")
+    public DownloadView download(@PathVariable Long id) {
+        return productService.adminDownload(id);
     }
 
     @PostMapping

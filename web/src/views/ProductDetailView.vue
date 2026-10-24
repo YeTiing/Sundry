@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SiteHeader from '@/components/SiteHeader.vue'
+import { adminApi } from '@/api/admin'
 import { cartApi } from '@/api/cart'
 import { catalogApi } from '@/api/catalog'
 import { seckillApi } from '@/api/seckill'
@@ -55,6 +56,72 @@ async function addToCart(): Promise<void> {
     cartError.value = messageOf(err)
   } finally {
     adding.value = false
+  }
+}
+
+const isAdmin = computed(() => auth.isAdmin)
+const adminBusy = ref(false)
+const adminError = ref('')
+const adminNotice = ref('')
+
+const statusLabel = computed(() => {
+  if (!product.value) return ''
+  return product.value.status === 'ON_SALE' ? '已上架'
+    : product.value.status === 'OFF_SHELF' ? '已下架' : '草稿'
+})
+
+function editProduct(): void {
+  if (!product.value) return
+  void router.push({ name: 'admin-products', query: { edit: String(product.value.id) } })
+}
+
+async function downloadProduct(): Promise<void> {
+  if (!product.value) return
+  const win = window.open('', '_blank')
+  if (win) win.opener = null
+  adminError.value = ''
+  adminNotice.value = ''
+  try {
+    const info = await adminApi.downloadProduct(product.value.id)
+    if (win) {
+      win.location.href = info.url
+    } else {
+      window.location.href = info.url
+    }
+  } catch (err) {
+    win?.close()
+    adminError.value = messageOf(err)
+  }
+}
+
+async function toggleStatus(): Promise<void> {
+  if (!product.value || adminBusy.value) return
+  adminBusy.value = true
+  adminError.value = ''
+  adminNotice.value = ''
+  const next = product.value.status === 'ON_SALE' ? 'OFF_SHELF' : 'ON_SALE'
+  try {
+    product.value = await adminApi.changeProductStatus(product.value.id, next)
+    adminNotice.value = next === 'ON_SALE' ? '商品已上架' : '商品已下架'
+  } catch (err) {
+    adminError.value = messageOf(err)
+  } finally {
+    adminBusy.value = false
+  }
+}
+
+async function deleteProduct(): Promise<void> {
+  if (!product.value || adminBusy.value) return
+  if (!window.confirm(`删除商品「${product.value.name}」？删除后会进入回收站。`)) return
+  adminBusy.value = true
+  adminError.value = ''
+  try {
+    await adminApi.deleteProduct(product.value.id)
+    await router.push({ name: 'admin-products' })
+  } catch (err) {
+    adminError.value = messageOf(err)
+  } finally {
+    adminBusy.value = false
   }
 }
 
@@ -120,6 +187,9 @@ onMounted(async () => {
             {{ product.categoryName }} · {{ product.type === 'DIGITAL' ? '数字商品' : '实物商品' }}
             <span v-if="seckill" class="seckill-badge">秒杀</span>
           </span>
+          <span v-if="isAdmin" class="status-pill" :data-status="product.status">
+            {{ statusLabel }}
+          </span>
           <h1 class="product-detail__name">{{ product.name }}</h1>
           <p v-if="seckill" class="product-detail__price seckill-price">
             {{ formatPrice(seckill.seckillPrice) }}
@@ -136,7 +206,41 @@ onMounted(async () => {
           <p v-else class="panel-note">数字商品，付款后可下载</p>
           <p class="product-detail__desc">{{ product.description }}</p>
 
-          <div class="buy-row">
+          <div v-if="isAdmin" class="buy-row admin-product-actions">
+            <button
+              class="primary-button buy-row__action"
+              type="button"
+              @click="editProduct"
+            >
+              编辑商品
+            </button>
+            <button
+              v-if="product.type === 'DIGITAL' && product.digitalFileId"
+              class="secondary-button"
+              type="button"
+              @click="downloadProduct"
+            >
+              下载数字文件
+            </button>
+            <button
+              class="secondary-button"
+              type="button"
+              :disabled="adminBusy"
+              @click="toggleStatus"
+            >
+              {{ product.status === 'ON_SALE' ? '下架' : '上架' }}
+            </button>
+            <button
+              class="secondary-button danger-button"
+              type="button"
+              :disabled="adminBusy"
+              @click="deleteProduct"
+            >
+              删除商品
+            </button>
+          </div>
+
+          <div v-else class="buy-row">
             <template v-if="seckill">
               <RouterLink
                 class="primary-button buy-row__action"
@@ -166,8 +270,10 @@ onMounted(async () => {
             </template>
             <RouterLink class="secondary-button" to="/cart">去购物车</RouterLink>
           </div>
-          <p v-if="cartError" class="form-error">{{ cartError }}</p>
-          <p v-if="cartNotice" class="notice">{{ cartNotice }}</p>
+          <p v-if="isAdmin && adminError" class="form-error">{{ adminError }}</p>
+          <p v-if="isAdmin && adminNotice" class="notice">{{ adminNotice }}</p>
+          <p v-if="!isAdmin && cartError" class="form-error">{{ cartError }}</p>
+          <p v-if="!isAdmin && cartNotice" class="notice">{{ cartNotice }}</p>
         </div>
       </article>
 

@@ -3,6 +3,7 @@ import type {
   AdminCategory,
   AdminUser,
   DigitalFile,
+  DownloadInfo,
   DigitalUploadInit,
   FileView,
   PageResponse,
@@ -61,6 +62,10 @@ export const adminApi = {
 
   getProduct(id: number): Promise<Product> {
     return http.get<Product>(`/admin/products/${id}`)
+  },
+
+  downloadProduct(id: number): Promise<DownloadInfo> {
+    return http.get<DownloadInfo>(`/admin/products/${id}/download`)
   },
 
   createProduct(payload: SaveProductPayload, idempotencyKey?: string): Promise<Product> {

@@ -133,6 +133,75 @@ class DigitalUploadIntegrationTest {
     }
 
     @Test
+    void adminCanDownloadDigitalProductFile() throws Exception {
+        String admin = register(SUPER_PHONE);
+        String user = register(USER_PHONE);
+
+        MvcResult init = mockMvc.perform(post("/api/admin/uploads/digital/init")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"fileName":"admin-download.zip","contentType":"application/zip","sizeBytes":%d}
+                                """.formatted(FILE_SIZE)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String initBody = body(init);
+        MvcResult completed = mockMvc.perform(post("/api/admin/uploads/digital/complete")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"uploadId":"%s","key":"%s"}
+                                """.formatted(JsonPath.read(initBody, "$.uploadId"),
+                                JsonPath.read(initBody, "$.key"))))
+                .andExpect(status().isOk())
+                .andReturn();
+        long fileId = ((Number) JsonPath.read(body(completed), "$.id")).longValue();
+
+        Long softwareCategory = jdbcTemplate.queryForObject(
+                "SELECT id FROM category WHERE name = '软件'", Long.class);
+        MvcResult created = mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"管理员下载测试","description":"数字商品","price":99.00,
+                                 "categoryId":%d,"type":"DIGITAL","digitalFileId":%d,
+                                 "status":"ON_SALE"}
+                                """.formatted(softwareCategory, fileId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long productId = ((Number) JsonPath.read(body(created), "$.id")).longValue();
+
+        mockMvc.perform(get("/api/admin/products/{id}/download", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").value(org.hamcrest.Matchers.startsWith(
+                        "http://test-minio/download/")))
+                .andExpect(jsonPath("$.expiresInSeconds").value(600));
+
+        mockMvc.perform(get("/api/admin/products/{id}/download", productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user)))
+                .andExpect(status().isForbidden());
+
+        Long physicalCategory = jdbcTemplate.queryForObject(
+                "SELECT id FROM category WHERE name = '实物'", Long.class);
+        MvcResult physical = mockMvc.perform(post("/api/admin/products")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"实物不可下载","description":"测试","price":10.00,"stock":5,
+                                 "categoryId":%d,"type":"PHYSICAL","status":"ON_SALE"}
+                                """.formatted(physicalCategory)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long physicalId = ((Number) JsonPath.read(body(physical), "$.id")).longValue();
+
+        mockMvc.perform(get("/api/admin/products/{id}/download", physicalId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PRODUCT_DOWNLOAD_NOT_SUPPORTED"));
+    }
+
+    @Test
     void oversizedDigitalFileIsRejected() throws Exception {
         String token = register(SUPER_PHONE);
 

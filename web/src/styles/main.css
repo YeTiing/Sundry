@@ -1899,3 +1899,17 @@ a.buy-row__action {
   padding: 6px 14px;
   font-size: 13px;
 }
+
+/* ---------- 商品详情：管理员操作 ---------- */
+
+.admin-product-actions {
+  align-items: center;
+  row-gap: 10px;
+}
+
+.admin-product-actions .primary-button,
+.admin-product-actions .secondary-button {
+  width: auto;
+  min-width: 120px;
+  margin-top: 0;
+}
