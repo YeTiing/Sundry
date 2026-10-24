@@ -181,12 +181,31 @@ feed:user:{userId}       ZSET  个人候选，score=推荐分
 ### 2.8 行为埋点
 
 ```
-user_behavior(id, user_id, event_type, product_id, metadata, created_at)
+user_behavior(id, event_id, user_id, event_type, product_id, category_id, created_at)
 event_type: VIEW / CLICK / CART / FAVORITE / ORDER / SEARCH
 ```
 
-- 先异步写 MySQL 或 Kafka。
-- 用于更新偏好、离线评估、后续模型。
+已实现的 F1 写入链路：
+
+```
+浏览请求
+  → Redis 5 分钟去重
+  → RPUSH behavior:queue
+  → 每 2 秒批量落库（默认 500/批）
+  → behavior:processing 失败重试
+  → event_id + INSERT IGNORE 幂等
+```
+
+- 请求链路不直接写 MySQL，峰值只写 Redis。
+- Redis 不可用时降级为直接写库。
+- Feed 快照不因浏览立即失效；整页刷新时带 `refresh=true` 重算。
+
+后续可扩展：
+
+- CLICK / CART / FAVORITE / SEARCH 事件
+- 停留时长、曝光、点击位置
+- Kafka 批量消费替代定时 flush
+- 离线评估和模型训练
 
 ### 2.9 评估
 
