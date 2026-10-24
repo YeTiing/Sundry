@@ -19,4 +19,11 @@
         </foreach>
     </insert>
 
+    <delete id="deleteOldViews">
+        DELETE FROM user_behavior
+        WHERE event_type = 'VIEW'
+          AND created_at &lt; #{cutoff}
+        LIMIT #{limit}
+    </delete>
+
 </mapper>

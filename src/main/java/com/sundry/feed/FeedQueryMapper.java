@@ -11,8 +11,7 @@ public interface FeedQueryMapper {
 
     List<Long> findPurchasedProductIds(@Param("userId") Long userId);
 
-    List<CategoryWeight> findPurchasedCategoryWeights(@Param("userId") Long userId,
-                                                      @Param("since") LocalDateTime since);
+    List<CategoryWeight> findPurchasedCategoryWeights(@Param("userId") Long userId);
 
     List<CategoryWeight> findViewCategoryWeights(@Param("userId") Long userId,
                                                  @Param("since") LocalDateTime since);

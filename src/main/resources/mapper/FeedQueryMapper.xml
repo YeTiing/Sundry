@@ -13,21 +13,30 @@
 
     <select id="findPurchasedCategoryWeights" resultType="com.sundry.feed.CategoryWeight">
         SELECT p.category_id AS category_id, SUM(oi.quantity) AS weight
-        FROM order_item oi
-        JOIN orders o ON o.id = oi.order_id
+        FROM (
+            SELECT id
+            FROM orders
+            WHERE user_id = #{userId}
+              AND status NOT IN ('CANCELLED', 'REFUNDED')
+            ORDER BY created_at DESC
+            LIMIT 10
+        ) o
+        JOIN order_item oi ON oi.order_id = o.id
         JOIN product p ON p.id = oi.product_id
-        WHERE o.user_id = #{userId}
-          AND o.status NOT IN ('CANCELLED', 'REFUNDED')
-          AND o.created_at &gt;= #{since}
         GROUP BY p.category_id
     </select>
 
     <select id="findViewCategoryWeights" resultType="com.sundry.feed.CategoryWeight">
         SELECT category_id, COUNT(*) AS weight
-        FROM user_behavior
-        WHERE user_id = #{userId}
-          AND event_type = 'VIEW'
-          AND created_at &gt;= #{since}
+        FROM (
+            SELECT category_id
+            FROM user_behavior
+            WHERE user_id = #{userId}
+              AND event_type = 'VIEW'
+              AND created_at &gt;= #{since}
+            ORDER BY created_at DESC
+            LIMIT 100
+        ) recent
         GROUP BY category_id
     </select>
 

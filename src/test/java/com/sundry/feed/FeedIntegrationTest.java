@@ -18,6 +18,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -58,6 +60,9 @@ class FeedIntegrationTest {
 
     @Autowired
     private BehaviorFlushProcessor behaviorFlushProcessor;
+
+    @Autowired
+    private BehaviorCleanupProcessor behaviorCleanupProcessor;
 
     @BeforeEach
     void setUp() {
@@ -268,6 +273,83 @@ class FeedIntegrationTest {
                 .filter(id -> id == software)
                 .count();
         assertThat(softwareInTopFive).isGreaterThanOrEqualTo(4);
+    }
+
+    @Test
+    void oldViewsAreCleanedUp() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long physical = categoryId("实物");
+        long productId = createProduct(admin.token(), physical, "清理测试商品", 5);
+
+        jdbcTemplate.update("""
+                INSERT INTO user_behavior
+                    (event_id, user_id, event_type, product_id, category_id, created_at)
+                VALUES (?, ?, 'VIEW', ?, ?, ?)
+                """, "old-view", user.id(), productId, physical,
+                Timestamp.valueOf(LocalDateTime.now().minusDays(31)));
+        jdbcTemplate.update("""
+                INSERT INTO user_behavior
+                    (event_id, user_id, event_type, product_id, category_id, created_at)
+                VALUES (?, ?, 'VIEW', ?, ?, ?)
+                """, "new-view", user.id(), productId, physical,
+                Timestamp.valueOf(LocalDateTime.now()));
+
+        int deleted = behaviorCleanupProcessor.cleanup();
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_behavior WHERE event_id = 'old-view'", Long.class))
+                .isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_behavior WHERE event_id = 'new-view'", Long.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void viewsOutsideFourteenDaysAreIgnored() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long software = categoryId("软件");
+        long physical = categoryId("实物");
+        List<Long> softwareIds = new ArrayList<>();
+        List<Long> physicalIds = new ArrayList<>();
+        for (int i = 1; i <= 6; i++) {
+            softwareIds.add(createProduct(admin.token(), software, "过期偏好软件" + i, 5));
+            physicalIds.add(createProduct(admin.token(), physical, "近期偏好实物" + i, 5));
+        }
+
+        // 20 天前的软件浏览，应超出 14 天窗口
+        for (int i = 0; i < 20; i++) {
+            jdbcTemplate.update("""
+                    INSERT INTO user_behavior
+                        (event_id, user_id, event_type, product_id, category_id, created_at)
+                    VALUES (?, ?, 'VIEW', ?, ?, ?)
+                    """, "old-pref-" + i, user.id(), softwareIds.get(i % 6), software,
+                    Timestamp.valueOf(LocalDateTime.now().minusDays(20)));
+        }
+        // 最近 5 次实物浏览
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(post("/api/behaviors/view")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"productId":%d}
+                                    """.formatted(physicalIds.get(i))))
+                    .andExpect(status().isNoContent());
+        }
+        behaviorFlushProcessor.flush();
+
+        MvcResult refreshed = mockMvc.perform(get("/api/feed")
+                        .param("size", "10")
+                        .param("refresh", "true")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andReturn();
+        long physicalInTopFive = categories(refreshed).subList(0, 5).stream()
+                .filter(id -> id == physical)
+                .count();
+        assertThat(physicalInTopFive).isGreaterThanOrEqualTo(4);
     }
 
     private long createProduct(String token, long categoryId, String name, int stock) throws Exception {

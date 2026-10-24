@@ -72,6 +72,9 @@ app:
   feed:
     behavior-batch-size: 500
     behavior-flush-interval: 2s
+    behavior-retention-days: 30
+    behavior-cleanup-batch-size: 5000
+    behavior-cleanup-max-batches: 10
   cleanup:
     enabled: true
     cron: "0 0 3 * * *"

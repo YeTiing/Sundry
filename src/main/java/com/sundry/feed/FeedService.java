@@ -185,13 +185,14 @@ public class FeedService {
         if (userId == null) {
             return Map.of();
         }
-        LocalDateTime since = LocalDateTime.now().minusDays(30);
+        // 只看最近 14 天、最近 100 次浏览
+        LocalDateTime since = LocalDateTime.now().minusDays(14);
         Map<Long, Double> weights = new HashMap<>();
         for (CategoryWeight weight : feedQueryMapper.findViewCategoryWeights(userId, since)) {
             weights.merge(weight.getCategoryId(), weight.getWeight().doubleValue(), Double::sum);
         }
-        // 购买比浏览权重更高
-        for (CategoryWeight weight : feedQueryMapper.findPurchasedCategoryWeights(userId, since)) {
+        // 最近 10 笔订单，购买比浏览权重更高
+        for (CategoryWeight weight : feedQueryMapper.findPurchasedCategoryWeights(userId)) {
             weights.merge(weight.getCategoryId(), weight.getWeight().doubleValue() * 3, Double::sum);
         }
         return weights;
