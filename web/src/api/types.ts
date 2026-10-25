@@ -69,6 +69,17 @@ export interface FeedStatus {
   feedBuildId: string | null
 }
 
+export type AssistantAction = 'navigate' | 'tool' | 'answer' | 'clarify'
+
+export interface AssistantReply {
+  action: AssistantAction
+  reply: string
+  route: string | null
+  routeLabel: string | null
+  query: Record<string, string>
+  traceId: string
+}
+
 export interface FeaturedSeckill {
   activityId: number
   productId: number

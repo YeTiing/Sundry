@@ -2,9 +2,9 @@ package com.sundry.feed;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.springframework.http.HttpStatus;
+import com.sundry.common.exception.BusinessException;
+import com.sundry.common.exception.ErrorCode;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -33,7 +33,7 @@ public class FeedRateLimiter {
         int limit = userId == null ? ipLimit : userLimit;
         AtomicInteger counter = counters.get(key, ignored -> new AtomicInteger());
         if (counter.incrementAndGet() > limit) {
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "feed rate limited");
+            throw new BusinessException(ErrorCode.RATE_LIMITED);
         }
     }
 }

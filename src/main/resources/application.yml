@@ -73,6 +73,8 @@ app:
     timeout-scan-interval: 5s
     timeout-batch-size: 100
     rate-limit-per-second: ${SECKILL_RATE_LIMIT:5}
+  assistant:
+    rate-limit-per-minute: ${ASSISTANT_RATE_LIMIT:10}
   feed:
     behavior-batch-size: 500
     behavior-flush-interval: 2s

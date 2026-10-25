@@ -1,0 +1,70 @@
+routes:
+  - key: feed
+    label: 首页推荐
+    name: feed
+    synonyms: [首页, 推荐, 猜你喜欢]
+    requiresAuth: false
+    requiresAdmin: false
+
+  - key: products
+    label: 商品列表
+    name: products
+    synonyms: [所有商品, 全部商品, 商品列表, 商品, 逛逛]
+    requiresAuth: false
+    requiresAdmin: false
+
+  - key: cart
+    label: 购物车
+    name: cart
+    synonyms: [购物车, 我加的, 待付款]
+    requiresAuth: true
+    requiresAdmin: false
+
+  - key: addresses
+    label: 收货地址
+    name: addresses
+    synonyms: [收货地址, 我的地址, 地址, 收货信息]
+    requiresAuth: true
+    requiresAdmin: false
+
+  - key: orders
+    label: 我的订单
+    name: orders
+    synonyms: [我的订单, 购买记录, 我买的东西, 订单, 物流]
+    requiresAuth: true
+    requiresAdmin: false
+
+  - key: account
+    label: 个人中心
+    name: account
+    synonyms: [个人中心, 个人信息, 我的账号, 我的资料, 我的]
+    requiresAuth: true
+    requiresAdmin: false
+
+  - key: admin-orders
+    label: 订单管理
+    name: admin-orders
+    synonyms: [后台订单, 全部订单, 管理订单, 订单管理]
+    requiresAuth: true
+    requiresAdmin: true
+
+  - key: admin-products
+    label: 商品管理
+    name: admin-products
+    synonyms: [商品管理, 管理商品, 上架商品, 商品后台]
+    requiresAuth: true
+    requiresAdmin: true
+
+  - key: admin-seckill
+    label: 秒杀管理
+    name: admin-seckill
+    synonyms: [秒杀管理, 管理秒杀, 秒杀活动后台]
+    requiresAuth: true
+    requiresAdmin: true
+
+  - key: admin-feed
+    label: 推荐指标
+    name: admin-feed
+    synonyms: [推荐指标, 推荐数据, 推荐效果, 推荐后台]
+    requiresAuth: true
+    requiresAdmin: true

@@ -1,6 +1,6 @@
 # AI 助手框架（A4）设计文档
 
-> 状态：**设计定稿，开发中（L0 起步）**
+> 状态：**设计定稿；L0 已完成，L1~L4 待开发**
 > 日期：2026-10-25
 > 关联：`docs/NL2SQL_DESIGN.md`（A5）、`docs/BACKLOG.md` A4/A7、`docs/FUTURE_DESIGN.md` 第 4 节
 > 用途：开发时按本文执行，避免重新推导

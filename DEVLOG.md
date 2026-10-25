@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 231 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 240 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -2096,6 +2096,26 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: 首页秒杀运营位`
+
+## 2026-10-25 · A4 L0：助手的路由与规则导航
+
+**做了什么**
+
+- 新增 `assistant/routes.yml` 路由目录与 `RouteCatalog`：同义词按长度降序匹配、按角色裁剪、解释型问题（怎么/如何/为什么）不误跳转
+- 新增 `POST /api/assistant/chat`：鉴权、10 次/分钟限流、500 字校验；命中路由返回 `navigate`，未命中返回 `clarify`
+- 新增 `ai_chat_log` 迁移与审计写入；手机号、长数字（订单号）入库前脱敏
+- 新增右下角悬浮助手面板：回复 + 「打开页面」按钮，用户点击后才跳转；未登录不显示
+- 限流错误统一改为 `ErrorCode.RATE_LIMITED`，修复 `ResponseStatusException` 被全局处理器包装成 500 的问题（顺带修复 Feed 读限流）
+
+**验证**
+
+- Java：240 个用例全部通过（新增：路由匹配正负例、角色裁剪、审计脱敏、匿名/超长/限流）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: A4 L0 助手路由与规则导航`
 
 ## 待办 / 下一步
 

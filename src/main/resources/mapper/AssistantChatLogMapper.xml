@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.assistant.AssistantChatLogMapper">
+
+    <insert id="insert" parameterType="com.sundry.assistant.AssistantChatLog"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ai_chat_log
+            (user_id, role, session_id, message, source, action, tool_name,
+             arguments, route, status, reject_reason, latency_ms, trace_id)
+        VALUES (#{userId}, #{role}, #{sessionId}, #{message}, #{source}, #{action},
+                #{toolName}, #{arguments}, #{route}, #{status}, #{rejectReason},
+                #{latencyMs}, #{traceId})
+    </insert>
+
+</mapper>
