@@ -96,6 +96,8 @@ app:
     recall-semantic-limit: ${FEED_RECALL_SEMANTIC_LIMIT:100}
     rate-limit-user-per-minute: ${FEED_RATE_LIMIT_USER:120}
     rate-limit-ip-per-minute: ${FEED_RATE_LIMIT_IP:60}
+    featured-limit: ${FEED_FEATURED_LIMIT:3}
+    featured-cache-ttl: ${FEED_FEATURED_CACHE_TTL:10s}
   milvus:
     enabled: ${MILVUS_ENABLED:true}
     base-url: ${MILVUS_URL:http://127.0.0.1:19530}

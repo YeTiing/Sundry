@@ -1,5 +1,5 @@
 import { http } from './http'
-import type { FeedEventPayload, FeedPage, FeedStatus } from './types'
+import type { FeedEventPayload, FeedPage, FeedStatus, FeaturedSeckill } from './types'
 
 export const feedApi = {
   getFeed(
@@ -23,6 +23,10 @@ export const feedApi = {
 
   getStatus(): Promise<FeedStatus> {
     return http.get<FeedStatus>('/feed/status')
+  },
+
+  getFeatured(): Promise<FeaturedSeckill[]> {
+    return http.get<FeaturedSeckill[]>('/feed/featured')
   },
 
   recordEvents(payload: FeedEventPayload, keepalive = false): Promise<void> {

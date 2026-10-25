@@ -3,6 +3,8 @@ package com.sundry.feed;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+
 @Component
 @ConfigurationProperties(prefix = "app.feed")
 public class FeedProperties {
@@ -30,6 +32,8 @@ public class FeedProperties {
     private int recallSemanticLimit = 100;
     private int rateLimitUserPerMinute = 120;
     private int rateLimitIpPerMinute = 60;
+    private int featuredLimit = 3;
+    private Duration featuredCacheTtl = Duration.ofSeconds(10);
 
     public int getBehaviorBatchSize() {
         return behaviorBatchSize;
@@ -189,5 +193,21 @@ public class FeedProperties {
 
     public void setRateLimitIpPerMinute(int rateLimitIpPerMinute) {
         this.rateLimitIpPerMinute = rateLimitIpPerMinute;
+    }
+
+    public int getFeaturedLimit() {
+        return featuredLimit;
+    }
+
+    public void setFeaturedLimit(int featuredLimit) {
+        this.featuredLimit = featuredLimit;
+    }
+
+    public Duration getFeaturedCacheTtl() {
+        return featuredCacheTtl;
+    }
+
+    public void setFeaturedCacheTtl(Duration featuredCacheTtl) {
+        this.featuredCacheTtl = featuredCacheTtl;
     }
 }

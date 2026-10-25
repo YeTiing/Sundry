@@ -3,6 +3,7 @@ package com.sundry.feed;
 import com.sundry.auth.security.AuthenticatedUser;
 import com.sundry.feed.dto.FeedPage;
 import com.sundry.feed.dto.FeedStatusView;
+import com.sundry.feed.dto.FeaturedSeckillView;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -13,6 +14,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
  * 首页推荐 Feed。未登录时返回匿名 Feed；登录用户的 AI 排序由后台异步构建。
  */
@@ -22,10 +25,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class FeedController {
 
     private final FeedService feedService;
+    private final FeedFeaturedService featuredService;
     private final FeedRateLimiter rateLimiter;
 
-    public FeedController(FeedService feedService, FeedRateLimiter rateLimiter) {
+    public FeedController(FeedService feedService, FeedFeaturedService featuredService,
+                          FeedRateLimiter rateLimiter) {
         this.feedService = feedService;
+        this.featuredService = featuredService;
         this.rateLimiter = rateLimiter;
     }
 
@@ -48,5 +54,13 @@ public class FeedController {
         Long userId = user == null ? null : user.id();
         rateLimiter.check(userId, request.getRemoteAddr());
         return feedService.status(userId);
+    }
+
+    @GetMapping("/featured")
+    public List<FeaturedSeckillView> featured(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            HttpServletRequest request) {
+        rateLimiter.check(user == null ? null : user.id(), request.getRemoteAddr());
+        return featuredService.featured();
     }
 }

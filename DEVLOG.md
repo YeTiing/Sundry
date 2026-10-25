@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 229 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 231 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -2076,6 +2076,26 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`perf: Feed 内存、限流与熔断`
+
+## 2026-10-25 · 首页秒杀运营位
+
+**做了什么**
+
+- 新增 `GET /api/feed/featured`：读取进行中的秒杀活动，全局共享，缓存 10 秒
+- 只展示 `ACTIVE`、已开始、未结束、商品在售、剩余配额大于 0 的活动，最多 3 个
+- 运营位与 AI 变体池完全解耦：不会清空任何用户的池子，也不触发重建
+- 前端首页在推荐网格上方渲染秒杀卡片，点击进入 `/seckill/{activityId}`
+- 配置：`app.feed.featured-limit=3`、`app.feed.featured-cache-ttl=10s`
+
+**验证**
+
+- Java：231 个用例全部通过（新增：进行中活动展示、结束/草稿/下架/售罄排除）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: 首页秒杀运营位`
 
 ## 待办 / 下一步
 

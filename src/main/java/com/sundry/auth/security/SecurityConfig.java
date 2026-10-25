@@ -65,6 +65,7 @@ public class SecurityConfig {
                                 "/api/products/**",
                                 "/api/feed",
                                 "/api/feed/status",
+                                "/api/feed/featured",
                                 "/api/categories",
                                 "/api/shop",
                                 "/actuator/health",

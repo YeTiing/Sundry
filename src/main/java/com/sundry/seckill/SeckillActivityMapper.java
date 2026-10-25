@@ -40,4 +40,6 @@ public interface SeckillActivityMapper {
     int decrementSold(@Param("id") Long id);
 
     List<SeckillActivity> findActiveForWarmUp();
+
+    List<SeckillActivity> findFeatured(@Param("limit") int limit);
 }

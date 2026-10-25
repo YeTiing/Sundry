@@ -69,6 +69,17 @@ export interface FeedStatus {
   feedBuildId: string | null
 }
 
+export interface FeaturedSeckill {
+  activityId: number
+  productId: number
+  name: string
+  coverUrl: string | null
+  price: number
+  seckillPrice: number
+  remaining: number
+  endsAt: string
+}
+
 export type FeedEventType = 'EXPOSURE' | 'CLICK'
 export type FeedAlgorithm = 'AI' | 'RULE'
 

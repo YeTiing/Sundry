@@ -130,4 +130,17 @@
         WHERE s.status = 'ACTIVE' AND s.end_at &gt; NOW(3)
     </select>
 
+    <select id="findFeatured" resultType="com.sundry.seckill.SeckillActivity">
+        SELECT <include refid="joinedColumns"/>
+        FROM seckill_activity s
+        JOIN product p ON p.id = s.product_id
+        WHERE s.status = 'ACTIVE'
+          AND s.start_at &lt;= NOW(3)
+          AND s.end_at &gt; NOW(3)
+          AND p.status = 'ON_SALE'
+          AND p.deleted_at IS NULL
+        ORDER BY s.created_at DESC, s.id DESC
+        LIMIT #{limit}
+    </select>
+
 </mapper>

@@ -9,6 +9,7 @@ import type {
   FeedAlgorithm,
   FeedEventItem,
   FeedPage,
+  FeaturedSeckill,
   Product,
 } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
@@ -26,6 +27,7 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
 const aiStatus = ref<AiFeedStatus>('DISABLED')
+const featured = ref<FeaturedSeckill[]>([])
 const aiBuildId = ref<string | null>(null)
 const feedBuildId = ref<string | null>(null)
 const sentinel = ref<HTMLElement | null>(null)
@@ -154,11 +156,24 @@ async function pollUntilReady(token: number): Promise<void> {
   }
 }
 
+async function loadFeatured(): Promise<void> {
+  try {
+    featured.value = await feedApi.getFeatured()
+  } catch {
+    featured.value = []
+  }
+}
+
+function money(value: number | string): string {
+  return Number(value).toFixed(2)
+}
+
 /**
  * 换一批：池子里有变体时毫秒返回；池空才进入 PENDING 轮询。
  */
 async function refreshWithAi(): Promise<void> {
   const token = ++pollToken
+  void loadFeatured()
   const first = await loadFirst(true)
   if (!first || token !== pollToken) return
   if (first.aiStatus !== 'PENDING') return
@@ -220,6 +235,7 @@ function restoreScroll(): void {
 }
 
 onMounted(async () => {
+  void loadFeatured()
   if (store.loaded) {
     await nextTick()
     restoreScroll()
@@ -262,6 +278,40 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
+      <section v-if="featured.length" class="seckill-strip" aria-label="限时秒杀">
+        <header class="seckill-head">
+          <p class="store-kicker">限时秒杀 / 运营位</p>
+          <span class="seckill-note">先到先得</span>
+        </header>
+        <div class="seckill-row">
+          <RouterLink
+            v-for="item in featured"
+            :key="item.activityId"
+            class="seckill-card"
+            :to="`/seckill/${item.activityId}`"
+          >
+            <div class="seckill-cover-wrap">
+              <img
+                v-if="item.coverUrl"
+                :src="item.coverUrl"
+                :alt="item.name"
+                class="seckill-cover"
+                loading="lazy"
+              />
+              <span class="seckill-badge">秒杀</span>
+            </div>
+            <div class="seckill-info">
+              <p class="seckill-name">{{ item.name }}</p>
+              <div class="seckill-price-row">
+                <span class="seckill-price">¥{{ money(item.seckillPrice) }}</span>
+                <span class="seckill-original">¥{{ money(item.price) }}</span>
+              </div>
+              <p class="seckill-remain">仅剩 {{ item.remaining }} 件</p>
+            </div>
+          </RouterLink>
+        </div>
+      </section>
+
       <p v-if="error" class="form-error">{{ error }}</p>
 
       <p v-if="loading" class="store-empty">加载中…</p>
@@ -288,3 +338,125 @@ onBeforeUnmount(() => {
     </main>
   </div>
 </template>
+
+<style scoped>
+.seckill-strip {
+  padding: 20px 0 24px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.seckill-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.seckill-note {
+  color: var(--stamp);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.seckill-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.seckill-card {
+  display: flex;
+  flex: none;
+  gap: 12px;
+  width: 280px;
+  padding: 10px;
+  border: 1px solid var(--rule-strong);
+  background: var(--sheet);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 180ms ease, border-color 180ms ease;
+}
+
+.seckill-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--stamp);
+}
+
+.seckill-card:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: 2px;
+}
+
+.seckill-cover-wrap {
+  position: relative;
+  flex: none;
+  width: 84px;
+  height: 84px;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.seckill-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.seckill-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 2px 6px;
+  background: var(--stamp);
+  color: var(--sheet);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.seckill-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.seckill-name {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.seckill-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.seckill-price {
+  color: var(--stamp);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.seckill-original {
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: line-through;
+}
+
+.seckill-remain {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+</style>
