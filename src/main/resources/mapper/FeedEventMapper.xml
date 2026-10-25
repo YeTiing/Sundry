@@ -14,4 +14,11 @@
         </foreach>
     </insert>
 
+    <delete id="deleteOld">
+        DELETE FROM feed_event
+        WHERE event_type = #{eventType}
+          AND created_at &lt; #{cutoff}
+        LIMIT #{limit}
+    </delete>
+
 </mapper>

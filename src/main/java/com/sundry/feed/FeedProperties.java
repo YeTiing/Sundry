@@ -15,6 +15,11 @@ public class FeedProperties {
     private String eventTopic = "sundry.feed.event";
     private String eventGroup = "sundry-feed-event";
 
+    private int eventExposureRetentionDays = 14;
+    private int eventClickRetentionDays = 90;
+    private int eventCleanupBatchSize = 5000;
+    private int eventCleanupMaxBatches = 10;
+
     public int getBehaviorBatchSize() {
         return behaviorBatchSize;
     }
@@ -61,5 +66,37 @@ public class FeedProperties {
 
     public void setEventGroup(String eventGroup) {
         this.eventGroup = eventGroup;
+    }
+
+    public int getEventExposureRetentionDays() {
+        return eventExposureRetentionDays;
+    }
+
+    public void setEventExposureRetentionDays(int eventExposureRetentionDays) {
+        this.eventExposureRetentionDays = eventExposureRetentionDays;
+    }
+
+    public int getEventClickRetentionDays() {
+        return eventClickRetentionDays;
+    }
+
+    public void setEventClickRetentionDays(int eventClickRetentionDays) {
+        this.eventClickRetentionDays = eventClickRetentionDays;
+    }
+
+    public int getEventCleanupBatchSize() {
+        return eventCleanupBatchSize;
+    }
+
+    public void setEventCleanupBatchSize(int eventCleanupBatchSize) {
+        this.eventCleanupBatchSize = eventCleanupBatchSize;
+    }
+
+    public int getEventCleanupMaxBatches() {
+        return eventCleanupMaxBatches;
+    }
+
+    public void setEventCleanupMaxBatches(int eventCleanupMaxBatches) {
+        this.eventCleanupMaxBatches = eventCleanupMaxBatches;
     }
 }

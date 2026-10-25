@@ -77,6 +77,11 @@ app:
     behavior-cleanup-max-batches: 10
     event-topic: ${FEED_EVENT_TOPIC:sundry.feed.event}
     event-group: ${FEED_EVENT_GROUP:sundry-feed-event}
+    event-exposure-retention-days: ${FEED_EXPOSURE_RETENTION_DAYS:14}
+    event-click-retention-days: ${FEED_CLICK_RETENTION_DAYS:90}
+    event-cleanup-batch-size: ${FEED_EVENT_CLEANUP_BATCH_SIZE:5000}
+    event-cleanup-max-batches: ${FEED_EVENT_CLEANUP_MAX_BATCHES:10}
+    event-cleanup-cron: ${FEED_EVENT_CLEANUP_CRON:0 30 4 * * *}
   ai:
     enabled: ${AI_FEED_ENABLED:true}
     base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
