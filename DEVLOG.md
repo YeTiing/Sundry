@@ -30,11 +30,11 @@
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
 | 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
-| 推荐 | 首页 Feed：多路召回（分类/协同/热销/新品）、规则打分、多样性重排、Redis 快照、无限滑动；登录用户 AI 异步重排；曝光/点击 Kafka 异步回流；后台离线评估 |
-| AI | `ai/` FastAPI 服务 + DeepSeek 重排；异步队列、buildId 防覆盖、失败降级、审计 |
+| 推荐 | 首页 Feed：多路召回（分类/协同/热销/新品/语义）、规则打分、多样性重排、Redis 快照、无限滑动；登录用户 AI 异步重排；曝光/点击 Kafka 异步回流；后台离线评估 |
+| AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；异步队列、buildId 防覆盖、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 179 个 Java 集成测试 + 11 个 Python 用例 |
+| 测试 | 185 个 Java 集成测试 + 16 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -47,10 +47,16 @@
 4. 前端：`cd web && npm install && npm run dev`，访问 `http://localhost:5173`
 5. AI 服务（可选，没启动时自动降级为规则排序）：
    - `cd ai && uv sync`
-   - 复制 `ai/.env.example` 为 `ai/.env`，填 `AI_INTERNAL_TOKEN` 和 `DEEPSEEK_API_KEY`
+   - 复制 `ai/.env.example` 为 `ai/.env`，填 `AI_INTERNAL_TOKEN`、`DEEPSEEK_API_KEY`、
+     `EMBED_API_KEY`、`EMBED_MODEL`、`EMBED_DIM`
    - `uv run --env-file .env uvicorn app.main:app --host 127.0.0.1 --port 8000`
    - 后端启动时设置同样的 `AI_INTERNAL_TOKEN`；`AI_BASE_URL` 默认 `http://127.0.0.1:8000`
-6. 测试：`TEST_DB_PASSWORD=123456 mvn test`；Python：`cd ai && uv run pytest -q`
+6. Milvus（可选，语义召回；没起时自动跳过这一路）：
+   - `docker compose -f docker-compose.milvus.yml up -d`
+   - gRPC 19530、健康检查 9091；Milvus 内部 MinIO 映射到 9100/9101
+   - 重建向量：`POST /api/admin/feed/embeddings/rebuild`（管理员，约 15 秒）
+   - 不需要时后端设 `MILVUS_ENABLED=false`
+7. 测试：`TEST_DB_PASSWORD=123456 mvn test`；Python：`cd ai && uv run pytest -q`
 
 超级管理员手机号在 `application-local.yml` 的 `app.security.super-admin-phone`。改成自己的号并重启，用该号注册即成为超级管理员。MinIO 控制台：`http://localhost:9001`（账号 `sundry`）。
 
@@ -1702,12 +1708,52 @@ sundry_seckill_compensation_total = 0
 
 - `6283d2a` feat: 管理端推荐指标页
 
+## 2026-10-25 · 语义召回（Milvus + 百炼 embedding）
+
+**做了什么**
+
+- Milvus 2.5.4 单机（etcd + 独立 MinIO）：
+  - 端口：19530 / 9091；MinIO 9100 / 9101，避开业务 MinIO
+  - 本地镜像：milvusdb/milvus:v2.5.4、etcd:v3.5.14、minio RELEASE.2024-05-10
+- Python `/internal/embeddings`：
+  - 百炼 OpenAI 兼容接口，`qwen3.7-text-embedding-flash`，1024 维
+  - **单批最多 25 条**（厂商限制），超过直接 422
+- V22 `product_embedding`：MySQL 存向量 JSON，供构造用户向量
+- 管理端 `POST /api/admin/feed/embeddings/rebuild`：
+  - 782 个商品，实测 **14.5 秒**
+  - 同时写 MySQL 和 Milvus
+- 语义召回：
+  - 最近 14 天浏览（权重 1）+ 最近 10 笔购买（权重 3）
+  - 商品向量加权平均 → 归一化 → Milvus ANN → TopN
+  - 作为第 5 路接入 `FeedRecallService`
+- Milvus 不可用、没有向量或没有历史时返回空，其他召回路线不受影响
+- 测试环境 `app.milvus.enabled=false`，标准测试不依赖 Milvus
+
+**验证**
+
+- 重建 782 个商品：14.5 秒，`product_embedding` 782 行
+- Milvus collection `sundry_product_vector` 创建成功
+- Hazel 召回实测：total 304，category 120，hot 83，new 39，
+  coPurchase 7，**semantic 55**
+- `mvn test` → 185 个用例；`pytest` → 16 个用例
+
+**说明**
+
+- Java 走 Milvus REST，不引入 Java SDK
+- 向量同时存 MySQL 和 Milvus：MySQL 用来算用户向量，Milvus 用来 ANN
+- 商品上下架/改标题后需要重新 rebuild；后续可加变更触发
+- Milvus MinIO 使用默认 `minioadmin`，仅本地开发
+
+**提交**
+
+- `c28f6d6` feat: 语义召回（Milvus + 百炼 embedding）
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
-- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理、多路召回、离线评估、管理端指标页
-- 下一步：方案 B（离线预计算 3 组 AI 变体，换一批即时轮换），或按原规划继续 A1/A4/A5/A7
+- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理、多路召回、离线评估、管理端指标页、语义召回
+- 下一步：方案 B（换一批即时变体）、精排模型（需真实数据），或按原规划继续 A1/A4/A5/A7
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
 
