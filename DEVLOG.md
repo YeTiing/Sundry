@@ -30,11 +30,11 @@
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
 | 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
-| 推荐 | 首页 Feed：浏览行为、分类偏好、热销/新品/探索混排、Redis 快照、无限滑动；登录用户 AI 异步重排；曝光/点击回流 |
+| 推荐 | 首页 Feed：浏览行为、分类偏好、热销/新品/探索混排、Redis 快照、无限滑动；登录用户 AI 异步重排；曝光/点击 Kafka 异步回流 |
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排；异步队列、buildId 防覆盖、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 165 个 Java 集成测试 + 11 个 Python 用例 |
+| 测试 | 170 个 Java 集成测试 + 11 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1536,7 +1536,7 @@ sundry_seckill_compensation_total = 0
 
 **说明**
 
-- 曝光写入走 MySQL，当前规模够用；数据量上来后应改 Kafka → ClickHouse/离线数仓
+- 曝光最初同步写 MySQL；已改为 Kafka 异步落库，见下一节
 - 单次 100 条上限，前端按 100 分片
 - 事件表不建外键，商品/用户删除后历史仍保留
 
@@ -1550,11 +1550,48 @@ sundry_seckill_compensation_total = 0
 
 - `2076543` feat: Feed 曝光与点击回流
 
+## 2026-10-25 · Feed 事件改 Kafka 异步 + 演示数据
+
+**做了什么**
+
+- 曝光/点击不再同步写 MySQL：
+  - 生产环境 `KafkaFeedEventPublisher` 投递 `sundry.feed.event`，key = userId
+  - `FeedEventConsumer` 消费后写 `feed_event`
+  - 投递同步异常或异步失败时降级为直接写库，避免丢事件
+  - 测试环境 `DirectFeedEventPublisher` 直接写库，不依赖 Kafka
+- 配置：`app.feed.event-topic` / `app.feed.event-group`
+- 一次性演示数据（脚本在 `target/`，已 gitignore）：
+  - 300 个商品（`request_id` 以 `SIM-` 开头）
+  - 20 个模拟用户
+  - 600 条浏览
+  - 40 个订单 / 122 个订单项
+  - 3,600 条曝光 / 251 条点击，AI/RULE 交替，带位置偏置
+  - 清理 SQL：`target/sim_cleanup.sql`
+- 样本查询：
+  - CTR：AI 7.03%，RULE 6.90%
+  - 位置 CTR：1~3 位约 16~18%，9~12 位约 2%
+
+**说明**
+
+- 点击是模拟生成的，CTR 只用于验证查询和管线，不代表真实效果
+- ClickHouse 未加：当前 MySQL 足够；数据量上来后把 consumer 的 sink 换成 ClickHouse/离线数仓即可
+- 模拟订单会影响热销榜和已购排除；清理脚本可回滚
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 170 个用例全部通过（Kafka publisher 3 个 + consumer 2 个）
+- `npm run build` 通过
+- 主库已通过临时实例执行 V20/V21
+
+**提交**
+
+- `f93e748` feat: Feed 事件走 Kafka 异步落库
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
-- 已完成：AI 智能推流（异步 LLM 重排）、曝光与点击回流
+- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据
 - 下一步：多路召回（热销/新品/分类/协同）
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
