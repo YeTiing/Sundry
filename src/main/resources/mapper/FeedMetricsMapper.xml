@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.feed.FeedMetricsMapper">
+
+    <select id="totals" resultType="com.sundry.feed.FeedMetricsMapper$Totals">
+        SELECT SUM(event_type = 'EXPOSURE') AS exposures,
+               SUM(event_type = 'CLICK') AS clicks
+        FROM feed_event
+        WHERE created_at &gt;= #{since}
+    </select>
+
+    <select id="countByAlgorithm" resultType="com.sundry.feed.FeedMetricsMapper$AlgorithmCount">
+        SELECT algorithm,
+               SUM(event_type = 'EXPOSURE') AS exposures,
+               SUM(event_type = 'CLICK') AS clicks
+        FROM feed_event
+        WHERE created_at &gt;= #{since}
+        GROUP BY algorithm
+        ORDER BY algorithm
+    </select>
+
+    <select id="countByPosition" resultType="com.sundry.feed.FeedMetricsMapper$PositionCount">
+        SELECT item_position AS position,
+               SUM(event_type = 'EXPOSURE') AS exposures,
+               SUM(event_type = 'CLICK') AS clicks
+        FROM feed_event
+        WHERE created_at &gt;= #{since}
+        GROUP BY item_position
+        ORDER BY item_position
+    </select>
+
+    <select id="countDistinctExposedProducts" resultType="long">
+        SELECT COUNT(DISTINCT product_id)
+        FROM feed_event
+        WHERE event_type = 'EXPOSURE'
+          AND created_at &gt;= #{since}
+    </select>
+
+    <select id="countOnSaleProducts" resultType="long">
+        SELECT COUNT(*)
+        FROM product
+        WHERE status = 'ON_SALE' AND deleted_at IS NULL
+    </select>
+
+    <select id="avgCategoriesPerTrace" resultType="double">
+        SELECT AVG(category_count)
+        FROM (
+            SELECT trace_id, user_id, COUNT(DISTINCT category_id) AS category_count
+            FROM feed_event
+            WHERE event_type = 'EXPOSURE'
+              AND created_at &gt;= #{since}
+            GROUP BY trace_id, user_id
+        ) traces
+    </select>
+
+    <select id="countExposureTraces" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT trace_id, user_id
+            FROM feed_event
+            WHERE event_type = 'EXPOSURE'
+              AND created_at &gt;= #{since}
+            GROUP BY trace_id, user_id
+        ) traces
+    </select>
+
+    <select id="findEventsForNdcg" resultType="com.sundry.feed.FeedMetricEvent">
+        SELECT trace_id, user_id, algorithm, event_type, item_position
+        FROM feed_event
+        WHERE created_at &gt;= #{since}
+          AND item_position &lt;= #{k}
+        ORDER BY trace_id, user_id, item_position
+    </select>
+
+</mapper>
