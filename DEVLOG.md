@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；异步队列、buildId 防覆盖、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 197 个 Java 集成测试 + 16 个 Python 用例 |
+| 测试 | 200 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1807,6 +1807,33 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: AI 推流变体池存储层`
+
+## 2026-10-25 · AI 推流变体池（切片 2：多变体构建）
+
+**做了什么**
+
+- 设计调整：新增 `feed:ai:pool:next:{uid}` 待上架区；新一批变体先写这里，用户下次点击时才原子提升为正式池，避免“用户没点、列表自己变”
+- 补算触发点明确为：首次访问、切满一轮、可用变体不足、全部过期、失败熔断（`docs/FEED_VARIANT_POOL.md` §4.5、§12）
+- `FeedSnapshot` 增加 `strategy`，`RerankRequest` 增加 `strategy`，均保留旧构造器兼容现有调用
+- `AiFeedBuildProcessor` 一次构建 N 份变体：`CompletableFuture` + 专用线程池并发调用，无新依赖；部分变体失败时成功的那份照常写入
+- 策略分配：`PREF` 固定第一份，其余按用户奇偶在 `EXPLORE` / `PRICE` 之间轮换，保证三套策略都有样本
+- 变体 `buildId` 改为 `{STRATEGY}:{UUID}`；头部去重默认前 6 个，冲突项与后续候选交换
+- 构建结果写 `pool:next`；旧快照暂时保留，读取路径不变（切片 3 删除）
+- Python：`RerankRequest.strategy` + system prompt 末尾追加「附加偏好」，原有“只能返回候选 id”“只输出 JSON”规则保持不变
+
+**遇到问题**
+
+- `pool:next` 的 Lua 参数走 `StringRedisSerializer`，TTL 传 `Long` 触发类型转换失败，构建整体降级；改为字符串后恢复
+
+**验证**
+
+- Java：200 个用例全部通过（新增 3 个：双策略入待上架区、头部去重、部分变体失败）
+- Python：18 个用例全部通过（新增 2 个：策略段落不影响规则、未知策略仍校验 id）
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: AI 推流多变体并发构建`
 
 ## 待办 / 下一步
 

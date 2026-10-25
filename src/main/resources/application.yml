@@ -113,6 +113,8 @@ app:
     feed-cache-ttl: ${AI_FEED_CACHE_TTL:10m}
     feed-pending-ttl: ${AI_FEED_PENDING_TTL:2m}
     feed-variant-ttl: ${AI_FEED_VARIANT_TTL:20m}
+    feed-variant-count: ${AI_FEED_VARIANT_COUNT:2}
+    feed-variant-dedup-head: ${AI_FEED_VARIANT_DEDUP_HEAD:6}
     feed-batch-size: ${AI_FEED_BATCH_SIZE:5}
     feed-build-interval: ${AI_FEED_BUILD_INTERVAL:1s}
     feed-queue-max: ${AI_FEED_QUEUE_MAX:1000}

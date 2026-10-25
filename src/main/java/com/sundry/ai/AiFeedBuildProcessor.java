@@ -3,6 +3,7 @@ package com.sundry.ai;
 import com.sundry.ai.FeedSnapshot.SnapshotItem;
 import com.sundry.ai.dto.RerankRequest;
 import com.sundry.ai.dto.RerankResponse;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 后台构建 AI 推流快照。测试环境关闭定时任务，由测试直接调用。
@@ -24,6 +29,16 @@ import java.util.UUID;
 public class AiFeedBuildProcessor {
 
     private static final Logger log = LoggerFactory.getLogger(AiFeedBuildProcessor.class);
+
+    private static final String STRATEGY_PREF = "PREF";
+    private static final String STRATEGY_EXPLORE = "EXPLORE";
+    private static final String STRATEGY_PRICE = "PRICE";
+
+    private final ExecutorService variantExecutor = Executors.newFixedThreadPool(4, runnable -> {
+        Thread thread = new Thread(runnable, "ai-variant-builder");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private final AiFeedStore store;
     private final AiFeedClient client;
@@ -94,27 +109,33 @@ public class AiFeedBuildProcessor {
                 throw new AiFeedException("NO_CANDIDATES");
             }
 
-            RerankResponse response = client.rerank(new RerankRequest(
-                    userId, bundle.profile(), bundle.candidates(),
-                    properties.getFeedRerankLimit()), traceId);
-
-            MergeResult merged = merge(response.items(), bundle);
-            if (merged.items().isEmpty()) {
+            List<VariantBuild> variants = buildVariants(userId, bundle, traceId);
+            if (variants.isEmpty()) {
                 throw new AiFeedException("NO_VALID_ITEMS");
             }
 
             if (!pending.equals(store.pending(userId))) {
-                audit(userId, traceId, response.model(), response.promptVersion(),
-                        candidateCount, merged.llmCount(), start, "STALE", "superseded");
+                audit(userId, traceId, variants.get(0).model(), variants.get(0).promptVersion(),
+                        candidateCount, variants.get(0).llmCount(), start, "STALE", "superseded");
                 return true;
             }
 
-            store.saveSnapshot(userId, new FeedSnapshot(pending, LocalDateTime.now(),
-                    response.model(), response.promptVersion(), merged.items()));
+            LocalDateTime builtAt = LocalDateTime.now();
+            List<FeedSnapshot> snapshots = new ArrayList<>(variants.size());
+            for (VariantBuild variant : variants) {
+                snapshots.add(new FeedSnapshot(variant.buildId(), builtAt, variant.model(),
+                        variant.promptVersion(), variant.items(), variant.strategy()));
+            }
+            store.pushNextVariants(userId, snapshots);
+
+            // 切片 2 仍写旧快照，读取路径不变；切片 3 切换到池子后删除这一段。
+            VariantBuild first = variants.get(0);
+            store.saveSnapshot(userId, new FeedSnapshot(pending, builtAt,
+                    first.model(), first.promptVersion(), first.items()));
             store.clearPending(userId);
             store.clearAttempts(userId);
-            audit(userId, traceId, response.model(), response.promptVersion(),
-                    candidateCount, merged.llmCount(), start, "SUCCESS", null);
+            audit(userId, traceId, first.model(), first.promptVersion(),
+                    candidateCount, first.llmCount(), start, "SUCCESS", null);
             return true;
         } catch (RuntimeException ex) {
             long attempt = store.nextAttempt(userId);
@@ -134,6 +155,105 @@ public class AiFeedBuildProcessor {
         } finally {
             store.unlock(userId, lockToken);
         }
+    }
+
+    @PreDestroy
+    void shutdown() {
+        variantExecutor.shutdownNow();
+    }
+
+    private List<VariantBuild> buildVariants(Long userId,
+                                             AiFeedProfileService.CandidateBundle bundle,
+                                             String traceId) {
+        List<CompletableFuture<VariantBuild>> futures = new ArrayList<>();
+        for (String strategy : strategiesFor(userId)) {
+            futures.add(CompletableFuture.supplyAsync(
+                    () -> buildVariant(userId, bundle, strategy, traceId), variantExecutor));
+        }
+
+        List<VariantBuild> variants = new ArrayList<>();
+        for (CompletableFuture<VariantBuild> future : futures) {
+            try {
+                VariantBuild variant = future.join();
+                if (variant != null) {
+                    variants.add(variant);
+                }
+            } catch (CompletionException ex) {
+                log.warn("AI 变体构建失败 userId={} reason={}",
+                        userId, reasonOf(ex.getCause()));
+            }
+        }
+        dedupHeads(variants);
+        return variants;
+    }
+
+    private VariantBuild buildVariant(Long userId, AiFeedProfileService.CandidateBundle bundle,
+                                      String strategy, String traceId) {
+        RerankResponse response = client.rerank(new RerankRequest(
+                userId, bundle.profile(), bundle.candidates(),
+                properties.getFeedRerankLimit(), strategy), traceId);
+        MergeResult merged = merge(response.items(), bundle);
+        if (merged.items().isEmpty()) {
+            return null;
+        }
+        return new VariantBuild(strategy + ":" + UUID.randomUUID(), strategy,
+                response.model(), response.promptVersion(), merged.items(), merged.llmCount());
+    }
+
+    /**
+     * PREF 固定第一份；其余在 EXPLORE / PRICE 之间按用户轮换，保证两套策略都有样本。
+     */
+    private List<String> strategiesFor(Long userId) {
+        int count = Math.max(1, properties.getFeedVariantCount());
+        List<String> strategies = new ArrayList<>(count);
+        strategies.add(STRATEGY_PREF);
+        boolean exploreFirst = Math.floorMod(Long.hashCode(userId), 2) == 0;
+        for (int i = 1; i < count; i++) {
+            boolean explore = (i % 2 == 1) == exploreFirst;
+            strategies.add(explore ? STRATEGY_EXPLORE : STRATEGY_PRICE);
+        }
+        return strategies;
+    }
+
+    /**
+     * 第 k 份变体的头部不能与前 k-1 份重复：冲突项与靠后的候选交换。
+     */
+    private void dedupHeads(List<VariantBuild> variants) {
+        int head = Math.max(0, properties.getFeedVariantDedupHead());
+        if (head == 0 || variants.size() < 2) {
+            return;
+        }
+        Set<Long> used = new HashSet<>();
+        for (VariantBuild variant : variants) {
+            List<SnapshotItem> items = variant.items();
+            int boundary = Math.min(head, items.size());
+            Set<Long> current = new HashSet<>();
+            for (int i = 0; i < boundary; i++) {
+                Long id = items.get(i).id();
+                if (used.contains(id) || current.contains(id)) {
+                    int swap = findSwap(items, boundary, used, current);
+                    if (swap >= 0) {
+                        SnapshotItem replaced = items.get(i);
+                        items.set(i, items.get(swap));
+                        items.set(swap, replaced);
+                        id = items.get(i).id();
+                    }
+                }
+                current.add(id);
+            }
+            used.addAll(current);
+        }
+    }
+
+    private int findSwap(List<SnapshotItem> items, int boundary,
+                         Set<Long> used, Set<Long> current) {
+        for (int i = boundary; i < items.size(); i++) {
+            Long id = items.get(i).id();
+            if (!used.contains(id) && !current.contains(id)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private MergeResult merge(List<RerankResponse.RerankItem> raw,
@@ -175,6 +295,10 @@ public class AiFeedBuildProcessor {
     }
 
     private record MergeResult(List<SnapshotItem> items, int llmCount) {
+    }
+
+    private record VariantBuild(String buildId, String strategy, String model,
+                                String promptVersion, List<SnapshotItem> items, int llmCount) {
     }
 
     private String sanitize(String reason) {
@@ -221,6 +345,14 @@ public class AiFeedBuildProcessor {
     }
 
     private String messageOf(RuntimeException ex) {
+        String message = ex.getMessage();
+        return message == null || message.isBlank() ? ex.getClass().getSimpleName() : message;
+    }
+
+    private String reasonOf(Throwable ex) {
+        if (ex == null) {
+            return "UNKNOWN";
+        }
         String message = ex.getMessage();
         return message == null || message.isBlank() ? ex.getClass().getSimpleName() : message;
     }

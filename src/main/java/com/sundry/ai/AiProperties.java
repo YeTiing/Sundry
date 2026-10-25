@@ -21,6 +21,8 @@ public class AiProperties {
     private Duration feedCacheTtl = Duration.ofMinutes(10);
     private Duration feedPendingTtl = Duration.ofMinutes(2);
     private Duration feedVariantTtl = Duration.ofMinutes(20);
+    private int feedVariantCount = 2;
+    private int feedVariantDedupHead = 6;
     private int feedBatchSize = 5;
     private int feedQueueMax = 1000;
     private int maxAttempts = 2;
@@ -95,6 +97,22 @@ public class AiProperties {
 
     public void setFeedVariantTtl(Duration feedVariantTtl) {
         this.feedVariantTtl = feedVariantTtl;
+    }
+
+    public int getFeedVariantCount() {
+        return feedVariantCount;
+    }
+
+    public void setFeedVariantCount(int feedVariantCount) {
+        this.feedVariantCount = feedVariantCount;
+    }
+
+    public int getFeedVariantDedupHead() {
+        return feedVariantDedupHead;
+    }
+
+    public void setFeedVariantDedupHead(int feedVariantDedupHead) {
+        this.feedVariantDedupHead = feedVariantDedupHead;
     }
 
     public int getFeedBatchSize() {

@@ -46,7 +46,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.ai.feed-candidate-limit=20",
         "app.ai.feed-rerank-limit=5",
         "app.ai.feed-batch-size=10",
-        "app.ai.max-attempts=2"
+        "app.ai.max-attempts=2",
+        "app.ai.feed-variant-count=2",
+        "app.ai.feed-variant-dedup-head=3"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -79,6 +81,9 @@ class AiFeedIntegrationTest {
 
     @MockitoBean
     private AiFeedClient aiFeedClient;
+
+    @Autowired
+    private tools.jackson.databind.ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
@@ -292,6 +297,110 @@ class AiFeedIntegrationTest {
         Set<Long> all = new HashSet<>(ids(first));
         all.addAll(ids(second));
         assertThat(all).hasSize(10);
+    }
+
+    @Test
+    void buildWritesTwoStrategiesToStagingPool() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        Set<String> strategies = Collections.synchronizedSet(new HashSet<>());
+        when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
+                .thenAnswer(invocation -> {
+                    RerankRequest request = invocation.getArgument(0);
+                    strategies.add(request.strategy());
+                    List<RerankResponse.RerankItem> items = new ArrayList<>();
+                    for (int i = 0; i < Math.min(5, request.candidates().size()); i++) {
+                        items.add(new RerankResponse.RerankItem(
+                                request.candidates().get(i).id(), "AI推荐"));
+                    }
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                });
+
+        refresh(user.token(), 5);
+        processor.buildPending();
+
+        assertThat(strategies).hasSize(2).contains("PREF");
+        assertThat(strategies).containsAnyOf("EXPLORE", "PRICE");
+
+        List<FeedSnapshot> variants = nextPool(user.id());
+        assertThat(variants).hasSize(2);
+        assertThat(variants.get(0).strategy()).isEqualTo("PREF");
+        assertThat(variants.get(0).buildId()).matches("PREF:[0-9a-f-]{36}");
+        assertThat(variants.get(1).buildId())
+                .startsWith(variants.get(1).strategy() + ":");
+    }
+
+    @Test
+    void variantHeadsAreDeduplicated() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
+                .thenAnswer(invocation -> {
+                    RerankRequest request = invocation.getArgument(0);
+                    List<RerankResponse.RerankItem> items = new ArrayList<>();
+                    for (int i = 0; i < Math.min(5, request.candidates().size()); i++) {
+                        items.add(new RerankResponse.RerankItem(
+                                request.candidates().get(i).id(), "AI推荐"));
+                    }
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                });
+
+        refresh(user.token(), 5);
+        processor.buildPending();
+
+        List<FeedSnapshot> variants = nextPool(user.id());
+        assertThat(variants).hasSize(2);
+        List<Long> firstHead = headIds(variants.get(0), 3);
+        List<Long> secondHead = headIds(variants.get(1), 3);
+        assertThat(firstHead).doesNotContainAnyElementsOf(secondHead);
+        assertThat(variants.get(1).items()).hasSize(variants.get(0).items().size());
+    }
+
+    @Test
+    void partialVariantFailureUsesSuccessfulOne() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
+                .thenAnswer(invocation -> {
+                    RerankRequest request = invocation.getArgument(0);
+                    if (!"PREF".equals(request.strategy())) {
+                        throw new AiFeedException("AI_UNAVAILABLE");
+                    }
+                    List<RerankResponse.RerankItem> items = new ArrayList<>();
+                    for (int i = 0; i < Math.min(5, request.candidates().size()); i++) {
+                        items.add(new RerankResponse.RerankItem(
+                                request.candidates().get(i).id(), "AI推荐"));
+                    }
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                });
+
+        refresh(user.token(), 5);
+        processor.buildPending();
+
+        List<FeedSnapshot> variants = nextPool(user.id());
+        assertThat(variants).hasSize(1);
+        assertThat(variants.get(0).strategy()).isEqualTo("PREF");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM ai_feed_log WHERE status = 'SUCCESS'", Long.class))
+                .isEqualTo(1);
+    }
+
+    private List<FeedSnapshot> nextPool(Long userId) throws Exception {
+        List<String> values = redis.opsForList()
+                .range("feed:ai:pool:next:" + userId, 0, -1);
+        assertThat(values).isNotNull();
+        List<FeedSnapshot> variants = new ArrayList<>();
+        for (String value : values) {
+            variants.add(objectMapper.readValue(value, FeedSnapshot.class));
+        }
+        return variants;
+    }
+
+    private List<Long> headIds(FeedSnapshot snapshot, int count) {
+        return snapshot.items().stream()
+                .limit(count)
+                .map(FeedSnapshot.SnapshotItem::id)
+                .toList();
     }
 
     private void stubRerankReversed(List<List<Long>> captured) {

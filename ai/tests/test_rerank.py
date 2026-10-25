@@ -162,6 +162,29 @@ def test_empty_items_is_valid():
     assert response.json()["items"] == []
 
 
+def test_strategy_instruction_is_appended_without_breaking_rules():
+    for strategy in ("PREF", "EXPLORE", "PRICE"):
+        prompt = system_prompt(strategy)
+        assert "附加偏好" in prompt
+        assert "禁止编造" in prompt
+        assert '{"items":[{"id":数字}]}' in prompt
+    assert "附加偏好" not in system_prompt()
+    assert "附加偏好" not in system_prompt("UNKNOWN")
+
+
+def test_unknown_strategy_is_accepted_and_ids_still_validated():
+    client = make_client(json.dumps({"items": [{"id": 999}, {"id": 74}]}))
+    payload = body()
+    payload["strategy"] = "SOMETHING"
+    response = client.post(
+        "/internal/feed/rerank",
+        json=payload,
+        headers={"X-Internal-Token": "test-token"},
+    )
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [74]
+
+
 def test_prompt_keeps_product_text_as_data():
     profile = Profile(categories=[], price_band=None, recent_views=[])
     candidates = [

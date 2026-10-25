@@ -76,7 +76,7 @@ async def rerank(
     settings: Settings = Depends(get_settings),
 ) -> RerankResponse:
     raw = await llm.complete(
-        system_prompt(),
+        system_prompt(request.strategy),
         build_user_prompt(request.profile, request.candidates, request.limit),
     )
 

@@ -83,13 +83,16 @@ feed:ai:attempt:{uid}    STR    失败计数（5 分钟）
 ### 4.2 Redis 数据结构
 
 ```
-feed:ai:pool:{uid}       LIST  变体池，每个元素是一份变体 JSON，环形使用
+feed:ai:pool:{uid}       LIST  变体池（当前生效），每个元素是一份变体 JSON，环形使用
+feed:ai:pool:next:{uid}  LIST  待上架区：新构建结果先放这里，下次点击时提升为正式池
 feed:ai:pool:seen:{uid}  ZSET  已曝光商品 → 时间戳（去重降权用，TTL 1h）
 feed:ai:pending:{uid}    STR   buildId，语义保留（首次构建中）
 feed:ai:queued:{uid}     STR   保留，防重复入队
 feed:ai:lock:{uid}       STR   保留，构建锁
 feed:ai:attempt:{uid}    STR   保留，失败计数
 ```
+
+**为什么需要 `pool:next`：** 如果构建完成直接覆盖正式池，用户正在阅读的变体会消失，下一次翻页会因 `buildId` 对不上而跳回第一页——用户没点任何东西，列表却自己变了。因此构建结果只写待上架区，只有用户下一次点击时才原子替换。
 
 变体 JSON：
 
@@ -130,7 +133,19 @@ Prompt 侧只加一段「本轮排序偏好」，仍禁止编造 id、仍只输�
 
 ### 4.4 切换（原子）
 
-Lua 脚本保证多实例下不会两个请求拿到同一份：
+点击时先检查待上架区：有内容则原子提升为正式池，再切换。保证「用户不点，列表就不变」。
+
+```lua
+-- 提升：KEYS[1] = pool:next, KEYS[2] = pool
+if redis.call('LLEN', KEYS[1]) > 0 then
+  redis.call('DEL', KEYS[2])
+  redis.call('RENAME', KEYS[1], KEYS[2])
+  return 1
+end
+return 0
+```
+
+随后原子切换：
 
 ```lua
 -- KEYS[1] = feed:ai:pool:{uid}
@@ -145,16 +160,19 @@ return v
 - 拿到变体后，把该变体的商品 id 写入 `pool:seen`（`ZADD`，score 为当前毫秒）
 - 变体 `builtAt` 超过 `feed-variant-ttl`（默认 20 分钟）→ 视为不可用，直接从池中移除并继续取下一份
 
-### 4.5 补算水位
+### 4.5 补算触发点
 
-每次切换后检查：
+环形池长度不会随切换下降，因此不能用 `LLEN(pool)` 判断水位。实际触发点：
 
-```
-剩余 = LLEN(pool)
-if 剩余 < feed-variant-count - 1  → 入队补算（受 queued 标记去重）
-```
+| 触发点 | 条件 |
+|---|---|
+| 首次访问 | 正式池为空且待上架区为空 |
+| 切满一轮 | 本轮切换次数 ≥ 当前变体数 |
+| 可用变体不足 | 正式池中未过期变体数 < `feed-variant-count` |
+| 变体全部过期 | 切换时全部被剔除 |
+| 失败熔断 | 连续失败达 `max-attempts` 后停止，等下一次触发 |
 
-正常节奏（用户看一屏 5 秒以上）下，补算总能追上，池子不会见底。
+所有补算都走现有 `feed:ai:queued:{uid}` SETNX，同一用户同时只有一个在途构建。构建结果写入 `pool:next`，不碰正式池。
 
 ### 4.6 池空 / 过期降级
 
@@ -292,3 +310,13 @@ app:
 3. **变体 TTL 20 分钟**是否可接受（现在快照是 10 分钟）
 4. **复用旧变体时是否需要更强过滤**（直接剔除已曝光商品，而不是下沉）
 5. **是否保留首次访问的轮询**（建议保留）
+
+---
+
+## 12. 已确认决策（2026-10-25）
+
+- 变体数 2；策略 `PREF` / `EXPLORE` / `PRICE`；变体 TTL 20 分钟
+- 复用旧变体时已曝光商品下沉到 12~20 位，不删除
+- 保留首次访问轮询（仅 `PENDING` 时）
+- 补算触发点：首次访问、切满一轮、可用变体不足、全部过期、失败熔断
+- 新构建结果先写 `pool:next`，用户下一次点击时原子提升为正式池；用户不点击则页面不变

@@ -31,6 +31,7 @@ public class AiFeedStore {
     private static final String ATTEMPT_KEY = "feed:ai:attempt:%d";
     private static final String LOCK_KEY = "feed:ai:lock:%d";
     private static final String POOL_KEY = "feed:ai:pool:%d";
+    private static final String POOL_NEXT_KEY = "feed:ai:pool:next:%d";
     private static final String POOL_SEEN_KEY = "feed:ai:pool:seen:%d";
 
     private static final Duration LOCK_TTL = Duration.ofSeconds(60);
@@ -54,6 +55,19 @@ public class AiFeedStore {
             end
             return v
             """, String.class);
+
+    /**
+     * 覆盖式写入待上架区：ARGV[1] 是 TTL 秒数，其余是变体 JSON。
+     */
+    private static final DefaultRedisScript<Long> REPLACE_LIST = new DefaultRedisScript<>("""
+            local ttl = tonumber(ARGV[1])
+            redis.call('DEL', KEYS[1])
+            for i = 2, #ARGV do
+                redis.call('RPUSH', KEYS[1], ARGV[i])
+            end
+            redis.call('EXPIRE', KEYS[1], ttl)
+            return #ARGV - 1
+            """, Long.class);
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -168,6 +182,26 @@ public class AiFeedStore {
         return size == null ? 0 : size;
     }
 
+    /**
+     * 新一批变体先写待上架区，等用户下次点击时再提升，避免正在阅读的列表被替换。
+     */
+    public void pushNextVariants(Long userId, List<FeedSnapshot> variants) {
+        if (variants == null || variants.isEmpty()) {
+            return;
+        }
+        List<String> args = new ArrayList<>(variants.size() + 1);
+        args.add(String.valueOf(Math.max(1, properties.getFeedVariantTtl().toSeconds())));
+        for (FeedSnapshot variant : variants) {
+            args.add(objectMapper.writeValueAsString(variant));
+        }
+        redis.execute(REPLACE_LIST, List.of(nextPoolKey(userId)), args.toArray());
+    }
+
+    public long nextPoolSize(Long userId) {
+        Long size = redis.opsForList().size(nextPoolKey(userId));
+        return size == null ? 0 : size;
+    }
+
     private FeedSnapshot parseVariant(String json) {
         try {
             return objectMapper.readValue(json, FeedSnapshot.class);
@@ -261,5 +295,9 @@ public class AiFeedStore {
 
     private String poolSeenKey(Long userId) {
         return POOL_SEEN_KEY.formatted(userId);
+    }
+
+    private String nextPoolKey(Long userId) {
+        return POOL_NEXT_KEY.formatted(userId);
     }
 }

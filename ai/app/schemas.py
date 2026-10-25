@@ -35,6 +35,8 @@ class RerankRequest(BaseModel):
     profile: Profile
     candidates: list[Candidate] = Field(min_length=1, max_length=100)
     limit: int = Field(default=20, ge=1, le=50)
+    # PREF / EXPLORE / PRICE；旧调用不传，按默认偏好排序
+    strategy: str | None = Field(default=None, max_length=16)
 
 
 class RerankItem(BaseModel):
