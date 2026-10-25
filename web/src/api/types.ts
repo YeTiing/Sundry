@@ -60,6 +60,23 @@ export interface FeedPage {
   hasMore: boolean
   aiStatus: AiFeedStatus
   aiBuildId: string | null
+  feedBuildId: string | null
+}
+
+export type FeedEventType = 'EXPOSURE' | 'CLICK'
+export type FeedAlgorithm = 'AI' | 'RULE'
+
+export interface FeedEventItem {
+  type: FeedEventType
+  productId: number
+  position: number
+}
+
+export interface FeedEventPayload {
+  traceId: string
+  buildId: string | null
+  algorithm: FeedAlgorithm
+  events: FeedEventItem[]
 }
 
 export interface FileView {

@@ -72,12 +72,12 @@ public class FeedService {
         if (userId == null || !aiProperties.isEnabled()) {
             ScrollPage<ProductView> page = rulePage(userId, offset, size, refresh);
             return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
-                    STATUS_DISABLED, null);
+                    STATUS_DISABLED, null, null);
         }
         if (aiProperties.getInternalToken() == null || aiProperties.getInternalToken().isBlank()) {
             ScrollPage<ProductView> page = rulePage(userId, offset, size, refresh);
             return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
-                    STATUS_FALLBACK, null);
+                    STATUS_FALLBACK, null, null);
         }
         return aiPage(userId, offset, size, refresh);
     }
@@ -94,7 +94,7 @@ public class FeedService {
             if (newBuildId == null) {
                 ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
                 return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
-                        STATUS_FALLBACK, null);
+                        STATUS_FALLBACK, null, null);
             }
 
             FeedSnapshot snapshot = safeSnapshot(userId);
@@ -103,7 +103,7 @@ public class FeedService {
             }
             ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
             return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
-                    STATUS_PENDING, newBuildId);
+                    STATUS_PENDING, newBuildId, null);
         }
 
         FeedSnapshot snapshot = safeSnapshot(userId);
@@ -114,7 +114,7 @@ public class FeedService {
         String pending = safePending(userId);
         ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
         return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
-                pending == null ? STATUS_FALLBACK : STATUS_PENDING, pending);
+                pending == null ? STATUS_FALLBACK : STATUS_PENDING, pending, null);
     }
 
     private FeedPage pageFromSnapshot(FeedSnapshot snapshot, int offset, int size,
@@ -133,7 +133,7 @@ public class FeedService {
         }
         boolean hasMore = index < items.size();
         Long nextCursor = hasMore ? (long) index : null;
-        return new FeedPage(views, nextCursor, hasMore, status, buildId);
+        return new FeedPage(views, nextCursor, hasMore, status, buildId, snapshot.buildId());
     }
 
     private FeedSnapshot safeSnapshot(Long userId) {

@@ -102,6 +102,17 @@ export const http = {
       true,
     )
   },
+  postKeepalive<T>(path: string, body?: unknown): Promise<T> {
+    return request<T>(
+      path,
+      {
+        method: 'POST',
+        body: body === undefined ? undefined : JSON.stringify(body),
+        keepalive: true,
+      },
+      false,
+    )
+  },
   postForm<T>(path: string, form: FormData): Promise<T> {
     return request<T>(path, { method: 'POST', body: form }, true)
   },

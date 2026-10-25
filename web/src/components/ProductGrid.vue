@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { Product } from '@/api/types'
 
+const emit = defineEmits<{ select: [product: Product] }>()
+
 defineProps<{ products: Product[] }>()
 
 function formatPrice(value: number): string {
@@ -15,6 +17,7 @@ function formatPrice(value: number): string {
       :key="product.id"
       class="product-card"
       :to="`/products/${product.id}`"
+      @click="emit('select', product)"
     >
       <div class="product-card__media">
         <img v-if="product.coverUrl" :src="product.coverUrl" :alt="product.name" loading="lazy" />

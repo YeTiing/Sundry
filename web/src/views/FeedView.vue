@@ -4,7 +4,13 @@ import { storeToRefs } from 'pinia'
 import SiteHeader from '@/components/SiteHeader.vue'
 import ProductGrid from '@/components/ProductGrid.vue'
 import { feedApi } from '@/api/feed'
-import type { AiFeedStatus, FeedPage } from '@/api/types'
+import type {
+  AiFeedStatus,
+  FeedAlgorithm,
+  FeedEventItem,
+  FeedPage,
+  Product,
+} from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useFeedStore } from '@/stores/feed'
 
@@ -22,12 +28,15 @@ const loadingMore = ref(false)
 const error = ref('')
 const aiStatus = ref<AiFeedStatus>('DISABLED')
 const aiBuildId = ref<string | null>(null)
+const feedBuildId = ref<string | null>(null)
 const sentinel = ref<HTMLElement | null>(null)
 
 let observer: IntersectionObserver | null = null
 let requestSeq = 0
 let pollToken = 0
 let scrollTicking = false
+let feedTraceId = newTraceId()
+let exposed = new Set<number>()
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : '推荐加载失败'
@@ -35,6 +44,63 @@ function messageOf(err: unknown): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function newTraceId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `trace-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
+function algorithmOf(status: AiFeedStatus): FeedAlgorithm {
+  return status === 'READY' ? 'AI' : 'RULE'
+}
+
+function startImpression(): void {
+  feedTraceId = newTraceId()
+  exposed = new Set<number>()
+}
+
+/** 曝光按当前列表增量上报；同一 trace 内每个商品只报一次。 */
+async function exposeCurrentList(): Promise<void> {
+  if (!auth.isAuthenticated) return
+  const events: FeedEventItem[] = []
+  products.value.forEach((product, index) => {
+    if (exposed.has(product.id)) return
+    exposed.add(product.id)
+    events.push({ type: 'EXPOSURE', productId: product.id, position: index + 1 })
+  })
+  if (events.length === 0) return
+
+  const payload = {
+    traceId: feedTraceId,
+    buildId: feedBuildId.value,
+    algorithm: algorithmOf(aiStatus.value),
+  }
+  for (let i = 0; i < events.length; i += 100) {
+    void feedApi.recordEvents({ ...payload, events: events.slice(i, i + 100) }, true)
+  }
+}
+
+function exposeSoon(seq: number): void {
+  void nextTick().then(() => {
+    if (seq === requestSeq) {
+      void exposeCurrentList()
+    }
+  })
+}
+
+function onProductSelect(product: Product): void {
+  if (!auth.isAuthenticated) return
+  const position = products.value.findIndex((item) => item.id === product.id) + 1
+  if (position <= 0) return
+  void feedApi.recordEvents({
+    traceId: feedTraceId,
+    buildId: feedBuildId.value,
+    algorithm: algorithmOf(aiStatus.value),
+    events: [{ type: 'CLICK', productId: product.id, position }],
+  }, true)
 }
 
 async function loadFirst(
@@ -52,7 +118,10 @@ async function loadFirst(
     hasMore.value = data.hasMore
     aiStatus.value = data.aiStatus
     aiBuildId.value = data.aiBuildId
+    feedBuildId.value = data.feedBuildId
     store.loaded = true
+    startImpression()
+    exposeSoon(seq)
     return data
   } catch (err) {
     if (seq === requestSeq) {
@@ -87,6 +156,9 @@ async function refreshWithAi(): Promise<void> {
         hasMore.value = page.hasMore
         aiStatus.value = page.aiStatus
         aiBuildId.value = page.aiBuildId
+        feedBuildId.value = page.feedBuildId
+        startImpression()
+        exposeSoon(requestSeq)
         return
       }
     } catch {
@@ -104,7 +176,8 @@ async function loadMore(): Promise<void> {
     const data = await feedApi.getFeed(cursor.value, PAGE_SIZE, false, aiBuildId.value)
     if (seq !== requestSeq) return
     // 快照切换后游标含义变了，回到第一页重新加载，避免重复或漏项
-    if (data.aiBuildId !== aiBuildId.value || data.aiStatus !== aiStatus.value) {
+    if (data.aiBuildId !== aiBuildId.value || data.aiStatus !== aiStatus.value
+        || data.feedBuildId !== feedBuildId.value) {
       await loadFirst(false)
       return
     }
@@ -115,6 +188,7 @@ async function loadMore(): Promise<void> {
     ]
     cursor.value = data.nextCursor
     hasMore.value = data.hasMore
+    exposeSoon(seq)
   } catch (err) {
     if (seq === requestSeq) error.value = messageOf(err)
   } finally {
@@ -196,7 +270,7 @@ onBeforeUnmount(() => {
         暂时没有可推荐的商品。
       </p>
 
-      <ProductGrid v-else :products="products" />
+      <ProductGrid v-else :products="products" @select="onProductSelect" />
 
       <div ref="sentinel" class="scroll-sentinel" aria-hidden="true"></div>
 

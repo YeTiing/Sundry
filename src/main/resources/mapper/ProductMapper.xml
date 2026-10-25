@@ -181,6 +181,14 @@
         LIMIT #{limit}
     </select>
 
+    <select id="findCategoriesByIds" resultType="com.sundry.catalog.Product">
+        SELECT id, category_id
+        FROM product
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+          AND deleted_at IS NULL
+    </select>
+
     <select id="countPublic" resultType="long">
         SELECT COUNT(*)
         FROM product p
