@@ -26,6 +26,7 @@
                SUM(event_type = 'CLICK') AS clicks
         FROM feed_event
         WHERE created_at &gt;= #{since}
+          AND algorithm = 'AI'
           AND build_id IS NOT NULL
           AND SUBSTRING_INDEX(build_id, ':', 1) IN ('PREF', 'EXPLORE', 'PRICE')
         GROUP BY strategy

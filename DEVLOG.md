@@ -1939,6 +1939,20 @@ sundry_seckill_compensation_total = 0
 
 - 待提交：`fix: Feed 变体池审查修复`
 
+## 2026-10-25 · 策略指标排除 RULE 事件
+
+**做了什么**
+
+- `byStrategy` 查询增加 `algorithm = 'AI'`，避免状态切换瞬间的 RULE 事件被算进策略指标
+
+**验证**
+
+- Java：210 个用例通过（指标用例新增“RULE 事件带 PREF buildId 不计入”断言）
+
+**提交**
+
+- 待提交：`fix: 策略指标排除 RULE 事件`
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。

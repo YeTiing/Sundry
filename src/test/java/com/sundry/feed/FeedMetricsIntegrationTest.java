@@ -156,6 +156,9 @@ class FeedMetricsIntegrationTest {
         // 旧格式 buildId 不参与策略分组
         eventWithBuild("t-legacy", "EXPOSURE", "AI",
                 "550e8400-e29b-41d4-a716-446655440000", p1, catA, 1);
+        // RULE 事件即使带了变体 buildId 也不计入策略
+        eventWithBuild("t-rule-pref", "EXPOSURE", "RULE",
+                "PREF:11111111-1111-1111-1111-111111111111", p1, catA, 1);
 
         mockMvc.perform(get("/api/admin/feed/metrics").param("days", "7")
                         .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
