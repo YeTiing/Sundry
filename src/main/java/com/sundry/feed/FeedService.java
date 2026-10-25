@@ -43,7 +43,6 @@ public class FeedService {
     public static final String STATUS_READY = "READY";
     public static final String STATUS_FALLBACK = "FALLBACK";
 
-    private static final int CANDIDATE_LIMIT = 500;
     private static final int DIVERSITY_BLOCK = 12;
     private static final int CATEGORY_CAP_PER_BLOCK = 5;
     private static final Duration SNAPSHOT_TTL = Duration.ofMinutes(5);
@@ -51,16 +50,19 @@ public class FeedService {
 
     private final ProductMapper productMapper;
     private final FeedQueryMapper feedQueryMapper;
+    private final FeedRecallService feedRecallService;
     private final ProductService productService;
     private final StringRedisTemplate redis;
     private final AiProperties aiProperties;
     private final AiFeedStore aiFeedStore;
 
     public FeedService(ProductMapper productMapper, FeedQueryMapper feedQueryMapper,
+                       FeedRecallService feedRecallService,
                        ProductService productService, StringRedisTemplate redis,
                        AiProperties aiProperties, AiFeedStore aiFeedStore) {
         this.productMapper = productMapper;
         this.feedQueryMapper = feedQueryMapper;
+        this.feedRecallService = feedRecallService;
         this.productService = productService;
         this.redis = redis;
         this.aiProperties = aiProperties;
@@ -248,7 +250,18 @@ public class FeedService {
     }
 
     private List<Long> rank(Long userId) {
-        List<Product> products = productMapper.findForFeed(CANDIDATE_LIMIT);
+        FeedRecallService.RecallResult recall = feedRecallService.recall(userId);
+        List<Long> recallIds = recall.ids();
+        if (recallIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, Product> byId = productMapper.findForFeedByIds(recallIds).stream()
+                .collect(Collectors.toMap(Product::getId, product -> product, (a, b) -> a));
+        List<Product> products = recallIds.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .toList();
         if (products.isEmpty()) {
             return List.of();
         }
@@ -256,7 +269,7 @@ public class FeedService {
         Set<Long> purchased = userId == null
                 ? Set.of()
                 : new HashSet<>(feedQueryMapper.findPurchasedProductIds(userId));
-        Map<Long, Double> affinity = categoryAffinity(userId);
+        Map<Long, Double> affinity = recall.affinity();
         double maxAffinity = affinity.values().stream()
                 .mapToDouble(Double::doubleValue).max().orElse(0);
         Set<Long> topCategories = affinity.entrySet().stream()
@@ -303,23 +316,6 @@ public class FeedService {
         scored.sort(Comparator.comparingDouble(Scored::score).reversed()
                 .thenComparing(Comparator.comparingLong(Scored::productId).reversed()));
         return diversify(scored);
-    }
-
-    private Map<Long, Double> categoryAffinity(Long userId) {
-        if (userId == null) {
-            return Map.of();
-        }
-        // 只看最近 14 天、最近 100 次浏览
-        LocalDateTime since = LocalDateTime.now().minusDays(14);
-        Map<Long, Double> weights = new HashMap<>();
-        for (CategoryWeight weight : feedQueryMapper.findViewCategoryWeights(userId, since)) {
-            weights.merge(weight.getCategoryId(), weight.getWeight().doubleValue(), Double::sum);
-        }
-        // 最近 10 笔订单，购买比浏览权重更高
-        for (CategoryWeight weight : feedQueryMapper.findPurchasedCategoryWeights(userId)) {
-            weights.merge(weight.getCategoryId(), weight.getWeight().doubleValue() * 3, Double::sum);
-        }
-        return weights;
     }
 
     private double freshness(LocalDateTime createdAt) {

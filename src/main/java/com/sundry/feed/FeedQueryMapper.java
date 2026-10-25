@@ -22,4 +22,15 @@ public interface FeedQueryMapper {
     List<String> findRecentViewedNames(@Param("userId") Long userId,
                                        @Param("since") LocalDateTime since,
                                        @Param("limit") int limit);
+
+    List<Long> findHotProductIds(@Param("since") LocalDateTime since,
+                                 @Param("limit") int limit);
+
+    List<Long> findNewProductIds(@Param("limit") int limit);
+
+    List<Long> findProductIdsByCategories(@Param("categoryIds") List<Long> categoryIds,
+                                          @Param("limit") int limit);
+
+    List<Long> findCoPurchaseProductIds(@Param("userId") Long userId,
+                                        @Param("limit") int limit);
 }

@@ -20,6 +20,14 @@ public class FeedProperties {
     private int eventCleanupBatchSize = 5000;
     private int eventCleanupMaxBatches = 10;
 
+    private int recallHotLimit = 120;
+    private int recallNewLimit = 60;
+    private int recallCategoryLimit = 120;
+    private int recallCoPurchaseLimit = 80;
+    private int recallMinCandidates = 60;
+    private int recallMaxCandidates = 500;
+    private int recallHotDays = 30;
+
     public int getBehaviorBatchSize() {
         return behaviorBatchSize;
     }
@@ -98,5 +106,61 @@ public class FeedProperties {
 
     public void setEventCleanupMaxBatches(int eventCleanupMaxBatches) {
         this.eventCleanupMaxBatches = eventCleanupMaxBatches;
+    }
+
+    public int getRecallHotLimit() {
+        return recallHotLimit;
+    }
+
+    public void setRecallHotLimit(int recallHotLimit) {
+        this.recallHotLimit = recallHotLimit;
+    }
+
+    public int getRecallNewLimit() {
+        return recallNewLimit;
+    }
+
+    public void setRecallNewLimit(int recallNewLimit) {
+        this.recallNewLimit = recallNewLimit;
+    }
+
+    public int getRecallCategoryLimit() {
+        return recallCategoryLimit;
+    }
+
+    public void setRecallCategoryLimit(int recallCategoryLimit) {
+        this.recallCategoryLimit = recallCategoryLimit;
+    }
+
+    public int getRecallCoPurchaseLimit() {
+        return recallCoPurchaseLimit;
+    }
+
+    public void setRecallCoPurchaseLimit(int recallCoPurchaseLimit) {
+        this.recallCoPurchaseLimit = recallCoPurchaseLimit;
+    }
+
+    public int getRecallMinCandidates() {
+        return recallMinCandidates;
+    }
+
+    public void setRecallMinCandidates(int recallMinCandidates) {
+        this.recallMinCandidates = recallMinCandidates;
+    }
+
+    public int getRecallMaxCandidates() {
+        return recallMaxCandidates;
+    }
+
+    public void setRecallMaxCandidates(int recallMaxCandidates) {
+        this.recallMaxCandidates = recallMaxCandidates;
+    }
+
+    public int getRecallHotDays() {
+        return recallHotDays;
+    }
+
+    public void setRecallHotDays(int recallHotDays) {
+        this.recallHotDays = recallHotDays;
     }
 }

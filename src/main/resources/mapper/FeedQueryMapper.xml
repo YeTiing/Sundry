@@ -74,4 +74,53 @@
         ORDER BY recent.last_view DESC
     </select>
 
+    <select id="findHotProductIds" resultType="long">
+        SELECT oi.product_id
+        FROM order_item oi
+        JOIN orders o ON o.id = oi.order_id
+        WHERE o.status NOT IN ('CANCELLED', 'REFUNDED')
+          AND o.created_at &gt;= #{since}
+        GROUP BY oi.product_id
+        ORDER BY SUM(oi.quantity) DESC, oi.product_id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findNewProductIds" resultType="long">
+        SELECT id
+        FROM product
+        WHERE status = 'ON_SALE'
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findProductIdsByCategories" resultType="long">
+        SELECT id
+        FROM product
+        WHERE status = 'ON_SALE'
+          AND deleted_at IS NULL
+          AND category_id IN
+        <foreach collection="categoryIds" item="categoryId" open="(" separator="," close=")">
+            #{categoryId}
+        </foreach>
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findCoPurchaseProductIds" resultType="long">
+        SELECT oi2.product_id
+        FROM order_item oi1
+        JOIN orders o1 ON o1.id = oi1.order_id
+        JOIN order_item same ON same.product_id = oi1.product_id
+        JOIN orders o2 ON o2.id = same.order_id
+        JOIN order_item oi2 ON oi2.order_id = o2.id AND oi2.product_id &lt;&gt; oi1.product_id
+        WHERE o1.user_id = #{userId}
+          AND o1.status NOT IN ('CANCELLED', 'REFUNDED')
+          AND o2.user_id &lt;&gt; #{userId}
+          AND o2.status NOT IN ('CANCELLED', 'REFUNDED')
+        GROUP BY oi2.product_id
+        ORDER BY COUNT(DISTINCT o2.user_id) DESC, oi2.product_id DESC
+        LIMIT #{limit}
+    </select>
+
 </mapper>

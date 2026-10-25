@@ -82,6 +82,13 @@ app:
     event-cleanup-batch-size: ${FEED_EVENT_CLEANUP_BATCH_SIZE:5000}
     event-cleanup-max-batches: ${FEED_EVENT_CLEANUP_MAX_BATCHES:10}
     event-cleanup-cron: ${FEED_EVENT_CLEANUP_CRON:0 30 4 * * *}
+    recall-hot-limit: ${FEED_RECALL_HOT_LIMIT:120}
+    recall-new-limit: ${FEED_RECALL_NEW_LIMIT:60}
+    recall-category-limit: ${FEED_RECALL_CATEGORY_LIMIT:120}
+    recall-co-purchase-limit: ${FEED_RECALL_CO_PURCHASE_LIMIT:80}
+    recall-min-candidates: ${FEED_RECALL_MIN_CANDIDATES:60}
+    recall-max-candidates: ${FEED_RECALL_MAX_CANDIDATES:500}
+    recall-hot-days: ${FEED_RECALL_HOT_DAYS:30}
   ai:
     enabled: ${AI_FEED_ENABLED:true}
     base-url: ${AI_BASE_URL:http://127.0.0.1:8000}

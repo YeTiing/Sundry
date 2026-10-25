@@ -181,6 +181,30 @@
         LIMIT #{limit}
     </select>
 
+    <select id="findForFeedByIds" resultType="com.sundry.catalog.Product">
+        SELECT p.id, p.request_id, p.category_id, p.name, p.description, p.type, p.price, p.stock,
+               p.cover_file_id, p.digital_file_id, p.status, p.deleted_at, p.created_at, p.updated_at,
+               c.name AS category_name,
+               f.bucket AS cover_bucket,
+               f.object_key AS cover_object_key,
+               COALESCE(s.sales_count, 0) AS sales_count
+        FROM product p
+        JOIN category c ON c.id = p.category_id AND c.status = 1
+        LEFT JOIN file_object f ON f.id = p.cover_file_id
+        LEFT JOIN (
+            SELECT oi.product_id, SUM(oi.quantity) AS sales_count
+            FROM order_item oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE o.status NOT IN ('CANCELLED', 'REFUNDED')
+              AND o.created_at &gt;= DATE_SUB(NOW(3), INTERVAL 30 DAY)
+            GROUP BY oi.product_id
+        ) s ON s.product_id = p.id
+        WHERE p.status = 'ON_SALE'
+          AND p.deleted_at IS NULL
+          AND p.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
     <select id="findCategoriesByIds" resultType="com.sundry.catalog.Product">
         SELECT id, category_id
         FROM product
