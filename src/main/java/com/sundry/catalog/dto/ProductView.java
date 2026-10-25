@@ -5,6 +5,7 @@ import com.sundry.catalog.ProductType;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 商品展示项。coverUrl 由后端按存储配置拼出，前端直接用；
@@ -14,5 +15,5 @@ public record ProductView(Long id, String name, String description, ProductType 
                           BigDecimal price, Integer stock, Long categoryId, String categoryName,
                           Long coverFileId, String coverUrl, Long digitalFileId,
                           ProductStatus status, LocalDateTime deletedAt, LocalDateTime createdAt,
-                          String reason) {
+                          String reason, List<String> tags) {
 }

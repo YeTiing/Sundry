@@ -257,6 +257,7 @@ public class ProductService {
         product.setCategoryId(request.categoryId());
         product.setName(request.name().trim());
         product.setDescription(request.description().trim());
+        product.setTags(normalizeTags(request.tags()));
         ProductType type = request.type() == null ? ProductType.PHYSICAL : request.type();
         product.setType(type);
         product.setPrice(request.price().setScale(2, RoundingMode.HALF_UP));
@@ -299,6 +300,40 @@ public class ProductService {
         }
     }
 
+    private String normalizeTags(List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return "";
+        }
+        java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>();
+        for (String raw : tags) {
+            if (raw == null) {
+                continue;
+            }
+            String tag = raw.trim();
+            if (tag.isEmpty()) {
+                continue;
+            }
+            if (tag.length() > 20) {
+                throw new BusinessException(ErrorCode.PRODUCT_TAGS_INVALID);
+            }
+            unique.add(tag);
+        }
+        if (unique.size() > 8) {
+            throw new BusinessException(ErrorCode.PRODUCT_TAGS_INVALID);
+        }
+        return String.join(",", unique);
+    }
+
+    private List<String> parseTags(String tags) {
+        if (tags == null || tags.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(tags.split(","))
+                .map(String::trim)
+                .filter(tag -> !tag.isEmpty())
+                .toList();
+    }
+
     private ProductView toView(Product product) {
         String coverUrl = null;
         if (product.getCoverBucket() != null && product.getCoverObjectKey() != null) {
@@ -308,6 +343,7 @@ public class ProductService {
                 product.getType(), product.getPrice(), product.getStock(),
                 product.getCategoryId(), product.getCategoryName(),
                 product.getCoverFileId(), coverUrl, product.getDigitalFileId(),
-                product.getStatus(), product.getDeletedAt(), product.getCreatedAt(), null);
+                product.getStatus(), product.getDeletedAt(), product.getCreatedAt(), null,
+                parseTags(product.getTags()));
     }
 }

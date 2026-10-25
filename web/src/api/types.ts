@@ -113,6 +113,7 @@ export interface Product {
   deletedAt: string | null
   createdAt: string
   reason?: string | null
+  tags?: string[]
 }
 
 export interface CartItem {

@@ -13,6 +13,7 @@ public class Product {
     private Long categoryId;
     private String name;
     private String description;
+    private String tags;
     private ProductType type;
     private BigDecimal price;
     private Integer stock;
@@ -66,6 +67,14 @@ public class Product {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public String getTags() {
+        return tags;
+    }
+
+    public void setTags(String tags) {
+        this.tags = tags;
     }
 
     public ProductType getType() {

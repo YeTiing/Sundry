@@ -28,7 +28,7 @@
     </select>
 
     <select id="findStaleProducts" resultType="com.sundry.catalog.Product">
-        SELECT p.id, p.category_id, p.name, p.description,
+        SELECT p.id, p.category_id, p.name, p.description, p.tags,
                c.name AS category_name
         FROM product p
         JOIN category c ON c.id = p.category_id AND c.status = 1

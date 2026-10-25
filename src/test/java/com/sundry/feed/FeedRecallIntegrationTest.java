@@ -69,6 +69,7 @@ class FeedRecallIntegrationTest {
         long newProduct = product(course, "召回-新品", LocalDateTime.now());
 
         view(target, categoryProduct, physical);
+        jdbcTemplate.update("UPDATE product SET tags = '办公,效率' WHERE id = ?", categoryProduct);
         order(target, "REC-U0", List.of(new Item(boughtProduct, 1)));
         order(other, "REC-U1", List.of(new Item(boughtProduct, 1), new Item(coProduct, 1)));
         order(buyer, "REC-U2", List.of(new Item(hotProduct, 5)));
@@ -81,6 +82,7 @@ class FeedRecallIntegrationTest {
         assertThat(result.coPurchase()).isPositive();
         assertThat(result.hot()).isPositive();
         assertThat(result.newCount()).isPositive();
+        assertThat(result.tagAffinity()).containsEntry("办公", 1.0);
     }
 
     @Test

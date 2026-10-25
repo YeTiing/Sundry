@@ -232,7 +232,7 @@ public class FeedService {
         return new ProductView(view.id(), view.name(), view.description(), view.type(),
                 view.price(), view.stock(), view.categoryId(), view.categoryName(),
                 view.coverFileId(), view.coverUrl(), view.digitalFileId(), view.status(),
-                view.deletedAt(), view.createdAt(), reason);
+                view.deletedAt(), view.createdAt(), reason, view.tags());
     }
 
     /**
@@ -270,6 +270,9 @@ public class FeedService {
                 ? Set.of()
                 : new HashSet<>(feedQueryMapper.findPurchasedProductIds(userId));
         Map<Long, Double> affinity = recall.affinity();
+        Map<String, Double> tagAffinity = recall.tagAffinity();
+        double maxTagWeight = tagAffinity.values().stream()
+                .mapToDouble(Double::doubleValue).max().orElse(0);
         double maxAffinity = affinity.values().stream()
                 .mapToDouble(Double::doubleValue).max().orElse(0);
         Set<Long> topCategories = affinity.entrySet().stream()
@@ -305,10 +308,20 @@ public class FeedService {
                     ? 0.05
                     : 0;
 
-            double score = 0.50 * affinityScore
-                    + 0.25 * hotness
+            double tagScore = 0;
+            if (maxTagWeight > 0 && product.getTags() != null && !product.getTags().isBlank()) {
+                double tagSum = 0;
+                for (String raw : product.getTags().split(",")) {
+                    tagSum += tagAffinity.getOrDefault(raw.trim(), 0.0);
+                }
+                tagScore = Math.min(1.0, tagSum / maxTagWeight);
+            }
+
+            double score = 0.40 * affinityScore
+                    + 0.20 * hotness
                     + 0.15 * freshness
-                    + 0.10 * random
+                    + 0.10 * tagScore
+                    + 0.05 * random
                     + explore;
             scored.add(new Scored(product.getId(), product.getCategoryId(), score));
         }

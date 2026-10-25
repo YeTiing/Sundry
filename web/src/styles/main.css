@@ -573,6 +573,20 @@ a:hover {
   font-size: 16px;
 }
 
+.product-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.product-tag {
+  padding: 4px 10px;
+  border: 1px solid var(--rule-strong);
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .mono,
 .role-tag {
   font-family: var(--font-mono);

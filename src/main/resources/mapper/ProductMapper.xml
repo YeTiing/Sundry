@@ -5,7 +5,7 @@
 
     <!-- 联表带出分类名和封面对象信息，避免列表 N+1 查询 -->
     <sql id="productColumns">
-        p.id, p.request_id, p.category_id, p.name, p.description, p.type, p.price, p.stock, p.cover_file_id,
+        p.id, p.request_id, p.category_id, p.name, p.description, p.tags, p.type, p.price, p.stock, p.cover_file_id,
         p.digital_file_id, p.status, p.deleted_at, p.created_at, p.updated_at,
         c.name AS category_name,
         f.bucket AS cover_bucket,
@@ -20,9 +20,9 @@
 
     <insert id="insert" parameterType="com.sundry.catalog.Product"
             useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO product (request_id, category_id, name, description, type, price, stock,
+        INSERT INTO product (request_id, category_id, name, description, tags, type, price, stock,
                              cover_file_id, digital_file_id, status)
-        VALUES (#{requestId}, #{categoryId}, #{name}, #{description}, #{type}, #{price}, #{stock},
+        VALUES (#{requestId}, #{categoryId}, #{name}, #{description}, #{tags}, #{type}, #{price}, #{stock},
                 #{coverFileId}, #{digitalFileId}, #{status})
     </insert>
 
@@ -31,6 +31,7 @@
         SET category_id     = #{categoryId},
             name            = #{name},
             description     = #{description},
+            tags            = #{tags},
             type            = #{type},
             price           = #{price},
             stock           = #{stock},
@@ -159,7 +160,7 @@
     </select>
 
     <select id="findForFeed" resultType="com.sundry.catalog.Product">
-        SELECT p.id, p.request_id, p.category_id, p.name, p.description, p.type, p.price, p.stock,
+        SELECT p.id, p.request_id, p.category_id, p.name, p.description, p.tags, p.type, p.price, p.stock,
                p.cover_file_id, p.digital_file_id, p.status, p.deleted_at, p.created_at, p.updated_at,
                c.name AS category_name,
                f.bucket AS cover_bucket,
@@ -182,7 +183,7 @@
     </select>
 
     <select id="findForFeedByIds" resultType="com.sundry.catalog.Product">
-        SELECT p.id, p.request_id, p.category_id, p.name, p.description, p.type, p.price, p.stock,
+        SELECT p.id, p.request_id, p.category_id, p.name, p.description, p.tags, p.type, p.price, p.stock,
                p.cover_file_id, p.digital_file_id, p.status, p.deleted_at, p.created_at, p.updated_at,
                c.name AS category_name,
                f.bucket AS cover_bucket,
@@ -206,7 +207,7 @@
     </select>
 
     <select id="findAllForEmbedding" resultType="com.sundry.catalog.Product">
-        SELECT p.id, p.category_id, p.name, p.description,
+        SELECT p.id, p.category_id, p.name, p.description, p.tags,
                c.name AS category_name
         FROM product p
         JOIN category c ON c.id = p.category_id AND c.status = 1
@@ -216,13 +217,20 @@
     </select>
 
     <select id="findEmbeddingCandidate" resultType="com.sundry.catalog.Product">
-        SELECT p.id, p.category_id, p.name, p.description,
+        SELECT p.id, p.category_id, p.name, p.description, p.tags,
                c.name AS category_name
         FROM product p
         JOIN category c ON c.id = p.category_id AND c.status = 1
         WHERE p.id = #{id}
           AND p.status = 'ON_SALE'
           AND p.deleted_at IS NULL
+    </select>
+
+    <select id="findTagsByIds" resultType="com.sundry.catalog.Product">
+        SELECT id, tags
+        FROM product
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     </select>
 
     <select id="findCategoriesByIds" resultType="com.sundry.catalog.Product">

@@ -31,6 +31,7 @@ export interface SaveProductPayload {
   type: ProductType
   digitalFileId: number | null
   status?: ProductStatus
+  tags: string[]
 }
 
 export const adminApi = {

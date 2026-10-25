@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 新建 / 编辑商品的请求。价格最大 8 位整数、2 位小数，单位元。
@@ -43,5 +44,8 @@ public record SaveProductRequest(
         Long digitalFileId,
 
         // 只在新建时生效；编辑时忽略，状态走单独的上下架接口
-        ProductStatus status) {
+        ProductStatus status,
+
+        // 自由标签，最多 8 个、每个不超过 20 字；服务端去重和 trim
+        List<String> tags) {
 }

@@ -40,6 +40,7 @@ public class FeedRecallService {
 
     public RecallResult recall(Long userId) {
         Map<Long, Double> affinity = affinity(userId);
+        Map<String, Double> tagAffinity = tagAffinity(userId);
         LinkedHashSet<Long> ids = new LinkedHashSet<>();
 
         int category = 0;
@@ -82,7 +83,39 @@ public class FeedRecallService {
                 .toList();
         log.debug("feed recall userId={} total={} hot={} new={} category={} coPurchase={} semantic={}",
                 userId, result.size(), hot, newCount, category, coPurchase, semantic);
-        return new RecallResult(result, hot, newCount, category, coPurchase, semantic, affinity);
+        return new RecallResult(result, hot, newCount, category, coPurchase, semantic,
+                affinity, tagAffinity);
+    }
+
+    private Map<String, Double> tagAffinity(Long userId) {
+        if (userId == null) {
+            return Map.of();
+        }
+        LocalDateTime since = LocalDateTime.now().minusDays(AFFINITY_DAYS);
+        List<Long> viewed = feedQueryMapper.findRecentViewedProductIds(userId, since, 30);
+        List<Long> purchased = feedQueryMapper.findRecentPurchasedProductIds(userId, 10);
+
+        Map<String, Double> weights = new HashMap<>();
+        addTags(weights, viewed, 1.0);
+        addTags(weights, purchased, 3.0);
+        return weights;
+    }
+
+    private void addTags(Map<String, Double> weights, List<Long> productIds, double weight) {
+        if (productIds.isEmpty()) {
+            return;
+        }
+        for (Product product : productMapper.findTagsByIds(productIds)) {
+            if (product.getTags() == null || product.getTags().isBlank()) {
+                continue;
+            }
+            for (String raw : product.getTags().split(",")) {
+                String tag = raw.trim();
+                if (!tag.isEmpty()) {
+                    weights.merge(tag, weight, Double::sum);
+                }
+            }
+        }
     }
 
     private Map<Long, Double> affinity(Long userId) {
@@ -111,6 +144,8 @@ public class FeedRecallService {
     }
 
     public record RecallResult(List<Long> ids, int hot, int newCount, int category,
-                               int coPurchase, int semantic, Map<Long, Double> affinity) {
+                               int coPurchase, int semantic,
+                               Map<Long, Double> affinity,
+                               Map<String, Double> tagAffinity) {
     }
 }

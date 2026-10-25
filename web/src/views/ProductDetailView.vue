@@ -204,6 +204,9 @@ onMounted(async () => {
             <span class="price-original">{{ formatPrice(product.price) }}</span>
           </p>
           <p v-else class="product-detail__price">{{ formatPrice(product.price) }}</p>
+          <div v-if="product.tags?.length" class="product-tags">
+            <span v-for="tag in product.tags" :key="tag" class="product-tag">{{ tag }}</span>
+          </div>
           <p v-if="seckill" class="seckill-note">
             秒杀进行中 · 每人限购 {{ seckill.perUserLimit }} 件 · 剩余 {{ seckill.remaining }} 件
             · 活动至 {{ new Date(seckill.endAt).toLocaleString('zh-CN') }}

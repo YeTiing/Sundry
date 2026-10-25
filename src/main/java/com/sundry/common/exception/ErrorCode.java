@@ -73,6 +73,7 @@ public enum ErrorCode {
     EMBEDDING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "向量生成失败，请稍后重试"),
     EMBEDDING_DIMENSION_MISMATCH(HttpStatus.CONFLICT, "embedding 维度与配置不一致"),
     VECTOR_STORE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "向量库不可用，请稍后重试"),
+    PRODUCT_TAGS_INVALID(HttpStatus.BAD_REQUEST, "标签最多 8 个，每个不超过 20 个字符"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "服务器内部错误");
 
     private final HttpStatus status;

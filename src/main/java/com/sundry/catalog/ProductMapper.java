@@ -44,6 +44,8 @@ public interface ProductMapper {
 
     Product findEmbeddingCandidate(@Param("id") Long id);
 
+    List<Product> findTagsByIds(@Param("ids") List<Long> ids);
+
     List<Product> findCategoriesByIds(@Param("ids") List<Long> ids);
 
     List<Product> findPageAdmin(@Param("status") ProductStatus status,

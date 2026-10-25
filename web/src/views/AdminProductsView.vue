@@ -27,6 +27,7 @@ const notice = ref('')
 const editingId = ref<number | null>(null)
 const name = ref('')
 const description = ref('')
+const tagsInput = ref('')
 const priceInput = ref('')
 const stockInput = ref('')
 const categoryId = ref<number | null>(null)
@@ -96,6 +97,7 @@ function resetForm(): void {
   editingId.value = null
   name.value = ''
   description.value = ''
+  tagsInput.value = ''
   priceInput.value = ''
   stockInput.value = ''
   categoryId.value = categories.value[0]?.id ?? null
@@ -122,6 +124,7 @@ function startEdit(product: Product): void {
   editingId.value = product.id
   name.value = product.name
   description.value = product.description
+  tagsInput.value = (product.tags ?? []).join(', ')
   priceInput.value = Number(product.price).toFixed(2)
   stockInput.value = product.type === 'PHYSICAL' ? String(product.stock) : ''
   categoryId.value = product.categoryId
@@ -150,6 +153,18 @@ function validateForm(): string {
   return ''
 }
 
+function parseTags(value: string): string[] {
+  const seen = new Set<string>()
+  return value
+    .split(/[,，]/)
+    .map((tag) => tag.trim())
+    .filter((tag) => {
+      if (!tag || seen.has(tag)) return false
+      seen.add(tag)
+      return true
+    })
+}
+
 function onTypeChange(): void {
   if (type.value === 'PHYSICAL') {
     digitalFileId.value = null
@@ -175,6 +190,7 @@ async function save(): Promise<void> {
       coverFileId: coverFileId.value,
       type: type.value,
       digitalFileId: type.value === 'DIGITAL' ? digitalFileId.value : null,
+      tags: parseTags(tagsInput.value),
     }
     if (isEditing.value) {
       const previousFileId = originalDigitalFileId.value
@@ -435,6 +451,16 @@ onMounted(async () => {
                 rows="5"
                 maxlength="5000"
                 placeholder="写清楚商品内容、交付方式等"
+              />
+            </label>
+
+            <label class="field">
+              <span class="field__label">商品标签</span>
+              <input
+                v-model.trim="tagsInput"
+                type="text"
+                maxlength="200"
+                placeholder="逗号分隔，最多 8 个，例如：办公, 效率"
               />
             </label>
 

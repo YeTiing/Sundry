@@ -184,7 +184,8 @@ public class ProductEmbeddingService {
     private String textOf(Product product) {
         String text = product.getName() + " "
                 + (product.getDescription() == null ? "" : product.getDescription())
-                + " 分类:" + (product.getCategoryName() == null ? "" : product.getCategoryName());
+                + " 分类:" + (product.getCategoryName() == null ? "" : product.getCategoryName())
+                + " 标签:" + (product.getTags() == null ? "" : product.getTags().replace(',', ' '));
         return text.length() > 2000 ? text.substring(0, 2000) : text;
     }
 
