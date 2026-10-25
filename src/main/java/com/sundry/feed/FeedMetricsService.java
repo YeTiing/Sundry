@@ -44,6 +44,15 @@ public class FeedMetricsService {
                         ratio(nz(row.getClicks()), nz(row.getExposures()))))
                 .toList();
 
+        List<FeedMetricsView.StrategyMetric> byStrategy = feedMetricsMapper
+                .countByStrategy(since).stream()
+                .map(row -> new FeedMetricsView.StrategyMetric(
+                        row.getStrategy(),
+                        nz(row.getExposures()),
+                        nz(row.getClicks()),
+                        ratio(nz(row.getClicks()), nz(row.getExposures()))))
+                .toList();
+
         List<FeedMetricsView.PositionMetric> byPosition = feedMetricsMapper
                 .countByPosition(since).stream()
                 .map(row -> new FeedMetricsView.PositionMetric(
@@ -70,6 +79,7 @@ public class FeedMetricsService {
                 clicks,
                 ratio(clicks, exposures),
                 byAlgorithm,
+                byStrategy,
                 byPosition,
                 ndcg(since),
                 coverage,

@@ -13,6 +13,8 @@ public interface FeedMetricsMapper {
 
     List<AlgorithmCount> countByAlgorithm(@Param("since") LocalDateTime since);
 
+    List<StrategyCount> countByStrategy(@Param("since") LocalDateTime since);
+
     List<PositionCount> countByPosition(@Param("since") LocalDateTime since);
 
     long countDistinctExposedProducts(@Param("since") LocalDateTime since);
@@ -58,6 +60,36 @@ public interface FeedMetricsMapper {
 
         public void setAlgorithm(String algorithm) {
             this.algorithm = algorithm;
+        }
+
+        public Long getExposures() {
+            return exposures;
+        }
+
+        public void setExposures(Long exposures) {
+            this.exposures = exposures;
+        }
+
+        public Long getClicks() {
+            return clicks;
+        }
+
+        public void setClicks(Long clicks) {
+            this.clicks = clicks;
+        }
+    }
+
+    class StrategyCount {
+        private String strategy;
+        private Long exposures;
+        private Long clicks;
+
+        public String getStrategy() {
+            return strategy;
+        }
+
+        public void setStrategy(String strategy) {
+            this.strategy = strategy;
         }
 
         public Long getExposures() {

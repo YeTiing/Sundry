@@ -20,6 +20,18 @@
         ORDER BY algorithm
     </select>
 
+    <select id="countByStrategy" resultType="com.sundry.feed.FeedMetricsMapper$StrategyCount">
+        SELECT SUBSTRING_INDEX(build_id, ':', 1) AS strategy,
+               SUM(event_type = 'EXPOSURE') AS exposures,
+               SUM(event_type = 'CLICK') AS clicks
+        FROM feed_event
+        WHERE created_at &gt;= #{since}
+          AND build_id IS NOT NULL
+          AND SUBSTRING_INDEX(build_id, ':', 1) IN ('PREF', 'EXPLORE', 'PRICE')
+        GROUP BY strategy
+        ORDER BY strategy
+    </select>
+
     <select id="countByPosition" resultType="com.sundry.feed.FeedMetricsMapper$PositionCount">
         SELECT item_position AS position,
                SUM(event_type = 'EXPOSURE') AS exposures,

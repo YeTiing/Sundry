@@ -7,12 +7,19 @@ import java.util.List;
  */
 public record FeedMetricsView(int windowDays, long exposures, long clicks, double ctr,
                               List<AlgorithmMetric> byAlgorithm,
+                              List<StrategyMetric> byStrategy,
                               List<PositionMetric> byPosition,
                               NdcgMetric ndcg,
                               CoverageMetric coverage,
                               DiversityMetric diversity) {
 
     public record AlgorithmMetric(String algorithm, long exposures, long clicks, double ctr) {
+    }
+
+    /**
+     * 按变体 buildId 前缀（PREF / EXPLORE / PRICE）分组的指标。
+     */
+    public record StrategyMetric(String strategy, long exposures, long clicks, double ctr) {
     }
 
     public record PositionMetric(int position, long exposures, long clicks, double ctr) {

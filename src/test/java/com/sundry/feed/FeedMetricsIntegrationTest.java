@@ -130,6 +130,52 @@ class FeedMetricsIntegrationTest {
     }
 
     @Test
+    void strategyBreakdownGroupsByBuildIdPrefix() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        long p1 = product(catA, "策略商品1", "ON_SALE");
+
+        eventWithBuild("t-pref-1", "EXPOSURE", "AI",
+                "PREF:11111111-1111-1111-1111-111111111111", p1, catA, 1);
+        eventWithBuild("t-pref-2", "EXPOSURE", "AI",
+                "PREF:11111111-1111-1111-1111-111111111111", p1, catA, 2);
+        eventWithBuild("t-pref-3", "EXPOSURE", "AI",
+                "PREF:11111111-1111-1111-1111-111111111111", p1, catA, 3);
+        eventWithBuild("t-pref-4", "CLICK", "AI",
+                "PREF:11111111-1111-1111-1111-111111111111", p1, catA, 1);
+
+        eventWithBuild("t-exp-1", "EXPOSURE", "AI",
+                "EXPLORE:22222222-2222-2222-2222-222222222222", p1, catA, 1);
+        eventWithBuild("t-exp-2", "EXPOSURE", "AI",
+                "EXPLORE:22222222-2222-2222-2222-222222222222", p1, catA, 2);
+
+        eventWithBuild("t-price-1", "EXPOSURE", "AI",
+                "PRICE:33333333-3333-3333-3333-333333333333", p1, catA, 1);
+        eventWithBuild("t-price-2", "CLICK", "AI",
+                "PRICE:33333333-3333-3333-3333-333333333333", p1, catA, 1);
+
+        // 旧格式 buildId 不参与策略分组
+        eventWithBuild("t-legacy", "EXPOSURE", "AI",
+                "550e8400-e29b-41d4-a716-446655440000", p1, catA, 1);
+
+        mockMvc.perform(get("/api/admin/feed/metrics").param("days", "7")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.byStrategy.length()").value(3))
+                .andExpect(jsonPath("$.byStrategy[0].strategy").value("EXPLORE"))
+                .andExpect(jsonPath("$.byStrategy[0].exposures").value(2))
+                .andExpect(jsonPath("$.byStrategy[0].clicks").value(0))
+                .andExpect(jsonPath("$.byStrategy[0].ctr").value(0.0))
+                .andExpect(jsonPath("$.byStrategy[1].strategy").value("PREF"))
+                .andExpect(jsonPath("$.byStrategy[1].exposures").value(3))
+                .andExpect(jsonPath("$.byStrategy[1].clicks").value(1))
+                .andExpect(jsonPath("$.byStrategy[1].ctr").value(0.3333))
+                .andExpect(jsonPath("$.byStrategy[2].strategy").value("PRICE"))
+                .andExpect(jsonPath("$.byStrategy[2].exposures").value(1))
+                .andExpect(jsonPath("$.byStrategy[2].clicks").value(1))
+                .andExpect(jsonPath("$.byStrategy[2].ctr").value(1.0));
+    }
+
+    @Test
     void windowFiltersOldEvents() throws Exception {
         Session admin = register(ADMIN_PHONE);
         long p1 = product(catA, "窗口商品", "ON_SALE");
@@ -180,6 +226,16 @@ class FeedMetricsIntegrationTest {
                 VALUES (?, 1, ?, ?, NULL, ?, ?, ?, ?)
                 """, traceId, type, algorithm, productId, categoryId, position,
                 Timestamp.valueOf(LocalDateTime.now().minusDays(daysAgo)));
+    }
+
+    private void eventWithBuild(String traceId, String type, String algorithm, String buildId,
+                                long productId, long categoryId, int position) {
+        jdbcTemplate.update("""
+                INSERT INTO feed_event
+                    (trace_id, user_id, event_type, algorithm, build_id,
+                     product_id, category_id, item_position, created_at)
+                VALUES (?, 1, ?, ?, ?, ?, ?, ?, NOW(3))
+                """, traceId, type, algorithm, buildId, productId, categoryId, position);
     }
 
     private long categoryId(String name) {

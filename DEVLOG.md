@@ -31,10 +31,10 @@
 | 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
 | 推荐 | 首页 Feed：多路召回（分类/协同/热销/新品/语义）、规则打分（分类/热度/新鲜度/标签）、多样性重排、Redis 快照、无限滑动；登录用户 AI 异步重排；曝光/点击 Kafka 异步回流；后台离线评估 |
-| AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；异步队列、buildId 防覆盖、失败降级、审计 |
+| AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 209 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 210 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1884,12 +1884,30 @@ sundry_seckill_compensation_total = 0
 
 - 待提交：`feat: AI 推流复用变体曝光下沉`
 
+## 2026-10-25 · AI 推流变体池（切片 5：策略指标）
+
+**做了什么**
+
+- `/api/admin/feed/metrics` 增加 `byStrategy`：按 `build_id` 冒号前缀分组，输出 PREF / EXPLORE / PRICE 的曝光、点击、CTR
+- 只统计三种已知前缀，旧的纯 UUID `build_id` 排除，避免历史数据污染
+- 表结构不变，复用现有 `feed_event.build_id`
+
+**验证**
+
+- Java：210 个用例全部通过（新增 1 个：三策略分组、CTR 计算、旧格式排除）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: 推荐指标按变体策略分组`
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
-- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理、多路召回、离线评估、管理端指标页、语义召回、向量增量、商品标签
-- 下一步：方案 B（换一批即时变体）、精排模型（需真实数据），或按原规划继续 A1/A4/A5/A7
+- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理、多路召回、离线评估、管理端指标页、语义召回、向量增量、商品标签、方案 B（换一批即时变体）
+- 下一步：精排模型（需真实数据），或按原规划继续 A1/A4/A5/A7
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
 
