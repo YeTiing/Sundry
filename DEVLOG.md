@@ -1682,12 +1682,32 @@ sundry_seckill_compensation_total = 0
 
 - `ff7b284` feat: Feed 离线评估接口
 
+## 2026-10-25 · 管理端推荐指标页
+
+**做了什么**
+
+- 新增 `/admin/feed`（ADMIN / SUPER_ADMIN）：
+  - 曝光、点击、CTR、NDCG@12、覆盖率、多样性
+  - 按算法（AI / RULE）和按位置两张表
+  - 7 / 14 / 30 天窗口切换
+- 管理后台导航加入口
+- 复用现有 admin 样式，不引入图表库
+
+**验证**
+
+- `npm run build` 通过
+- 后端接口已有 4 个集成测试覆盖；前端只做展示
+
+**提交**
+
+- `6283d2a` feat: 管理端推荐指标页
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
-- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理、多路召回、离线评估
-- 下一步：管理端 Feed 指标页（表格），或按原规划继续 A1/A4/A5/A7
+- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理、多路召回、离线评估、管理端指标页
+- 下一步：方案 B（离线预计算 3 组 AI 变体，换一批即时轮换），或按原规划继续 A1/A4/A5/A7
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
 
