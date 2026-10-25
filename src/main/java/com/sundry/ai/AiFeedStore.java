@@ -33,6 +33,8 @@ public class AiFeedStore {
     private static final String POOL_KEY = "feed:ai:pool:%d";
     private static final String POOL_NEXT_KEY = "feed:ai:pool:next:%d";
     private static final String POOL_SEEN_KEY = "feed:ai:pool:seen:%d";
+    private static final String POOL_ROUND_KEY = "feed:ai:pool:round:%d";
+    private static final String POOL_CURRENT_KEY = "feed:ai:pool:current:%d";
 
     private static final Duration LOCK_TTL = Duration.ofSeconds(60);
     private static final Duration ATTEMPT_TTL = Duration.ofMinutes(5);
@@ -67,6 +69,18 @@ public class AiFeedStore {
             end
             redis.call('EXPIRE', KEYS[1], ttl)
             return #ARGV - 1
+            """, Long.class);
+
+    /**
+     * 待上架区提升为正式池；没有待上架内容时返回 0。
+     */
+    private static final DefaultRedisScript<Long> PROMOTE_NEXT = new DefaultRedisScript<>("""
+            if redis.call('LLEN', KEYS[1]) > 0 then
+                redis.call('DEL', KEYS[2])
+                redis.call('RENAME', KEYS[1], KEYS[2])
+                return 1
+            end
+            return 0
             """, Long.class);
 
     private final StringRedisTemplate redis;
@@ -172,6 +186,8 @@ public class AiFeedStore {
                 continue;
             }
             recordSeen(userId, variant);
+            redis.opsForValue().set(currentKey(userId), variant.buildId(),
+                    properties.getFeedVariantTtl());
             return variant;
         }
         return null;
@@ -200,6 +216,97 @@ public class AiFeedStore {
     public long nextPoolSize(Long userId) {
         Long size = redis.opsForList().size(nextPoolKey(userId));
         return size == null ? 0 : size;
+    }
+
+    /**
+     * 待上架区原子替换正式池，并重置轮次计数。
+     */
+    public boolean promoteNext(Long userId) {
+        Long promoted = redis.execute(PROMOTE_NEXT,
+                List.of(nextPoolKey(userId), poolKey(userId)));
+        if (promoted != null && promoted > 0) {
+            resetRound(userId);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 按 buildId 查找变体；buildId 为空或未命中时返回第一份未过期变体。
+     * 扫描时顺手移除过期或损坏的变体。
+     */
+    public FeedSnapshot findVariant(Long userId, String buildId) {
+        String key = poolKey(userId);
+        List<String> values = redis.opsForList().range(key, 0, -1);
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        String target = buildId == null
+                ? redis.opsForValue().get(currentKey(userId))
+                : buildId;
+        FeedSnapshot fallback = null;
+        for (String json : values) {
+            FeedSnapshot variant = parseVariant(json);
+            if (variant == null || isExpired(variant)) {
+                redis.opsForList().remove(key, 1, json);
+                continue;
+            }
+            if (fallback == null) {
+                fallback = variant;
+            }
+            if (target != null && target.equals(variant.buildId())) {
+                return variant;
+            }
+        }
+        return fallback;
+    }
+
+    public long usablePoolSize(Long userId) {
+        return usableSize(poolKey(userId));
+    }
+
+    public long usableNextPoolSize(Long userId) {
+        return usableSize(nextPoolKey(userId));
+    }
+
+    /**
+     * 每次切换 +1；达到变体数时由调用方触发补算。
+     */
+    public long bumpRound(Long userId) {
+        Long round = redis.opsForValue().increment(roundKey(userId));
+        redis.expire(roundKey(userId), properties.getFeedVariantTtl());
+        return round == null ? 1 : round;
+    }
+
+    public void resetRound(Long userId) {
+        redis.delete(roundKey(userId));
+    }
+
+    public long attempts(Long userId) {
+        String value = redis.opsForValue().get(attemptKey(userId));
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
+    }
+
+    private long usableSize(String key) {
+        List<String> values = redis.opsForList().range(key, 0, -1);
+        if (values == null || values.isEmpty()) {
+            return 0;
+        }
+        long count = 0;
+        for (String json : values) {
+            FeedSnapshot variant = parseVariant(json);
+            if (variant != null && !isExpired(variant)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private FeedSnapshot parseVariant(String json) {
@@ -299,5 +406,13 @@ public class AiFeedStore {
 
     private String nextPoolKey(Long userId) {
         return POOL_NEXT_KEY.formatted(userId);
+    }
+
+    private String roundKey(Long userId) {
+        return POOL_ROUND_KEY.formatted(userId);
+    }
+
+    private String currentKey(Long userId) {
+        return POOL_CURRENT_KEY.formatted(userId);
     }
 }

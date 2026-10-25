@@ -81,42 +81,107 @@ public class FeedService {
             return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
                     STATUS_FALLBACK, null, null);
         }
-        return aiPage(userId, offset, size, refresh);
+        return aiPage(userId, offset, size, refresh, buildId);
     }
 
-    private FeedPage aiPage(Long userId, int offset, int size, boolean refresh) {
-        if (refresh) {
-            String newBuildId;
-            try {
-                newBuildId = aiFeedStore.enqueue(userId);
-            } catch (RuntimeException ex) {
-                log.warn("AI 推流入队失败，降级规则排序 userId={}", userId, ex);
-                newBuildId = null;
-            }
-            if (newBuildId == null) {
-                ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
-                return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
-                        STATUS_FALLBACK, null, null);
+    private FeedPage aiPage(Long userId, int offset, int size, boolean refresh, String buildId) {
+        try {
+            if (refresh) {
+                FeedSnapshot variant = switchVariant(userId);
+                if (variant != null) {
+                    finishSwitch(userId);
+                    return pageFromSnapshot(variant, offset, size, STATUS_READY, variant.buildId());
+                }
+                return pendingPage(userId, offset, size, true);
             }
 
-            FeedSnapshot snapshot = safeSnapshot(userId);
-            if (snapshot != null) {
-                return pageFromSnapshot(snapshot, offset, size, STATUS_PENDING, newBuildId);
+            FeedSnapshot variant = findVariant(userId, buildId);
+            if (variant != null) {
+                ensureBuild(userId, false);
+                return pageFromSnapshot(variant, offset, size, STATUS_READY, variant.buildId());
             }
+            return pendingPage(userId, offset, size, false);
+        } catch (RuntimeException ex) {
+            log.warn("AI 变体池读取失败，降级规则排序 userId={}", userId, ex);
             ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
             return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
-                    STATUS_PENDING, newBuildId, null);
+                    STATUS_FALLBACK, null, null);
         }
+    }
 
-        FeedSnapshot snapshot = safeSnapshot(userId);
-        if (snapshot != null) {
-            return pageFromSnapshot(snapshot, offset, size, STATUS_READY, snapshot.buildId());
+    /**
+     * 点击换一批：待上架区有新鲜批次就先提升为正式池，再切一份。
+     */
+    private FeedSnapshot switchVariant(Long userId) {
+        if (aiFeedStore.usableNextPoolSize(userId) > 0) {
+            aiFeedStore.promoteNext(userId);
         }
+        return aiFeedStore.switchVariant(userId);
+    }
 
-        String pending = safePending(userId);
+    /**
+     * 普通读取不推进指针；只有正式池为空时才把待上架区顶上。
+     */
+    private FeedSnapshot findVariant(Long userId, String buildId) {
+        FeedSnapshot variant = aiFeedStore.findVariant(userId, buildId);
+        if (variant != null) {
+            return variant;
+        }
+        if (aiFeedStore.usablePoolSize(userId) == 0
+                && aiFeedStore.usableNextPoolSize(userId) > 0) {
+            aiFeedStore.promoteNext(userId);
+            return aiFeedStore.findVariant(userId, buildId);
+        }
+        return null;
+    }
+
+    private FeedPage pendingPage(Long userId, int offset, int size, boolean forceBuild) {
+        boolean building = ensureBuild(userId, forceBuild);
         ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
         return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
-                pending == null ? STATUS_FALLBACK : STATUS_PENDING, pending, null);
+                building ? STATUS_PENDING : STATUS_FALLBACK, null, null);
+    }
+
+    /**
+     * 池子水位不足时入队补算。pending 存在说明已有构建在途；失败熔断期内不自动重试。
+     */
+    private boolean ensureBuild(Long userId, boolean force) {
+        try {
+            if (aiFeedStore.pending(userId) != null) {
+                return true;
+            }
+            if (!force) {
+                if (aiFeedStore.attempts(userId) >= aiProperties.getMaxAttempts()) {
+                    return false;
+                }
+                long usable = aiFeedStore.usablePoolSize(userId)
+                        + aiFeedStore.usableNextPoolSize(userId);
+                if (usable >= Math.max(1, aiProperties.getFeedVariantCount())) {
+                    return false;
+                }
+            }
+            return aiFeedStore.enqueue(userId) != null;
+        } catch (RuntimeException ex) {
+            log.warn("AI 补算入队失败 userId={}", userId, ex);
+            return false;
+        }
+    }
+
+    /**
+     * 切满一轮后主动补算，让下一批提前备好。失败不影响本次返回。
+     */
+    private void finishSwitch(Long userId) {
+        try {
+            long round = aiFeedStore.bumpRound(userId);
+            if (round >= Math.max(1, aiProperties.getFeedVariantCount())) {
+                aiFeedStore.resetRound(userId);
+                ensureBuild(userId, true);
+                return;
+            }
+            ensureBuild(userId, false);
+        } catch (RuntimeException ex) {
+            log.warn("AI 补算水位检查失败 userId={}", userId, ex);
+        }
     }
 
     private FeedPage pageFromSnapshot(FeedSnapshot snapshot, int offset, int size,
@@ -136,24 +201,6 @@ public class FeedService {
         boolean hasMore = index < items.size();
         Long nextCursor = hasMore ? (long) index : null;
         return new FeedPage(views, nextCursor, hasMore, status, buildId, snapshot.buildId());
-    }
-
-    private FeedSnapshot safeSnapshot(Long userId) {
-        try {
-            return aiFeedStore.snapshot(userId);
-        } catch (RuntimeException ex) {
-            log.warn("读取 AI 快照失败 userId={}", userId, ex);
-            return null;
-        }
-    }
-
-    private String safePending(Long userId) {
-        try {
-            return aiFeedStore.pending(userId);
-        } catch (RuntimeException ex) {
-            log.warn("读取 AI 待处理标记失败 userId={}", userId, ex);
-            return null;
-        }
     }
 
     private ScrollPage<ProductView> rulePage(Long userId, int offset, int size, boolean refresh) {

@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -115,27 +116,26 @@ class AiFeedIntegrationTest {
         List<List<Long>> captured = new ArrayList<>();
         stubRerankReversed(captured);
 
-        MvcResult pending = refresh(user.token(), 5)
+        refresh(user.token(), 5)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.aiStatus").value("PENDING"))
-                .andExpect(jsonPath("$.aiBuildId").isNotEmpty())
+                .andExpect(jsonPath("$.aiBuildId").doesNotExist())
                 .andExpect(jsonPath("$.items.length()").value(5))
                 .andReturn();
-        String buildId = JsonPath.read(body(pending), "$.aiBuildId");
         assertThat(store.queueSize()).isEqualTo(1);
 
         processor.buildPending();
 
         MvcResult ready = mockMvc.perform(get("/api/feed")
                         .param("size", "5")
-                        .param("buildId", buildId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.aiStatus").value("READY"))
-                .andExpect(jsonPath("$.aiBuildId").value(buildId))
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty())
                 .andExpect(jsonPath("$.items.length()").value(5))
                 .andExpect(jsonPath("$.items[0].reason").value("AI推荐"))
                 .andReturn();
+        assertThat(JsonPath.<String>read(body(ready), "$.aiBuildId")).startsWith("PREF:");
 
         List<Long> expected = new ArrayList<>(captured.get(0));
         Collections.reverse(expected);
@@ -160,11 +160,10 @@ class AiFeedIntegrationTest {
                             "deepseek-chat", "feed_rerank_v1");
                 });
 
-        String buildId = refreshAndBuild(user.token(), 5);
+        refreshAndBuild(user.token(), 5);
 
         MvcResult result = mockMvc.perform(get("/api/feed")
                         .param("size", "5")
-                        .param("buildId", buildId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -213,21 +212,20 @@ class AiFeedIntegrationTest {
         seedProducts(6);
         stubRerankReversed(new ArrayList<>());
 
-        String first = JsonPath.read(body(refresh(user.token(), 5).andReturn()), "$.aiBuildId");
-        String second = JsonPath.read(body(refresh(user.token(), 5).andReturn()), "$.aiBuildId");
-        assertThat(second).isNotEqualTo(first);
+        refresh(user.token(), 5).andExpect(jsonPath("$.aiStatus").value("PENDING"));
+        refresh(user.token(), 5).andExpect(jsonPath("$.aiStatus").value("PENDING"));
         assertThat(store.queueSize()).isEqualTo(1);
-        assertThat(store.pending(user.id())).isEqualTo(second);
+        String pending = store.pending(user.id());
+        assertThat(pending).isNotNull();
 
         processor.buildPending();
 
         mockMvc.perform(get("/api/feed")
                         .param("size", "5")
-                        .param("buildId", second)
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.aiStatus").value("READY"))
-                .andExpect(jsonPath("$.aiBuildId").value(second));
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty());
     }
 
     @Test
@@ -247,15 +245,15 @@ class AiFeedIntegrationTest {
                     return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
                 });
 
-        String first = JsonPath.read(body(refresh(user.token(), 5).andReturn()), "$.aiBuildId");
+        refresh(user.token(), 5).andExpect(jsonPath("$.aiStatus").value("PENDING"));
         processor.buildPending();
 
         String pending = store.pending(user.id());
-        assertThat(pending).isNotNull().isNotEqualTo(first);
+        assertThat(pending).isNotNull();
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM ai_feed_log WHERE status = 'STALE'", Long.class))
                 .isEqualTo(1);
-        assertThat(redis.hasKey("feed:ai:snapshot:" + user.id())).isFalse();
+        assertThat(store.nextPoolSize(user.id())).isZero();
 
         // 新请求随后正常构建
         when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
@@ -264,11 +262,10 @@ class AiFeedIntegrationTest {
 
         mockMvc.perform(get("/api/feed")
                         .param("size", "5")
-                        .param("buildId", pending)
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.aiStatus").value("READY"))
-                .andExpect(jsonPath("$.aiBuildId").value(pending));
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty());
     }
 
     @Test
@@ -276,14 +273,15 @@ class AiFeedIntegrationTest {
         Session user = register(USER_PHONE);
         seedProducts(12);
         stubRerankReversed(new ArrayList<>());
-        String buildId = refreshAndBuild(user.token(), 5);
+        refreshAndBuild(user.token(), 5);
 
         MvcResult first = mockMvc.perform(get("/api/feed")
                         .param("size", "5")
-                        .param("buildId", buildId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
                 .andReturn();
+        String buildId = JsonPath.read(body(first), "$.aiBuildId");
         long cursor = ((Number) JsonPath.read(body(first), "$.nextCursor")).longValue();
 
         MvcResult second = mockMvc.perform(get("/api/feed")
@@ -403,6 +401,139 @@ class AiFeedIntegrationTest {
                 .toList();
     }
 
+    @Test
+    void refreshSwitchesVariantsWithoutWaiting() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
+                .thenAnswer(invocation -> {
+                    RerankRequest request = invocation.getArgument(0);
+                    List<RerankRequest.Candidate> candidates = request.candidates();
+                    boolean reversed = "PREF".equals(request.strategy());
+                    List<RerankResponse.RerankItem> items = new ArrayList<>();
+                    for (int i = 0; i < Math.min(5, candidates.size()); i++) {
+                        int index = reversed ? candidates.size() - 1 - i : i;
+                        items.add(new RerankResponse.RerankItem(
+                                candidates.get(index).id(), "AI推荐"));
+                    }
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                });
+
+        refreshAndBuild(user.token(), 5);
+
+        MvcResult first = refresh(user.token(), 5)
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andReturn();
+        String firstVariant = JsonPath.read(body(first), "$.aiBuildId");
+
+        MvcResult second = refresh(user.token(), 5)
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andReturn();
+        String secondVariant = JsonPath.read(body(second), "$.aiBuildId");
+
+        assertThat(secondVariant).isNotEqualTo(firstVariant);
+        assertThat(ids(first)).isNotEqualTo(ids(second));
+        assertThat(store.queueSize()).isEqualTo(1);
+
+        MvcResult third = refresh(user.token(), 5)
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andReturn();
+        assertThat(JsonPath.<String>read(body(third), "$.aiBuildId"))
+                .isEqualTo(firstVariant);
+    }
+
+    @Test
+    void activePoolIsNotReplacedUntilUserClicks() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        List<Long> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM product ORDER BY id", Long.class);
+        store.pushVariants(user.id(), List.of(
+                variant("ACTIVE:A", ids.get(0), ids.get(1)),
+                variant("ACTIVE:B", ids.get(2))));
+        store.pushNextVariants(user.id(), List.of(
+                variant("NEXT:C", ids.get(3), ids.get(4)),
+                variant("NEXT:D", ids.get(5))));
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(get("/api/feed")
+                            .param("size", "5")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.aiStatus").value("READY"))
+                    .andExpect(jsonPath("$.aiBuildId").value("ACTIVE:A"));
+        }
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .param("refresh", "true")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").value("NEXT:C"));
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiBuildId").value("NEXT:C"));
+    }
+
+    @Test
+    void emptyPoolRefreshEnqueuesOnlyOnce() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(4);
+
+        refresh(user.token(), 3)
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"))
+                .andExpect(jsonPath("$.aiBuildId").doesNotExist());
+        refresh(user.token(), 3)
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"));
+
+        assertThat(store.queueSize()).isEqualTo(1);
+    }
+
+    @Test
+    void nonRefreshWithEmptyPoolTriggersBuild() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(4);
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "3")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"));
+
+        assertThat(store.queueSize()).isEqualTo(1);
+    }
+
+    @Test
+    void expiredVariantsFallBackToPending() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(4);
+        Long productId = jdbcTemplate.queryForObject(
+                "SELECT id FROM product ORDER BY id LIMIT 1", Long.class);
+        store.pushVariants(user.id(), List.of(
+                new FeedSnapshot("OLD:A", LocalDateTime.now().minusMinutes(21),
+                        "deepseek-chat", "feed_rerank_v1",
+                        List.of(new FeedSnapshot.SnapshotItem(productId, null)), "PREF")));
+
+        refresh(user.token(), 3)
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"));
+
+        assertThat(store.poolSize(user.id())).isZero();
+        assertThat(store.queueSize()).isEqualTo(1);
+    }
+
+    private FeedSnapshot variant(String buildId, Long... ids) {
+        List<FeedSnapshot.SnapshotItem> items = new ArrayList<>();
+        for (Long id : ids) {
+            items.add(new FeedSnapshot.SnapshotItem(id, "AI推荐"));
+        }
+        return new FeedSnapshot(buildId, LocalDateTime.now(), "deepseek-chat",
+                "feed_rerank_v1", items, "PREF");
+    }
+
     private void stubRerankReversed(List<List<Long>> captured) {
         when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
                 .thenAnswer(invocation -> {
@@ -423,11 +554,9 @@ class AiFeedIntegrationTest {
                 });
     }
 
-    private String refreshAndBuild(String token, int size) throws Exception {
-        MvcResult pending = refresh(token, size).andReturn();
-        String buildId = JsonPath.read(body(pending), "$.aiBuildId");
+    private void refreshAndBuild(String token, int size) throws Exception {
+        refresh(token, size).andExpect(jsonPath("$.aiStatus").value("PENDING"));
         processor.buildPending();
-        return buildId;
     }
 
     private org.springframework.test.web.servlet.ResultActions refresh(String token, int size)

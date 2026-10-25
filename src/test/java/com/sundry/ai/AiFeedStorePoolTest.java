@@ -36,7 +36,7 @@ class AiFeedStorePoolTest {
 
     @BeforeEach
     void setUp() {
-        redis.delete(List.of(poolKey(), seenKey()));
+        redis.delete(List.of(poolKey(), seenKey(), nextKey(), roundKey(), currentKey()));
     }
 
     @Test
@@ -114,6 +114,34 @@ class AiFeedStorePoolTest {
         }
     }
 
+    @Test
+    void promoteReplacesActivePoolAndResetsRound() {
+        store.pushVariants(USER_ID, List.of(variant("A", LocalDateTime.now(), 1L)));
+        store.pushNextVariants(USER_ID, List.of(
+                variant("C", LocalDateTime.now(), 3L),
+                variant("D", LocalDateTime.now(), 4L)));
+        store.bumpRound(USER_ID);
+
+        assertThat(store.promoteNext(USER_ID)).isTrue();
+
+        assertThat(store.nextPoolSize(USER_ID)).isZero();
+        assertThat(store.poolSize(USER_ID)).isEqualTo(2);
+        assertThat(store.findVariant(USER_ID, null).buildId()).isEqualTo("C");
+        assertThat(redis.hasKey(roundKey())).isFalse();
+    }
+
+    @Test
+    void findVariantPrefersRequestedBuildId() {
+        store.pushVariants(USER_ID, List.of(
+                variant("A", LocalDateTime.now(), 1L),
+                variant("B", LocalDateTime.now(), 2L)));
+
+        assertThat(store.findVariant(USER_ID, "B").buildId()).isEqualTo("B");
+        assertThat(store.findVariant(USER_ID, "MISSING").buildId()).isEqualTo("A");
+        assertThat(store.findVariant(USER_ID, null).buildId()).isEqualTo("A");
+        assertThat(store.poolSize(USER_ID)).isEqualTo(2);
+    }
+
     private FeedSnapshot variant(String buildId, LocalDateTime builtAt, Long... ids) {
         List<SnapshotItem> items = Arrays.stream(ids)
                 .map(id -> new SnapshotItem(id, "推荐"))
@@ -127,5 +155,17 @@ class AiFeedStorePoolTest {
 
     private String seenKey() {
         return "feed:ai:pool:seen:" + USER_ID;
+    }
+
+    private String nextKey() {
+        return "feed:ai:pool:next:" + USER_ID;
+    }
+
+    private String roundKey() {
+        return "feed:ai:pool:round:" + USER_ID;
+    }
+
+    private String currentKey() {
+        return "feed:ai:pool:current:" + USER_ID;
     }
 }

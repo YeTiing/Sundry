@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；异步队列、buildId 防覆盖、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 200 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 207 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1834,6 +1834,33 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: AI 推流多变体并发构建`
+
+## 2026-10-25 · AI 推流变体池（切片 3：读取切池子）
+
+**做了什么**
+
+- `FeedService.aiPage`：点击「换一批」改为「待上架区有新鲜批次则提升 → Lua 切一份」，毫秒返回，不再入队等模型
+- 普通读取按 `buildId` 固定变体，不推进指针；新增 `feed:ai:pool:current:{uid}` 记录当前展示变体，页面重载（无 buildId）返回同一份
+- 池空 / 变体全过期 → 规则页 + `PENDING` + 补算；补算失败熔断 → `FALLBACK`
+- 补算触发点全部落地：首次访问、可用变体不足、切满一轮（`pool:round` 计数）、全部过期
+- `PENDING` 时 `aiBuildId` 为 null；`READY` 时返回当前变体 buildId
+- 构建成功不再写旧快照；失败时保留 `attempt` 作为 5 分钟熔断标记，避免每次读取都重试
+- 前端：首次进入 `PENDING` 也轮询，`READY` 直接采用新变体并按新 buildId 继续翻页
+
+**遇到问题**
+
+- 环形池切换后池头变成下一份，页面重载（前端拿不到 buildId）会换榜；新增 `pool:current` 指针修正
+- 构建失败后 `pending` 被清除，读取会立刻重新入队；改为保留 attempt 计数做熔断
+
+**验证**
+
+- Java：207 个用例全部通过（新增 2 个存储用例、5 个读取路径用例：切换不等构建、点击前不替换、空池只入队一次、普通读取触发构建、过期回退）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: AI 推流读取切换到变体池`
 
 ## 待办 / 下一步
 

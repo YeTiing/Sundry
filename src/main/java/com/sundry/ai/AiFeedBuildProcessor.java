@@ -128,10 +128,7 @@ public class AiFeedBuildProcessor {
             }
             store.pushNextVariants(userId, snapshots);
 
-            // 切片 2 仍写旧快照，读取路径不变；切片 3 切换到池子后删除这一段。
             VariantBuild first = variants.get(0);
-            store.saveSnapshot(userId, new FeedSnapshot(pending, builtAt,
-                    first.model(), first.promptVersion(), first.items()));
             store.clearPending(userId);
             store.clearAttempts(userId);
             audit(userId, traceId, first.model(), first.promptVersion(),
@@ -141,8 +138,8 @@ public class AiFeedBuildProcessor {
             long attempt = store.nextAttempt(userId);
             String reason = messageOf(ex);
             if (attempt >= properties.getMaxAttempts()) {
+                // 保留失败计数作为熔断标记，5 分钟内不再自动重试；成功时清除。
                 store.clearPending(userId);
-                store.clearAttempts(userId);
                 audit(userId, traceId, null, null, candidateCount, 0,
                         start, "FALLBACK", reason);
                 log.warn("AI 推流失败，已降级 userId={} attempt={} reason={}",

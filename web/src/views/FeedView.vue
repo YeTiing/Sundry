@@ -135,22 +135,16 @@ async function loadFirst(
 }
 
 /**
- * 换一批走异步链路：请求立即返回 PENDING，随后轮询拿 AI 排序结果。
+ * 后台构建期间轮询：只在 PENDING 时继续，READY 立即替换。
  */
-async function refreshWithAi(): Promise<void> {
-  const token = ++pollToken
-  const first = await loadFirst(true)
-  if (!first || token !== pollToken) return
-  if (first.aiStatus !== 'PENDING' || !first.aiBuildId) return
-
-  const target = first.aiBuildId
+async function pollUntilReady(token: number): Promise<void> {
   for (let i = 0; i < POLL_TIMES; i++) {
     await sleep(POLL_INTERVAL_MS)
     if (token !== pollToken) return
     try {
-      const page = await feedApi.getFeed(null, PAGE_SIZE, false, target)
+      const page = await feedApi.getFeed(null, PAGE_SIZE, false, aiBuildId.value)
       if (token !== pollToken) return
-      if (page.aiStatus === 'READY' && page.aiBuildId === target) {
+      if (page.aiStatus === 'READY') {
         products.value = page.items
         cursor.value = page.nextCursor
         hasMore.value = page.hasMore
@@ -161,10 +155,22 @@ async function refreshWithAi(): Promise<void> {
         exposeSoon(requestSeq)
         return
       }
+      if (page.aiStatus !== 'PENDING') return
     } catch {
       // 单次轮询失败不打断，继续等下一轮
     }
   }
+}
+
+/**
+ * 换一批：池子里有变体时毫秒返回；池空才进入 PENDING 轮询。
+ */
+async function refreshWithAi(): Promise<void> {
+  const token = ++pollToken
+  const first = await loadFirst(true)
+  if (!first || token !== pollToken) return
+  if (first.aiStatus !== 'PENDING') return
+  await pollUntilReady(token)
 }
 
 async function loadMore(): Promise<void> {
@@ -227,8 +233,11 @@ onMounted(async () => {
     restoreScroll()
   } else {
     const data = await loadFirst(false)
-    // 登录用户首次进入时，如果还没有 AI 快照，自动触发一次构建
-    if (data && data.aiStatus === 'FALLBACK' && auth.isAuthenticated) {
+    // 首次访问池子为空时后端会入队，前端只在 PENDING 期间轮询
+    if (data && data.aiStatus === 'PENDING') {
+      const token = ++pollToken
+      await pollUntilReady(token)
+    } else if (data && data.aiStatus === 'FALLBACK' && auth.isAuthenticated) {
       await refreshWithAi()
     }
   }
