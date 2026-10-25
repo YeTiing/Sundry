@@ -525,6 +525,53 @@ class AiFeedIntegrationTest {
         assertThat(store.queueSize()).isEqualTo(1);
     }
 
+    @Test
+    void repeatedVariantSinksRecentlyExposedHead() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(50);
+        List<Long> productIds = jdbcTemplate.queryForList(
+                "SELECT id FROM product ORDER BY id", Long.class);
+        List<FeedSnapshot.SnapshotItem> itemsA = new ArrayList<>();
+        List<FeedSnapshot.SnapshotItem> itemsB = new ArrayList<>();
+        for (int i = 0; i < 25; i++) {
+            itemsA.add(new FeedSnapshot.SnapshotItem(productIds.get(i), "AI推荐"));
+            itemsB.add(new FeedSnapshot.SnapshotItem(productIds.get(25 + i), "AI推荐"));
+        }
+        store.pushVariants(user.id(), List.of(
+                new FeedSnapshot("A", LocalDateTime.now(), "m", "v", itemsA, "PREF"),
+                new FeedSnapshot("B", LocalDateTime.now(), "m", "v", itemsB, "EXPLORE")));
+
+        MvcResult first = refresh(user.token(), 20)
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andReturn();
+        List<Long> exposedHead = new ArrayList<>(ids(first).subList(0, 8));
+
+        refresh(user.token(), 20)
+                .andExpect(jsonPath("$.aiBuildId").value("B"));
+
+        MvcResult again = refresh(user.token(), 20)
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").value("A"))
+                .andReturn();
+        List<Long> sunk = ids(again);
+
+        assertThat(sunk.subList(0, 8)).doesNotContainAnyElementsOf(exposedHead);
+        for (Long id : exposedHead) {
+            assertThat(sunk.indexOf(id)).isBetween(11, 19);
+        }
+
+        // 翻页沿用下沉后的顺序，不重复
+        MvcResult pageTwo = mockMvc.perform(get("/api/feed")
+                        .param("size", "20")
+                        .param("cursor", "20")
+                        .param("buildId", "A")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiBuildId").value("A"))
+                .andReturn();
+        assertThat(ids(pageTwo)).doesNotContainAnyElementsOf(sunk);
+    }
+
     private FeedSnapshot variant(String buildId, Long... ids) {
         List<FeedSnapshot.SnapshotItem> items = new ArrayList<>();
         for (Long id : ids) {

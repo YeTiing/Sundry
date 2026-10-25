@@ -37,6 +37,7 @@ class AiFeedStorePoolTest {
     @BeforeEach
     void setUp() {
         redis.delete(List.of(poolKey(), seenKey(), nextKey(), roundKey(), currentKey()));
+        clear(redis.keys("feed:ai:variant:view:" + USER_ID + ":*"));
     }
 
     @Test
@@ -115,6 +116,41 @@ class AiFeedStorePoolTest {
     }
 
     @Test
+    void repeatedVariantMovesSeenHeadDown() {
+        Long[] first = new Long[25];
+        Long[] second = new Long[25];
+        for (int i = 0; i < 25; i++) {
+            first[i] = (long) (i + 1);
+            second[i] = (long) (i + 101);
+        }
+        store.pushVariants(USER_ID, List.of(
+                variant("A", LocalDateTime.now(), first),
+                variant("B", LocalDateTime.now(), second)));
+
+        store.switchVariant(USER_ID);
+        assertThat(redis.opsForZSet().score(seenKey(), "1")).isNotNull();
+        assertThat(redis.opsForZSet().rangeByScore(seenKey(),
+                System.currentTimeMillis() - 600_000, Double.MAX_VALUE)).contains("1");
+        store.switchVariant(USER_ID);
+
+        FeedSnapshot again = store.switchVariant(USER_ID);
+
+        assertThat(again.buildId()).isEqualTo("A");
+        assertThat(again.items().get(0).id()).isEqualTo(9L);
+        for (long id = 1; id <= 8; id++) {
+            Long value = id;
+            int position = -1;
+            for (int i = 0; i < again.items().size(); i++) {
+                if (value.equals(again.items().get(i).id())) {
+                    position = i;
+                    break;
+                }
+            }
+            assertThat(position).isBetween(11, 19);
+        }
+    }
+
+    @Test
     void promoteReplacesActivePoolAndResetsRound() {
         store.pushVariants(USER_ID, List.of(variant("A", LocalDateTime.now(), 1L)));
         store.pushNextVariants(USER_ID, List.of(
@@ -140,6 +176,12 @@ class AiFeedStorePoolTest {
         assertThat(store.findVariant(USER_ID, "MISSING").buildId()).isEqualTo("A");
         assertThat(store.findVariant(USER_ID, null).buildId()).isEqualTo("A");
         assertThat(store.poolSize(USER_ID)).isEqualTo(2);
+    }
+
+    private void clear(java.util.Collection<String> keys) {
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
     }
 
     private FeedSnapshot variant(String buildId, LocalDateTime builtAt, Long... ids) {

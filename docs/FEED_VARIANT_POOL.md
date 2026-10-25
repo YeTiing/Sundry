@@ -86,6 +86,7 @@ feed:ai:attempt:{uid}    STR    失败计数（5 分钟）
 feed:ai:pool:{uid}       LIST  变体池（当前生效），每个元素是一份变体 JSON，环形使用
 feed:ai:pool:next:{uid}  LIST  待上架区：新构建结果先放这里，下次点击时提升为正式池
 feed:ai:pool:current:{uid} STR 当前展示的变体 buildId，无 buildId 的请求按它返回同一份
+feed:ai:variant:view:{uid}:{buildId} STR 曝光下沉后的变体快照（保证翻页顺序一致）
 feed:ai:pool:seen:{uid}  ZSET  已曝光商品 → 时间戳（去重降权用，TTL 1h）
 feed:ai:pending:{uid}    STR   buildId，语义保留（首次构建中）
 feed:ai:queued:{uid}     STR   保留，防重复入队
@@ -203,6 +204,7 @@ return v
 - 位于变体前 8 名且已曝光的，下沉到该变体的第 12~20 位
 - 不删除（保证列表长度不变），只调整
 - 零 DB 开销，纯 Redis
+- 下沉后的顺序写入 `feed:ai:variant:view:{uid}:{buildId}`（TTL 与变体一致）；翻页读同一份，避免“第一页下沉、第二页没下沉”
 
 ### 4.9 多实例并发
 

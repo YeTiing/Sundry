@@ -10,7 +10,9 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -35,10 +37,16 @@ public class AiFeedStore {
     private static final String POOL_SEEN_KEY = "feed:ai:pool:seen:%d";
     private static final String POOL_ROUND_KEY = "feed:ai:pool:round:%d";
     private static final String POOL_CURRENT_KEY = "feed:ai:pool:current:%d";
+    private static final String VARIANT_VIEW_KEY = "feed:ai:variant:view:%d:%s";
 
     private static final Duration LOCK_TTL = Duration.ofSeconds(60);
     private static final Duration ATTEMPT_TTL = Duration.ofMinutes(5);
     private static final Duration POOL_SEEN_TTL = Duration.ofHours(1);
+    private static final Duration SEEN_WINDOW = Duration.ofMinutes(10);
+
+    private static final int SEEN_SINK_HEAD = 8;
+    private static final int SEEN_SINK_FROM = 11;
+    private static final int SEEN_SINK_TO = 20;
 
     private static final DefaultRedisScript<Long> RELEASE_LOCK = new DefaultRedisScript<>("""
             if redis.call('GET', KEYS[1]) == ARGV[1] then
@@ -185,10 +193,12 @@ public class AiFeedStore {
                 redis.opsForList().remove(key, 1, json);
                 continue;
             }
+            FeedSnapshot viewed = sinkSeen(userId, variant);
             recordSeen(userId, variant);
+            saveVariantView(userId, viewed);
             redis.opsForValue().set(currentKey(userId), variant.buildId(),
                     properties.getFeedVariantTtl());
-            return variant;
+            return viewed;
         }
         return null;
     }
@@ -245,6 +255,7 @@ public class AiFeedStore {
                 ? redis.opsForValue().get(currentKey(userId))
                 : buildId;
         FeedSnapshot fallback = null;
+        FeedSnapshot resolved = null;
         for (String json : values) {
             FeedSnapshot variant = parseVariant(json);
             if (variant == null || isExpired(variant)) {
@@ -255,10 +266,77 @@ public class AiFeedStore {
                 fallback = variant;
             }
             if (target != null && target.equals(variant.buildId())) {
-                return variant;
+                resolved = variant;
+                break;
             }
         }
-        return fallback;
+        FeedSnapshot variant = resolved == null ? fallback : resolved;
+        return variant == null ? null : viewOrSelf(userId, variant);
+    }
+
+    /**
+     * 复用旧变体时，把最近曝光过的头部商品下沉到 12~20 位；顺序持久化到 view key，保证翻页一致。
+     */
+    private FeedSnapshot sinkSeen(Long userId, FeedSnapshot variant) {
+        List<FeedSnapshot.SnapshotItem> original = variant.items();
+        if (original == null || original.size() <= SEEN_SINK_HEAD) {
+            return variant;
+        }
+        Set<String> seen = redis.opsForZSet().rangeByScore(poolSeenKey(userId),
+                System.currentTimeMillis() - SEEN_WINDOW.toMillis(), Double.MAX_VALUE);
+        if (seen == null || seen.isEmpty()) {
+            return variant;
+        }
+        Set<Long> seenIds = new HashSet<>();
+        for (String value : seen) {
+            try {
+                seenIds.add(Long.valueOf(value));
+            } catch (NumberFormatException ex) {
+                // 成员格式异常时跳过，不影响排序
+            }
+        }
+
+        List<FeedSnapshot.SnapshotItem> items = new ArrayList<>(original);
+        List<FeedSnapshot.SnapshotItem> sunk = new ArrayList<>();
+        int examined = 0;
+        int index = 0;
+        while (examined < SEEN_SINK_HEAD && index < items.size()) {
+            if (seenIds.contains(items.get(index).id())) {
+                sunk.add(items.remove(index));
+            } else {
+                index++;
+            }
+            examined++;
+        }
+        int insert = Math.min(SEEN_SINK_FROM, items.size());
+        for (FeedSnapshot.SnapshotItem item : sunk) {
+            if (insert >= SEEN_SINK_TO) {
+                break;
+            }
+            items.add(insert, item);
+            insert++;
+        }
+        return new FeedSnapshot(variant.buildId(), variant.builtAt(), variant.model(),
+                variant.promptVersion(), items, variant.strategy());
+    }
+
+    private void saveVariantView(Long userId, FeedSnapshot variant) {
+        redis.opsForValue().set(viewKey(userId, variant.buildId()),
+                objectMapper.writeValueAsString(variant),
+                properties.getFeedVariantTtl());
+    }
+
+    private FeedSnapshot viewOrSelf(Long userId, FeedSnapshot variant) {
+        String json = redis.opsForValue().get(viewKey(userId, variant.buildId()));
+        if (json == null) {
+            return variant;
+        }
+        FeedSnapshot view = parseVariant(json);
+        if (view == null || isExpired(view)) {
+            redis.delete(viewKey(userId, variant.buildId()));
+            return variant;
+        }
+        return view;
     }
 
     public long usablePoolSize(Long userId) {
@@ -414,5 +492,9 @@ public class AiFeedStore {
 
     private String currentKey(Long userId) {
         return POOL_CURRENT_KEY.formatted(userId);
+    }
+
+    private String viewKey(Long userId, String buildId) {
+        return VARIANT_VIEW_KEY.formatted(userId, buildId);
     }
 }
