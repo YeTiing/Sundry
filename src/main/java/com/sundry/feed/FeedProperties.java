@@ -12,6 +12,9 @@ public class FeedProperties {
     private int behaviorCleanupBatchSize = 5000;
     private int behaviorCleanupMaxBatches = 10;
 
+    private String eventTopic = "sundry.feed.event";
+    private String eventGroup = "sundry-feed-event";
+
     public int getBehaviorBatchSize() {
         return behaviorBatchSize;
     }
@@ -42,5 +45,21 @@ public class FeedProperties {
 
     public void setBehaviorCleanupMaxBatches(int behaviorCleanupMaxBatches) {
         this.behaviorCleanupMaxBatches = behaviorCleanupMaxBatches;
+    }
+
+    public String getEventTopic() {
+        return eventTopic;
+    }
+
+    public void setEventTopic(String eventTopic) {
+        this.eventTopic = eventTopic;
+    }
+
+    public String getEventGroup() {
+        return eventGroup;
+    }
+
+    public void setEventGroup(String eventGroup) {
+        this.eventGroup = eventGroup;
     }
 }

@@ -47,6 +47,9 @@ class FeedEventIntegrationTest {
     @Autowired
     private CapturingSmsSender smsSender;
 
+    @Autowired
+    private FeedEventConsumer feedEventConsumer;
+
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("DELETE FROM feed_event");
@@ -196,6 +199,38 @@ class FeedEventIntegrationTest {
         assertThat(count()).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT product_id FROM feed_event", Long.class)).isEqualTo(product);
+    }
+
+    @Test
+    void kafkaMessageIsConsumedAndStored() throws Exception {
+        Session user = register(USER_PHONE);
+        long category = categoryId("实物");
+        long product = createProduct(category, "消费消息商品");
+
+        String message = """
+                {"userId":%d,"traceId":"trace-00000009","buildId":"build-9",
+                 "algorithm":"AI",
+                 "events":[{"type":"EXPOSURE","productId":%d,"position":1},
+                           {"type":"CLICK","productId":%d,"position":1}]}
+                """.formatted(user.id(), product, product);
+
+        feedEventConsumer.handle(message);
+
+        assertThat(count()).isEqualTo(2);
+        Map<String, Object> row = jdbcTemplate.queryForMap("""
+                SELECT user_id, category_id, algorithm, build_id
+                FROM feed_event WHERE event_type = 'CLICK'
+                """);
+        assertThat(((Number) row.get("user_id")).longValue()).isEqualTo(user.id());
+        assertThat(((Number) row.get("category_id")).longValue()).isEqualTo(category);
+        assertThat(row.get("algorithm")).isEqualTo("AI");
+        assertThat(row.get("build_id")).isEqualTo("build-9");
+    }
+
+    @Test
+    void malformedKafkaMessageIsDropped() {
+        feedEventConsumer.handle("not json");
+        assertThat(count()).isZero();
     }
 
     @Test

@@ -20,10 +20,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/feed/events")
 public class FeedEventController {
 
-    private final FeedEventService feedEventService;
+    private final FeedEventPublisher feedEventPublisher;
 
-    public FeedEventController(FeedEventService feedEventService) {
-        this.feedEventService = feedEventService;
+    public FeedEventController(FeedEventPublisher feedEventPublisher) {
+        this.feedEventPublisher = feedEventPublisher;
     }
 
     @PostMapping
@@ -33,6 +33,6 @@ public class FeedEventController {
         if (user == null) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
-        feedEventService.record(user.id(), request);
+        feedEventPublisher.publish(user.id(), request);
     }
 }

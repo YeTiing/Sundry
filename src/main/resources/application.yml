@@ -75,6 +75,8 @@ app:
     behavior-retention-days: 30
     behavior-cleanup-batch-size: 5000
     behavior-cleanup-max-batches: 10
+    event-topic: ${FEED_EVENT_TOPIC:sundry.feed.event}
+    event-group: ${FEED_EVENT_GROUP:sundry-feed-event}
   ai:
     enabled: ${AI_FEED_ENABLED:true}
     base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
