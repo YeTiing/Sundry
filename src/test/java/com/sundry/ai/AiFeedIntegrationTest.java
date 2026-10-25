@@ -120,7 +120,7 @@ class AiFeedIntegrationTest {
         refresh(user.token(), 5)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.aiStatus").value("PENDING"))
-                .andExpect(jsonPath("$.aiBuildId").doesNotExist())
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty())
                 .andExpect(jsonPath("$.items.length()").value(5))
                 .andReturn();
         assertThat(store.queueSize()).isEqualTo(1);
@@ -531,6 +531,69 @@ class AiFeedIntegrationTest {
     }
 
     @Test
+    void firstVisitSeedsRuleVariantsAndSwitchesOnClick() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(24);
+
+        MvcResult first = mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"))
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty())
+                .andExpect(jsonPath("$.items.length()").value(5))
+                .andReturn();
+        String firstVariant = JsonPath.read(body(first), "$.aiBuildId");
+        assertThat(firstVariant).startsWith("PREF:");
+        assertThat(store.poolSize(user.id())).isEqualTo(2);
+        assertThat(store.queueSize()).isEqualTo(1);
+
+        MvcResult second = refresh(user.token(), 5)
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"))
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty())
+                .andReturn();
+        String secondVariant = JsonPath.read(body(second), "$.aiBuildId");
+        assertThat(secondVariant).startsWith("EXPLORE:");
+        assertThat(ids(first)).isNotEqualTo(ids(second));
+
+        // 轮询用当前 buildId，不推进指针
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .param("buildId", secondVariant)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"))
+                .andExpect(jsonPath("$.aiBuildId").value(secondVariant));
+    }
+
+    @Test
+    void provisionalUpgradesToAiAfterBuild() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        stubRerankReversed(new ArrayList<>());
+
+        MvcResult first = mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"))
+                .andReturn();
+        String provisional = JsonPath.read(body(first), "$.aiBuildId");
+        assertThat(provisional).startsWith("PREF:");
+
+        processor.buildPending();
+
+        MvcResult upgraded = mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .param("buildId", provisional)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty())
+                .andReturn();
+        assertThat(JsonPath.<String>read(body(upgraded), "$.aiBuildId"))
+                .isNotEqualTo(provisional);
+        assertThat(store.nextPoolSize(user.id())).isZero();
+    }
+
+    @Test
     void partialNextBatchIsNotPromotedWhileActivePoolIsHealthy() throws Exception {
         Session user = register(USER_PHONE);
         seedProducts(12);
@@ -611,7 +674,7 @@ class AiFeedIntegrationTest {
 
         refresh(user.token(), 3)
                 .andExpect(jsonPath("$.aiStatus").value("PENDING"))
-                .andExpect(jsonPath("$.aiBuildId").doesNotExist());
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty());
         refresh(user.token(), 3)
                 .andExpect(jsonPath("$.aiStatus").value("PENDING"));
 
@@ -644,9 +707,11 @@ class AiFeedIntegrationTest {
                         List.of(new FeedSnapshot.SnapshotItem(productId, null)), "PREF")));
 
         refresh(user.token(), 3)
-                .andExpect(jsonPath("$.aiStatus").value("PENDING"));
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"))
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty());
 
-        assertThat(store.poolSize(user.id())).isZero();
+        // 过期后先用规则兜底变体顶上，同时补算
+        assertThat(store.poolSize(user.id())).isEqualTo(2);
         assertThat(store.queueSize()).isEqualTo(1);
     }
 

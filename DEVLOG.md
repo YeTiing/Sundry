@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 216 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 218 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1992,6 +1992,25 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: Feed 构建限流与模型降级`
+
+## 2026-10-25 · Feed 首屏规则兜底变体
+
+**做了什么**
+
+- 池子为空时不再返回“点了没反应”的规则页：同步用规则分数生成 2 份临时变体（PREF 规则顺序、EXPLORE 头部错开 12 位），写入池子并立即返回第一份
+- 临时变体标记 `model=rule-fallback`，状态 `PENDING`，`aiBuildId` 指向当前临时变体；等待期间点「换一批」会在两份之间切换
+- 轮询携带临时变体 buildId，不会推进指针；AI 批次就绪且首份是真实 AI 时自动提升升级，模型失败则保持临时变体并转 `FALLBACK`
+- 去掉前端首次 `FALLBACK` 自动刷新，避免首屏多切一次
+
+**验证**
+
+- Java：218 个用例全部通过（新增：首次访问生成临时变体并点击切换、AI 就绪后自动升级；过期回退用例改为断言临时变体）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: Feed 首屏规则兜底变体`
 
 ## 待办 / 下一步
 

@@ -246,6 +246,31 @@ public class AiFeedStore {
     }
 
     /**
+     * 待上架区是否有完整、且首份是真实 AI 的批次；用于临时变体的自动升级。
+     */
+    public boolean hasPromotableNextBatch(Long userId) {
+        List<String> values = redis.opsForList().range(nextPoolKey(userId), 0, -1);
+        if (values == null || values.isEmpty()) {
+            return false;
+        }
+        long usable = 0;
+        Boolean firstReal = null;
+        for (String raw : values) {
+            PoolEntry entry = decode(raw);
+            if (entry == null || isExpired(entry)) {
+                continue;
+            }
+            usable++;
+            if (firstReal == null) {
+                FeedSnapshot variant = parseVariant(entry.json());
+                firstReal = variant != null && !variant.ruleFallback();
+            }
+        }
+        return usable >= properties.getEffectiveFeedVariantCount()
+                && Boolean.TRUE.equals(firstReal);
+    }
+
+    /**
      * 待上架区原子替换正式池，并重置轮次计数。
      */
     public boolean promoteNext(Long userId) {

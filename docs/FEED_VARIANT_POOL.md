@@ -180,12 +180,24 @@ return v
 | 情况 | 返回 | aiStatus |
 |---|---|---|
 | 池中有可用变体 | 该变体 | `READY` |
-| 首次访问，池为空 | 规则排序页 | `PENDING` |
-| 变体全部过期且补算未完成 | 规则排序页 | `PENDING` |
-| 构建失败达上限 | 规则排序页 | `FALLBACK` |
+| 首次访问，池为空 | 立即生成的规则兜底变体 | `PENDING` |
+| 变体全部过期且补算未完成 | 立即生成的规则兜底变体 | `PENDING` |
+| 规则兜底变体，模型失败/冷却拒绝 | 规则兜底变体 | `FALLBACK` |
+| 无候选或 Redis 不可用 | 规则排序页 | `FALLBACK` |
 | AI 关闭 / 未登录 | 规则排序页 | `DISABLED` |
 
 前端**只在 `PENDING` 时轮询**（首次构建仍需要），`READY`/`FALLBACK`/`DISABLED` 不轮询。
+
+### 4.6.1 空池兜底：临时规则变体
+
+池子没有任何可用变体时，不再返回“点了没反应”的规则页，而是同步生成两份临时变体：
+
+1. 用规则分数对召回池排序（本次请求本来就要算）
+2. 生成 `PREF`（规则顺序）和 `EXPLORE`（头部错开 12 位）两份变体，`model=rule-fallback`，写入正式池
+3. 立即返回第一份，`aiStatus=PENDING`，`aiBuildId` 为临时变体的 buildId
+4. 同时触发 AI 构建
+
+用户在等待期间点「换一批」，会在两份临时变体之间切换；轮询携带当前临时变体的 buildId，因此不会反复推进指针。AI 批次就绪且首份是真实 AI 时，轮询会自动提升并切换到新批次；模型失败则保持临时变体，状态转为 `FALLBACK`。
 
 ### 4.7 翻页一致性
 
@@ -222,7 +234,7 @@ return v
 | 字段 | 改动前 | 改动后 |
 |---|---|---|
 | `aiStatus` | DISABLED/PENDING/READY/FALLBACK | 不变 |
-| `aiBuildId` | 轮询目标 buildId | `READY` 时为当前变体 buildId；`PENDING` 时为 null |
+| `aiBuildId` | 轮询目标 buildId | `READY`/临时变体 `PENDING` 时为当前变体 buildId；无变体的规则页为 null |
 | `feedBuildId` | 当前快照 buildId | 当前变体 buildId |
 
 前端 `FeedEventPayload.buildId` 直接复用为 `variantId`，**事件接口零改动**。
@@ -332,3 +344,4 @@ app:
 - 补算触发点：首次访问、切满一轮、可用变体不足、全部过期、失败熔断
 - 新构建结果先写 `pool:next`，用户下一次点击时原子提升为正式池；用户不点击则页面不变
 - 重新打开网站 / F5（无 buildId 的首屏请求）视为一次换一批：优先使用待上架新批次，否则切池中下一份；站内返回首页不触发
+- 空池时同步生成 2 份规则兜底变体（PREF / EXPLORE 头部错开），保证首次访问点击也有变化；AI 就绪后自动升级

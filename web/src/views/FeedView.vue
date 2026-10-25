@@ -233,12 +233,10 @@ onMounted(async () => {
     restoreScroll()
   } else {
     const data = await loadFirst(false)
-    // 首次访问池子为空时后端会入队，前端只在 PENDING 期间轮询
+    // 首次访问会先返回规则兜底变体；只在 PENDING 期间轮询等待 AI 升级
     if (data && data.aiStatus === 'PENDING') {
       const token = ++pollToken
       await pollUntilReady(token)
-    } else if (data && data.aiStatus === 'FALLBACK' && auth.isAuthenticated) {
-      await refreshWithAi()
     }
   }
   setupObserver()
