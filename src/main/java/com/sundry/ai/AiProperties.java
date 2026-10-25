@@ -22,6 +22,9 @@ public class AiProperties {
     private Duration feedVariantTtl = Duration.ofMinutes(20);
     private int feedVariantCount = 2;
     private int feedVariantDedupHead = 6;
+    private Duration feedVariantDeadline = Duration.ofSeconds(12);
+    private Duration feedBuildCooldown = Duration.ofSeconds(10);
+    private int feedBuildRateLimit = 100;
     private int feedBatchSize = 5;
     private int feedQueueMax = 1000;
     private int maxAttempts = 2;
@@ -104,6 +107,37 @@ public class AiProperties {
 
     public void setFeedVariantDedupHead(int feedVariantDedupHead) {
         this.feedVariantDedupHead = feedVariantDedupHead;
+    }
+
+    /**
+     * 当前只有 PREF / EXPLORE 两套策略，配置超过 2 也按 2 算。
+     */
+    public int getEffectiveFeedVariantCount() {
+        return Math.min(Math.max(1, feedVariantCount), 2);
+    }
+
+    public Duration getFeedVariantDeadline() {
+        return feedVariantDeadline;
+    }
+
+    public void setFeedVariantDeadline(Duration feedVariantDeadline) {
+        this.feedVariantDeadline = feedVariantDeadline;
+    }
+
+    public Duration getFeedBuildCooldown() {
+        return feedBuildCooldown;
+    }
+
+    public void setFeedBuildCooldown(Duration feedBuildCooldown) {
+        this.feedBuildCooldown = feedBuildCooldown;
+    }
+
+    public int getFeedBuildRateLimit() {
+        return feedBuildRateLimit;
+    }
+
+    public void setFeedBuildRateLimit(int feedBuildRateLimit) {
+        this.feedBuildRateLimit = feedBuildRateLimit;
     }
 
     public int getFeedBatchSize() {

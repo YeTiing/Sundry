@@ -49,7 +49,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.ai.feed-batch-size=10",
         "app.ai.max-attempts=2",
         "app.ai.feed-variant-count=2",
-        "app.ai.feed-variant-dedup-head=3"
+        "app.ai.feed-variant-dedup-head=3",
+        "app.ai.feed-variant-deadline=1s"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -317,8 +318,7 @@ class AiFeedIntegrationTest {
         refresh(user.token(), 5);
         processor.buildPending();
 
-        assertThat(strategies).hasSize(2).contains("PREF");
-        assertThat(strategies).containsAnyOf("EXPLORE", "PRICE");
+        assertThat(strategies).containsExactlyInAnyOrder("PREF", "EXPLORE");
 
         List<FeedSnapshot> variants = nextPool(user.id());
         assertThat(variants).hasSize(2);
@@ -376,11 +376,50 @@ class AiFeedIntegrationTest {
         processor.buildPending();
 
         List<FeedSnapshot> variants = nextPool(user.id());
-        assertThat(variants).hasSize(1);
-        assertThat(variants.get(0).strategy()).isEqualTo("PREF");
+        assertThat(variants).hasSize(2);
+        assertThat(variants).extracting(FeedSnapshot::strategy)
+                .containsExactlyInAnyOrder("PREF", "EXPLORE");
+        FeedSnapshot fallback = variants.stream()
+                .filter(FeedSnapshot::ruleFallback)
+                .findFirst()
+                .orElseThrow();
+        assertThat(fallback.strategy()).isEqualTo("EXPLORE");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM ai_feed_log WHERE status = 'SUCCESS'", Long.class))
                 .isEqualTo(1);
+    }
+
+    @Test
+    void slowModelFallsBackToRuleOrderWithinDeadline() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
+                .thenAnswer(invocation -> {
+                    try {
+                        Thread.sleep(5_000);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        throw new AiFeedException("INTERRUPTED");
+                    }
+                    return new RerankResponse(List.of(), "deepseek-chat", "feed_rerank_v2");
+                });
+
+        long start = System.currentTimeMillis();
+        refresh(user.token(), 5);
+        processor.buildPending();
+        long elapsed = System.currentTimeMillis() - start;
+
+        assertThat(elapsed).isLessThan(3_000);
+        List<FeedSnapshot> variants = nextPool(user.id());
+        assertThat(variants).hasSize(2).allMatch(FeedSnapshot::ruleFallback);
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("FALLBACK"))
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty())
+                .andExpect(jsonPath("$.items.length()").value(5));
     }
 
     private List<FeedSnapshot> nextPool(Long userId) throws Exception {
@@ -436,13 +475,17 @@ class AiFeedIntegrationTest {
 
         assertThat(secondVariant).isNotEqualTo(firstVariant);
         assertThat(ids(first)).isNotEqualTo(ids(second));
-        assertThat(store.queueSize()).isEqualTo(1);
+        // 刚构建过，冷却期内不重复构建
+        assertThat(store.queueSize()).isZero();
 
+        redis.delete("feed:ai:build:cooldown:" + user.id());
         MvcResult third = refresh(user.token(), 5)
                 .andExpect(jsonPath("$.aiStatus").value("READY"))
                 .andReturn();
         assertThat(JsonPath.<String>read(body(third), "$.aiBuildId"))
                 .isEqualTo(firstVariant);
+        // 冷却解除后，切满一轮的补算才真正入队
+        assertThat(store.queueSize()).isEqualTo(1);
     }
 
     @Test

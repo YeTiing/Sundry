@@ -28,7 +28,7 @@
         WHERE created_at &gt;= #{since}
           AND algorithm = 'AI'
           AND build_id IS NOT NULL
-          AND SUBSTRING_INDEX(build_id, ':', 1) IN ('PREF', 'EXPLORE', 'PRICE')
+          AND SUBSTRING_INDEX(build_id, ':', 1) IN ('PREF', 'EXPLORE')
         GROUP BY strategy
         ORDER BY strategy
     </select>

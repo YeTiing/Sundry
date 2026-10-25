@@ -148,11 +148,6 @@ class FeedMetricsIntegrationTest {
         eventWithBuild("t-exp-2", "EXPOSURE", "AI",
                 "EXPLORE:22222222-2222-2222-2222-222222222222", p1, catA, 2);
 
-        eventWithBuild("t-price-1", "EXPOSURE", "AI",
-                "PRICE:33333333-3333-3333-3333-333333333333", p1, catA, 1);
-        eventWithBuild("t-price-2", "CLICK", "AI",
-                "PRICE:33333333-3333-3333-3333-333333333333", p1, catA, 1);
-
         // 旧格式 buildId 不参与策略分组
         eventWithBuild("t-legacy", "EXPOSURE", "AI",
                 "550e8400-e29b-41d4-a716-446655440000", p1, catA, 1);
@@ -163,7 +158,7 @@ class FeedMetricsIntegrationTest {
         mockMvc.perform(get("/api/admin/feed/metrics").param("days", "7")
                         .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.byStrategy.length()").value(3))
+                .andExpect(jsonPath("$.byStrategy.length()").value(2))
                 .andExpect(jsonPath("$.byStrategy[0].strategy").value("EXPLORE"))
                 .andExpect(jsonPath("$.byStrategy[0].exposures").value(2))
                 .andExpect(jsonPath("$.byStrategy[0].clicks").value(0))
@@ -171,11 +166,7 @@ class FeedMetricsIntegrationTest {
                 .andExpect(jsonPath("$.byStrategy[1].strategy").value("PREF"))
                 .andExpect(jsonPath("$.byStrategy[1].exposures").value(3))
                 .andExpect(jsonPath("$.byStrategy[1].clicks").value(1))
-                .andExpect(jsonPath("$.byStrategy[1].ctr").value(0.3333))
-                .andExpect(jsonPath("$.byStrategy[2].strategy").value("PRICE"))
-                .andExpect(jsonPath("$.byStrategy[2].exposures").value(1))
-                .andExpect(jsonPath("$.byStrategy[2].clicks").value(1))
-                .andExpect(jsonPath("$.byStrategy[2].ctr").value(1.0));
+                .andExpect(jsonPath("$.byStrategy[1].ctr").value(0.3333));
     }
 
     @Test

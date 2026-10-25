@@ -163,7 +163,7 @@ def test_empty_items_is_valid():
 
 
 def test_strategy_instruction_is_appended_without_breaking_rules():
-    for strategy in ("PREF", "EXPLORE", "PRICE"):
+    for strategy in ("PREF", "EXPLORE"):
         prompt = system_prompt(strategy)
         assert "附加偏好" in prompt
         assert "禁止编造" in prompt

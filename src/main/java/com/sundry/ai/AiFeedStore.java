@@ -37,6 +37,8 @@ public class AiFeedStore {
     private static final String POOL_SEEN_KEY = "feed:ai:pool:seen:%d";
     private static final String POOL_ROUND_KEY = "feed:ai:pool:round:%d";
     private static final String POOL_CURRENT_KEY = "feed:ai:pool:current:%d";
+    private static final String BUILD_COOLDOWN_KEY = "feed:ai:build:cooldown:%d";
+    private static final String BUILD_RATE_KEY = "feed:ai:build:rate:%d";
 
     private static final Duration LOCK_TTL = Duration.ofSeconds(60);
     private static final Duration ATTEMPT_TTL = Duration.ofMinutes(5);
@@ -132,6 +134,26 @@ public class AiFeedStore {
         redis.opsForValue().set(pendingKey(userId), buildId, properties.getFeedPendingTtl());
         redis.opsForList().leftPush(QUEUE_KEY, String.valueOf(userId));
         return buildId;
+    }
+
+    /**
+     * 构建许可：每用户冷却 + 全局每分钟上限。只拦“新建榜单”，不拦切换。
+     */
+    public boolean tryBuildPermit(Long userId) {
+        if (Boolean.TRUE.equals(redis.hasKey(cooldownKey(userId)))) {
+            return false;
+        }
+        String rateKey = BUILD_RATE_KEY.formatted(System.currentTimeMillis() / 60_000L);
+        Long count = redis.opsForValue().increment(rateKey);
+        if (count != null && count == 1L) {
+            redis.expire(rateKey, Duration.ofSeconds(70));
+        }
+        if (count != null && count > properties.getFeedBuildRateLimit()) {
+            return false;
+        }
+        Boolean first = redis.opsForValue().setIfAbsent(cooldownKey(userId), "1",
+                properties.getFeedBuildCooldown());
+        return Boolean.TRUE.equals(first);
     }
 
     public String pending(Long userId) {
@@ -495,6 +517,10 @@ public class AiFeedStore {
 
     private String currentKey(Long userId) {
         return POOL_CURRENT_KEY.formatted(userId);
+    }
+
+    private String cooldownKey(Long userId) {
+        return BUILD_COOLDOWN_KEY.formatted(userId);
     }
 
 }

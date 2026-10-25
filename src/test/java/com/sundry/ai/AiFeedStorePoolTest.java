@@ -37,8 +37,10 @@ class AiFeedStorePoolTest {
     @BeforeEach
     void setUp() {
         redis.delete(List.of(poolKey(), seenKey(), nextKey(), roundKey(), currentKey(),
-                "feed:ai:pending:" + USER_ID, "feed:ai:queued:" + USER_ID));
+                "feed:ai:pending:" + USER_ID, "feed:ai:queued:" + USER_ID,
+                "feed:ai:build:cooldown:" + USER_ID));
         redis.delete("feed:ai:queue");
+        clear(redis.keys("feed:ai:build:rate:*"));
     }
 
     @Test
@@ -172,6 +174,15 @@ class AiFeedStorePoolTest {
     }
 
     @Test
+    void buildPermitHonoursCooldown() {
+        assertThat(store.tryBuildPermit(USER_ID)).isTrue();
+        assertThat(store.tryBuildPermit(USER_ID)).isFalse();
+
+        redis.delete("feed:ai:build:cooldown:" + USER_ID);
+        assertThat(store.tryBuildPermit(USER_ID)).isTrue();
+    }
+
+    @Test
     void secondEnqueueKeepsInFlightPending() {
         String first = store.enqueue(USER_ID);
         String second = store.enqueue(USER_ID);
@@ -191,6 +202,12 @@ class AiFeedStorePoolTest {
         assertThat(store.findVariant(USER_ID, "MISSING").buildId()).isEqualTo("A");
         assertThat(store.findVariant(USER_ID, null).buildId()).isEqualTo("A");
         assertThat(store.poolSize(USER_ID)).isEqualTo(2);
+    }
+
+    private void clear(java.util.Collection<String> keys) {
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
     }
 
     private List<Long> ids(FeedSnapshot snapshot) {

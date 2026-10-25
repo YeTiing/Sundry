@@ -90,8 +90,8 @@ public class FeedService {
             if (refresh || (buildId == null && offset == 0)) {
                 FeedSnapshot variant = switchVariant(userId);
                 if (variant != null) {
-                    FeedPage page = pageFromSnapshot(
-                            variant, offset, size, STATUS_READY, variant.buildId());
+                    FeedPage page = pageFromSnapshot(variant, offset, size,
+                            statusOf(variant), variant.buildId());
                     recordExposed(userId, page.items());
                     finishSwitch(userId);
                     return page;
@@ -102,7 +102,8 @@ public class FeedService {
             FeedSnapshot variant = findVariant(userId, buildId);
             if (variant != null) {
                 ensureBuild(userId, false);
-                return pageFromSnapshot(variant, offset, size, STATUS_READY, variant.buildId());
+                return pageFromSnapshot(variant, offset, size,
+                        statusOf(variant), variant.buildId());
             }
             return pendingPage(userId, offset, size, false);
         } catch (RuntimeException ex) {
@@ -119,11 +120,15 @@ public class FeedService {
     private FeedSnapshot switchVariant(Long userId) {
         long next = aiFeedStore.usableNextPoolSize(userId);
         // 完整批次才提升；正式池为空时，即便只有一份也先用上，避免回退规则页
-        if (next >= Math.max(1, aiProperties.getFeedVariantCount())
+        if (next >= aiProperties.getEffectiveFeedVariantCount()
                 || (next > 0 && aiFeedStore.usablePoolSize(userId) == 0)) {
             aiFeedStore.promoteNext(userId);
         }
         return aiFeedStore.switchVariant(userId);
+    }
+
+    private String statusOf(FeedSnapshot variant) {
+        return variant.ruleFallback() ? STATUS_FALLBACK : STATUS_READY;
     }
 
     /**
@@ -174,9 +179,12 @@ public class FeedService {
                 }
                 long usable = aiFeedStore.usablePoolSize(userId)
                         + aiFeedStore.usableNextPoolSize(userId);
-                if (usable >= Math.max(1, aiProperties.getFeedVariantCount())) {
+                if (usable >= aiProperties.getEffectiveFeedVariantCount()) {
                     return false;
                 }
+            }
+            if (!aiFeedStore.tryBuildPermit(userId)) {
+                return false;
             }
             return aiFeedStore.enqueue(userId) != null;
         } catch (RuntimeException ex) {
@@ -191,9 +199,11 @@ public class FeedService {
     private void finishSwitch(Long userId) {
         try {
             long round = aiFeedStore.bumpRound(userId);
-            if (round >= Math.max(1, aiProperties.getFeedVariantCount())) {
-                aiFeedStore.resetRound(userId);
-                ensureBuild(userId, true);
+            if (round >= aiProperties.getEffectiveFeedVariantCount()) {
+                // 冷却/队列拒绝时保留轮次，下一次切换再试
+                if (ensureBuild(userId, true)) {
+                    aiFeedStore.resetRound(userId);
+                }
                 return;
             }
             ensureBuild(userId, false);

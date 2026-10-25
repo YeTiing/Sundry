@@ -8,7 +8,6 @@ _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "feed_rerank
 STRATEGY_INSTRUCTIONS = {
     "PREF": "附加偏好（不改变以上规则）：本轮按标准偏好排序，优先常看分类、历史价位和最近浏览。",
     "EXPLORE": "附加偏好（不改变以上规则）：本轮偏向探索，压低头部类目，提高冷门分类和较新商品的位置。",
-    "PRICE": "附加偏好（不改变以上规则）：本轮偏向价格带，优先与历史价位不同但相邻的区间，避免整页同一价位。",
 }
 
 

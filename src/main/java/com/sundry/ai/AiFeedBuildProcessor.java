@@ -17,9 +17,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 后台构建 AI 推流快照。测试环境关闭定时任务，由测试直接调用。
@@ -32,7 +34,7 @@ public class AiFeedBuildProcessor {
 
     private static final String STRATEGY_PREF = "PREF";
     private static final String STRATEGY_EXPLORE = "EXPLORE";
-    private static final String STRATEGY_PRICE = "PRICE";
+    private static final List<String> STRATEGIES = List.of(STRATEGY_PREF, STRATEGY_EXPLORE);
 
     private final ExecutorService variantExecutor = Executors.newFixedThreadPool(4, runnable -> {
         Thread thread = new Thread(runnable, "ai-variant-builder");
@@ -128,11 +130,20 @@ public class AiFeedBuildProcessor {
             }
             store.pushNextVariants(userId, snapshots);
 
-            VariantBuild first = variants.get(0);
+            VariantBuild first = variants.stream()
+                    .filter(variant -> !FeedSnapshot.RULE_FALLBACK_MODEL.equals(variant.model()))
+                    .findFirst()
+                    .orElse(variants.get(0));
+            boolean anyLlm = !FeedSnapshot.RULE_FALLBACK_MODEL.equals(first.model());
             store.clearPending(userId);
             store.clearAttempts(userId);
             audit(userId, traceId, first.model(), first.promptVersion(),
-                    candidateCount, first.llmCount(), start, "SUCCESS", null);
+                    candidateCount, first.llmCount(), start,
+                    anyLlm ? "SUCCESS" : "FALLBACK",
+                    anyLlm ? null : "model unavailable");
+            if (!anyLlm) {
+                log.warn("AI 模型不可用，已写入规则降级榜单 userId={}", userId);
+            }
             return true;
         } catch (RuntimeException ex) {
             long attempt = store.nextAttempt(userId);
@@ -162,26 +173,52 @@ public class AiFeedBuildProcessor {
     private List<VariantBuild> buildVariants(Long userId,
                                              AiFeedProfileService.CandidateBundle bundle,
                                              String traceId) {
+        List<String> strategies = strategiesFor();
         List<CompletableFuture<VariantBuild>> futures = new ArrayList<>();
-        for (String strategy : strategiesFor(userId)) {
+        for (String strategy : strategies) {
             futures.add(CompletableFuture.supplyAsync(
                     () -> buildVariant(userId, bundle, strategy, traceId), variantExecutor));
         }
 
+        long deadline = System.nanoTime() + properties.getFeedVariantDeadline().toNanos();
         List<VariantBuild> variants = new ArrayList<>();
-        for (CompletableFuture<VariantBuild> future : futures) {
+        for (int i = 0; i < futures.size(); i++) {
+            CompletableFuture<VariantBuild> future = futures.get(i);
+            String strategy = strategies.get(i);
             try {
-                VariantBuild variant = future.join();
-                if (variant != null) {
-                    variants.add(variant);
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    future.cancel(true);
+                    throw new TimeoutException();
                 }
-            } catch (CompletionException ex) {
-                log.warn("AI 变体构建失败 userId={} reason={}",
-                        userId, reasonOf(ex.getCause()));
+                VariantBuild variant = future.get(remaining, TimeUnit.NANOSECONDS);
+                variants.add(variant == null ? ruleFallback(bundle, strategy) : variant);
+            } catch (TimeoutException ex) {
+                future.cancel(true);
+                log.warn("AI 变体超时，使用规则顺序 userId={} strategy={}", userId, strategy);
+                variants.add(ruleFallback(bundle, strategy));
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                variants.add(ruleFallback(bundle, strategy));
+                return variants;
+            } catch (ExecutionException ex) {
+                log.warn("AI 变体构建失败，使用规则顺序 userId={} strategy={} reason={}",
+                        userId, strategy, reasonOf(ex.getCause()));
+                variants.add(ruleFallback(bundle, strategy));
             }
         }
         dedupHeads(variants);
         return variants;
+    }
+
+    /**
+     * 模型超时或失败时的降级榜单：沿用规则顺序，标记为 rule-fallback。
+     */
+    private VariantBuild ruleFallback(AiFeedProfileService.CandidateBundle bundle, String strategy) {
+        MergeResult merged = merge(List.of(), bundle);
+        return new VariantBuild(strategy + ":" + UUID.randomUUID(), strategy,
+                FeedSnapshot.RULE_FALLBACK_MODEL, "rule_fallback",
+                merged.items(), 0);
     }
 
     private VariantBuild buildVariant(Long userId, AiFeedProfileService.CandidateBundle bundle,
@@ -197,19 +234,8 @@ public class AiFeedBuildProcessor {
                 response.model(), response.promptVersion(), merged.items(), merged.llmCount());
     }
 
-    /**
-     * PREF 固定第一份；其余在 EXPLORE / PRICE 之间按用户轮换，保证两套策略都有样本。
-     */
-    private List<String> strategiesFor(Long userId) {
-        int count = Math.max(1, properties.getFeedVariantCount());
-        List<String> strategies = new ArrayList<>(count);
-        strategies.add(STRATEGY_PREF);
-        boolean exploreFirst = Math.floorMod(Long.hashCode(userId), 2) == 0;
-        for (int i = 1; i < count; i++) {
-            boolean explore = (i % 2 == 1) == exploreFirst;
-            strategies.add(explore ? STRATEGY_EXPLORE : STRATEGY_PRICE);
-        }
-        return strategies;
+    private List<String> strategiesFor() {
+        return STRATEGIES.subList(0, properties.getEffectiveFeedVariantCount());
     }
 
     /**

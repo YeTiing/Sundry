@@ -120,7 +120,6 @@ feed:ai:attempt:{uid}    STR   保留，失败计数
 |---|---|
 | `PREF` | 标准偏好：分类 + 标签 + 最近浏览 |
 | `EXPLORE` | 探索：压低头部类目，抬高冷门分类与新品 |
-| `PRICE` | 价格带：按用户历史价位中位数上下浮动取不同区间 |
 
 **执行方式：**
 
@@ -129,7 +128,7 @@ feed:ai:attempt:{uid}    STR   保留，失败计数
 3. N 个变体**并发**调 LLM（串行会变成 12~33 秒）
 4. 每个变体独立走现有 `merge` 校验：id 必须在候选内、去重、截断到 `feed-rerank-limit`
 5. **变体间去重**：第 k 份变体的前 6 个商品，不能与第 1..k-1 份的前 6 个重复；冲突项与规则顺序中后续候选交换
-6. 全部失败 → 整批失败，走现有降级
+6. 单个变体超时（`feed-variant-deadline`，默认 12 秒）或失败 → 该份用规则顺序补齐，标记 `model=rule-fallback`，整批仍可写入
 
 Prompt 侧只加一段「本轮排序偏好」，仍禁止编造 id、仍只输出 JSON。
 
@@ -240,6 +239,9 @@ app:
     feed-variant-count: ${AI_FEED_VARIANT_COUNT:2}          # 2~3
     feed-variant-ttl: ${AI_FEED_VARIANT_TTL:20m}            # 变体最大年龄
     feed-variant-dedup-head: ${AI_FEED_VARIANT_DEDUP_HEAD:6} # 变体间头部去重数量
+    feed-variant-deadline: ${AI_FEED_VARIANT_DEADLINE:12s}  # 单次构建等待模型的上限
+    feed-build-cooldown: ${AI_FEED_BUILD_COOLDOWN:10s}      # 每用户构建冷却
+    feed-build-rate-limit: ${AI_FEED_BUILD_RATE_LIMIT:100}  # 全站每分钟构建上限
 ```
 
 `feed-variant-count=1` 时等价于现状逻辑（便于灰度回滚）。
@@ -322,7 +324,9 @@ app:
 
 ## 12. 已确认决策（2026-10-25）
 
-- 变体数 2；策略 `PREF` / `EXPLORE` / `PRICE`；变体 TTL 20 分钟
+- 变体数 2；策略 `PREF` / `EXPLORE`（`PRICE` 已去掉）；变体 TTL 20 分钟
+- 防刷：每用户构建冷却 10 秒 + 全站每分钟 100 次；只拦构建，不拦切换
+- 模型超时/失败：单份用规则顺序补齐，标记 `rule-fallback`，页面状态 `FALLBACK`
 - 复用旧变体时已曝光商品下沉到 12~20 位，不删除
 - 保留首次访问轮询（仅 `PENDING` 时）
 - 补算触发点：首次访问、切满一轮、可用变体不足、全部过期、失败熔断

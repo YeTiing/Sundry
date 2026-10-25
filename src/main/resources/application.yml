@@ -114,6 +114,9 @@ app:
     feed-variant-ttl: ${AI_FEED_VARIANT_TTL:20m}
     feed-variant-count: ${AI_FEED_VARIANT_COUNT:2}
     feed-variant-dedup-head: ${AI_FEED_VARIANT_DEDUP_HEAD:6}
+    feed-variant-deadline: ${AI_FEED_VARIANT_DEADLINE:12s}
+    feed-build-cooldown: ${AI_FEED_BUILD_COOLDOWN:10s}
+    feed-build-rate-limit: ${AI_FEED_BUILD_RATE_LIMIT:100}
     feed-batch-size: ${AI_FEED_BATCH_SIZE:5}
     feed-build-interval: ${AI_FEED_BUILD_INTERVAL:1s}
     feed-queue-max: ${AI_FEED_QUEUE_MAX:1000}

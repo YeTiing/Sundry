@@ -10,6 +10,12 @@ public record FeedSnapshot(String buildId, LocalDateTime builtAt, String model,
                            String promptVersion, List<SnapshotItem> items,
                            String strategy) {
 
+    public static final String RULE_FALLBACK_MODEL = "rule-fallback";
+
+    public boolean ruleFallback() {
+        return RULE_FALLBACK_MODEL.equals(model);
+    }
+
     /**
      * 兼容旧快照（没有策略字段）。
      */
