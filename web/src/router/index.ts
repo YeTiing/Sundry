@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AdminCategoriesView from '@/views/AdminCategoriesView.vue'
+import AdminFeedMetricsView from '@/views/AdminFeedMetricsView.vue'
 import AdminOrdersView from '@/views/AdminOrdersView.vue'
 import AdminProductsView from '@/views/AdminProductsView.vue'
 import AdminSeckillView from '@/views/AdminSeckillView.vue'
@@ -99,6 +100,12 @@ const router = createRouter({
       path: '/admin/seckill',
       name: 'admin-seckill',
       component: AdminSeckillView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/feed',
+      name: 'admin-feed',
+      component: AdminFeedMetricsView,
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
