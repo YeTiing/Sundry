@@ -38,7 +38,7 @@ class AiFeedStorePoolTest {
     void setUp() {
         redis.delete(List.of(poolKey(), seenKey(), nextKey(), roundKey(), currentKey(),
                 "feed:ai:pending:" + USER_ID, "feed:ai:queued:" + USER_ID,
-                "feed:ai:build:cooldown:" + USER_ID));
+                "feed:ai:build:cooldown:" + USER_ID, "feed:ai:seed:" + USER_ID));
         redis.delete("feed:ai:queue");
         clear(redis.keys("feed:ai:build:rate:*"));
     }
@@ -171,6 +171,16 @@ class AiFeedStorePoolTest {
         assertThat(store.poolSize(USER_ID)).isEqualTo(2);
         assertThat(store.findVariant(USER_ID, null).buildId()).isEqualTo("C");
         assertThat(redis.hasKey(roundKey())).isFalse();
+    }
+
+    @Test
+    void seedLockIsExclusive() {
+        String first = store.trySeedLock(USER_ID);
+        assertThat(first).isNotNull();
+        assertThat(store.trySeedLock(USER_ID)).isNull();
+
+        store.releaseSeedLock(USER_ID, first);
+        assertThat(store.trySeedLock(USER_ID)).isNotNull();
     }
 
     @Test

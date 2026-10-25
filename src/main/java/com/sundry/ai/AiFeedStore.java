@@ -39,6 +39,7 @@ public class AiFeedStore {
     private static final String POOL_CURRENT_KEY = "feed:ai:pool:current:%d";
     private static final String BUILD_COOLDOWN_KEY = "feed:ai:build:cooldown:%d";
     private static final String BUILD_RATE_KEY = "feed:ai:build:rate:%d";
+    private static final String SEED_LOCK_KEY = "feed:ai:seed:%d";
 
     private static final Duration LOCK_TTL = Duration.ofSeconds(60);
     private static final Duration ATTEMPT_TTL = Duration.ofMinutes(5);
@@ -126,12 +127,12 @@ public class AiFeedStore {
         }
         String buildId = UUID.randomUUID().toString();
         Boolean first = redis.opsForValue()
-                .setIfAbsent(queuedKey(userId), buildId, properties.getFeedPendingTtl());
+                .setIfAbsent(queuedKey(userId), buildId, properties.getFeedQueueTtl());
         if (!Boolean.TRUE.equals(first)) {
             // 已有在途构建，不覆盖 pending，避免把正常构建判成 STALE
             return redis.opsForValue().get(pendingKey(userId));
         }
-        redis.opsForValue().set(pendingKey(userId), buildId, properties.getFeedPendingTtl());
+        redis.opsForValue().set(pendingKey(userId), buildId, properties.getFeedQueueTtl());
         redis.opsForList().leftPush(QUEUE_KEY, String.valueOf(userId));
         return buildId;
     }
@@ -154,6 +155,20 @@ public class AiFeedStore {
         Boolean first = redis.opsForValue().setIfAbsent(cooldownKey(userId), "1",
                 properties.getFeedBuildCooldown());
         return Boolean.TRUE.equals(first);
+    }
+
+    /**
+     * 首访播种锁，避免同一用户多个窗口同时算规则、重复写入。
+     */
+    public String trySeedLock(Long userId) {
+        String token = UUID.randomUUID().toString();
+        Boolean acquired = redis.opsForValue()
+                .setIfAbsent(seedLockKey(userId), token, Duration.ofSeconds(10));
+        return Boolean.TRUE.equals(acquired) ? token : null;
+    }
+
+    public void releaseSeedLock(Long userId, String token) {
+        redis.execute(RELEASE_LOCK, List.of(seedLockKey(userId)), token);
     }
 
     public String pending(Long userId) {
@@ -546,6 +561,10 @@ public class AiFeedStore {
 
     private String cooldownKey(Long userId) {
         return BUILD_COOLDOWN_KEY.formatted(userId);
+    }
+
+    private String seedLockKey(Long userId) {
+        return SEED_LOCK_KEY.formatted(userId);
     }
 
 }

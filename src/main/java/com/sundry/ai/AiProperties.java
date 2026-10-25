@@ -18,13 +18,14 @@ public class AiProperties {
     private Duration timeout = Duration.ofSeconds(5);
     private int feedCandidateLimit = 60;
     private int feedRerankLimit = 20;
-    private Duration feedPendingTtl = Duration.ofMinutes(2);
+    private Duration feedQueueTtl = Duration.ofMinutes(30);
     private Duration feedVariantTtl = Duration.ofMinutes(20);
     private int feedVariantCount = 2;
     private int feedVariantDedupHead = 6;
     private Duration feedVariantDeadline = Duration.ofSeconds(12);
     private Duration feedBuildCooldown = Duration.ofSeconds(10);
-    private int feedBuildRateLimit = 100;
+    private int feedBuildRateLimit = 20;
+    private int feedBuildConcurrency = 2;
     private int feedBatchSize = 5;
     private int feedQueueMax = 1000;
     private int maxAttempts = 2;
@@ -77,12 +78,20 @@ public class AiProperties {
         this.feedRerankLimit = feedRerankLimit;
     }
 
-    public Duration getFeedPendingTtl() {
-        return feedPendingTtl;
+    public Duration getFeedQueueTtl() {
+        return feedQueueTtl;
     }
 
-    public void setFeedPendingTtl(Duration feedPendingTtl) {
-        this.feedPendingTtl = feedPendingTtl;
+    public void setFeedQueueTtl(Duration feedQueueTtl) {
+        this.feedQueueTtl = feedQueueTtl;
+    }
+
+    public int getFeedBuildConcurrency() {
+        return feedBuildConcurrency;
+    }
+
+    public void setFeedBuildConcurrency(int feedBuildConcurrency) {
+        this.feedBuildConcurrency = feedBuildConcurrency;
     }
 
     public Duration getFeedVariantTtl() {

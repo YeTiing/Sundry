@@ -20,6 +20,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -36,11 +38,8 @@ public class AiFeedBuildProcessor {
     private static final String STRATEGY_EXPLORE = "EXPLORE";
     private static final List<String> STRATEGIES = List.of(STRATEGY_PREF, STRATEGY_EXPLORE);
 
-    private final ExecutorService variantExecutor = Executors.newFixedThreadPool(4, runnable -> {
-        Thread thread = new Thread(runnable, "ai-variant-builder");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService buildExecutor;
+    private final ExecutorService variantExecutor;
 
     private final AiFeedStore store;
     private final AiFeedClient client;
@@ -56,6 +55,19 @@ public class AiFeedBuildProcessor {
         this.profileService = profileService;
         this.logMapper = logMapper;
         this.properties = properties;
+        int concurrency = Math.max(1, properties.getFeedBuildConcurrency());
+        this.buildExecutor = Executors.newFixedThreadPool(concurrency,
+                daemonFactory("ai-feed-builder"));
+        this.variantExecutor = Executors.newFixedThreadPool(Math.max(4, concurrency * 2),
+                daemonFactory("ai-variant-builder"));
+    }
+
+    private ThreadFactory daemonFactory(String name) {
+        return runnable -> {
+            Thread thread = new Thread(runnable, name);
+            thread.setDaemon(true);
+            return thread;
+        };
     }
 
     public int buildPending() {
@@ -66,24 +78,41 @@ public class AiFeedBuildProcessor {
             }
         }
 
-        List<String> processing = store.processing(batch * 4);
+        int concurrency = Math.max(1, properties.getFeedBuildConcurrency());
+        List<String> processing = store.processing(concurrency);
         if (processing == null || processing.isEmpty()) {
             return 0;
         }
 
-        int handled = 0;
+        List<PendingBuild> pending = new ArrayList<>();
         for (String value : processing) {
             Long userId = parse(value);
             if (userId == null) {
                 store.removeProcessing(value);
                 continue;
             }
-            if (processOne(userId)) {
-                store.removeProcessing(value);
+            pending.add(new PendingBuild(value,
+                    buildExecutor.submit(() -> processOne(userId))));
+        }
+
+        int handled = 0;
+        for (PendingBuild item : pending) {
+            try {
+                if (Boolean.TRUE.equals(item.future().get())) {
+                    store.removeProcessing(item.value());
+                }
+                handled++;
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (ExecutionException ex) {
+                log.warn("AI 推流任务执行异常，保留待重试", ex.getCause());
             }
-            handled++;
         }
         return handled;
+    }
+
+    private record PendingBuild(String value, Future<Boolean> future) {
     }
 
     private boolean processOne(Long userId) {
@@ -167,6 +196,7 @@ public class AiFeedBuildProcessor {
 
     @PreDestroy
     void shutdown() {
+        buildExecutor.shutdownNow();
         variantExecutor.shutdownNow();
     }
 

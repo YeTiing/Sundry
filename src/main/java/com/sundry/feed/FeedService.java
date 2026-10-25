@@ -164,30 +164,46 @@ public class FeedService {
      * 空池时先用规则分数生成 2 份临时变体，保证「换一批」立刻有内容可切。
      */
     private FeedSnapshot seedProvisional(Long userId) {
-        if (aiFeedStore.usablePoolSize(userId) > 0
-                || aiFeedStore.usableNextPoolSize(userId) > 0) {
+        if (hasUsableVariants(userId)) {
             return null;
         }
-        List<Long> ranked = rank(userId);
-        if (ranked.isEmpty()) {
-            return null;
+        String lock = aiFeedStore.trySeedLock(userId);
+        if (lock == null) {
+            // 另一个窗口正在播种；有货就直接用
+            return aiFeedStore.switchVariant(userId);
         }
-        List<FeedSnapshot.SnapshotItem> items = new ArrayList<>(ranked.size());
-        for (Long id : ranked) {
-            items.add(new FeedSnapshot.SnapshotItem(id, null));
-        }
-        int shift = Math.min(PROVISIONAL_HEAD_SHIFT, items.size());
-        List<FeedSnapshot.SnapshotItem> shifted = new ArrayList<>(items.size());
-        shifted.addAll(items.subList(shift, items.size()));
-        shifted.addAll(items.subList(0, shift));
+        try {
+            if (hasUsableVariants(userId)) {
+                return aiFeedStore.switchVariant(userId);
+            }
+            List<Long> ranked = rank(userId);
+            if (ranked.isEmpty()) {
+                return null;
+            }
+            List<FeedSnapshot.SnapshotItem> items = new ArrayList<>(ranked.size());
+            for (Long id : ranked) {
+                items.add(new FeedSnapshot.SnapshotItem(id, null));
+            }
+            int shift = Math.min(PROVISIONAL_HEAD_SHIFT, items.size());
+            List<FeedSnapshot.SnapshotItem> shifted = new ArrayList<>(items.size());
+            shifted.addAll(items.subList(shift, items.size()));
+            shifted.addAll(items.subList(0, shift));
 
-        LocalDateTime builtAt = LocalDateTime.now();
-        FeedSnapshot pref = new FeedSnapshot("PREF:" + UUID.randomUUID(), builtAt,
-                FeedSnapshot.RULE_FALLBACK_MODEL, "rule_seed", items, "PREF");
-        FeedSnapshot explore = new FeedSnapshot("EXPLORE:" + UUID.randomUUID(), builtAt,
-                FeedSnapshot.RULE_FALLBACK_MODEL, "rule_seed", shifted, "EXPLORE");
-        aiFeedStore.pushVariants(userId, List.of(pref, explore));
-        return aiFeedStore.switchVariant(userId);
+            LocalDateTime builtAt = LocalDateTime.now();
+            FeedSnapshot pref = new FeedSnapshot("PREF:" + UUID.randomUUID(), builtAt,
+                    FeedSnapshot.RULE_FALLBACK_MODEL, "rule_seed", items, "PREF");
+            FeedSnapshot explore = new FeedSnapshot("EXPLORE:" + UUID.randomUUID(), builtAt,
+                    FeedSnapshot.RULE_FALLBACK_MODEL, "rule_seed", shifted, "EXPLORE");
+            aiFeedStore.pushVariants(userId, List.of(pref, explore));
+            return aiFeedStore.switchVariant(userId);
+        } finally {
+            aiFeedStore.releaseSeedLock(userId, lock);
+        }
+    }
+
+    private boolean hasUsableVariants(Long userId) {
+        return aiFeedStore.usablePoolSize(userId) > 0
+                || aiFeedStore.usableNextPoolSize(userId) > 0;
     }
 
     /**

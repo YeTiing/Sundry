@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 218 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 219 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -2011,6 +2011,26 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: Feed 首屏规则兜底变体`
+
+## 2026-10-25 · Feed 构建并发与首访播种锁
+
+**做了什么**
+
+- 调度线程池设为 4（`spring.task.scheduling.pool.size`），避免 AI 构建阻塞订单超时、秒杀关单、清理任务
+- 构建从“用户串行”改为单实例同时处理 2 个用户（`feed-build-concurrency`），变体线程池随并发扩展
+- `pending` / `queued` TTL 从 2 分钟改为 30 分钟；避免排队超过 2 分钟后构建被静默跳过
+- 全站构建上限从 100 次/分钟降到 20 次/分钟，与单实例处理能力对齐，避免队列无限积压
+- 首访播种增加 10 秒用户级锁 + 双重检查，多个窗口同时打开不会重复召回、重复写池
+
+**验证**
+
+- Java：219 个用例全部通过（新增播种锁互斥用例）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`perf: Feed 构建并发与播种锁`
 
 ## 待办 / 下一步
 

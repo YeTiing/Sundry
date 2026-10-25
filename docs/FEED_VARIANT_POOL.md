@@ -253,8 +253,11 @@ app:
     feed-variant-dedup-head: ${AI_FEED_VARIANT_DEDUP_HEAD:6} # 变体间头部去重数量
     feed-variant-deadline: ${AI_FEED_VARIANT_DEADLINE:12s}  # 单次构建等待模型的上限
     feed-build-cooldown: ${AI_FEED_BUILD_COOLDOWN:10s}      # 每用户构建冷却
-    feed-build-rate-limit: ${AI_FEED_BUILD_RATE_LIMIT:100}  # 全站每分钟构建上限
+    feed-build-rate-limit: ${AI_FEED_BUILD_RATE_LIMIT:20}   # 全站每分钟构建上限
+    feed-build-concurrency: ${AI_FEED_BUILD_CONCURRENCY:2}  # 单实例同时构建的用户数
 ```
+
+`spring.task.scheduling.pool.size` 建议不小于 4，避免构建任务阻塞订单超时、秒杀关单等定时任务。
 
 `feed-variant-count=1` 时等价于现状逻辑（便于灰度回滚）。
 
