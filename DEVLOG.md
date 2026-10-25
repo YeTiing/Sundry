@@ -30,11 +30,11 @@
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
 | 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
-| 推荐 | 首页 Feed：浏览行为、分类偏好、热销/新品/探索混排、Redis 快照、无限滑动；登录用户 AI 异步重排与推荐理由 |
+| 推荐 | 首页 Feed：浏览行为、分类偏好、热销/新品/探索混排、Redis 快照、无限滑动；登录用户 AI 异步重排；曝光/点击回流 |
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排；异步队列、buildId 防覆盖、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 157 个 Java 集成测试 + 10 个 Python 用例 |
+| 测试 | 165 个 Java 集成测试 + 11 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1515,12 +1515,47 @@ sundry_seckill_compensation_total = 0
 - `1a60761` docs: 更新开发日志（AI 智能推流）
 - 后续：输出收敛为 ID、前端去掉理由展示
 
+## 2026-10-25 · Feed 曝光与点击回流
+
+**做了什么**
+
+- V21 新增 `feed_event`：
+  - `trace_id / user_id / event_type / algorithm / build_id / product_id / category_id / item_position / created_at`
+  - 唯一键 `(trace_id, user_id, event_type, product_id, item_position)`，`INSERT IGNORE` 幂等
+- `POST /api/feed/events`（登录）批量上报，单次最多 100 条：
+  - `user_id` 只来自 JWT，请求体里的 userId 被忽略
+  - `category_id` 服务端按商品补全；未知/已删除商品直接忽略
+  - 支持 `AI / RULE` 标记，`build_id` 可空
+- Feed 响应新增 `feedBuildId`：表示**实际展示**的那份快照，和正在计算的 `aiBuildId` 区分
+- 前端：
+  - 每次列表渲染生成 `traceId`
+  - 曝光按新增商品增量上报，同一 trace 内去重
+  - 点击用 keepalive 上报，跳转前也能发出
+  - 匿名用户不上报
+- 保留期暂未加；生产按 7~14 天清理曝光，点击可保留更久
+
+**说明**
+
+- 曝光写入走 MySQL，当前规模够用；数据量上来后应改 Kafka → ClickHouse/离线数仓
+- 单次 100 条上限，前端按 100 分片
+- 事件表不建外键，商品/用户删除后历史仍保留
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 165 个用例全部通过（新增 8 个）
+- `npm run build` 通过
+- 覆盖：正常曝光/点击、重复幂等、未登录 401、非法类型/位置 400、超 100 条 400、未知商品忽略、userId 不可伪造
+
+**提交**
+
+- `2076543` feat: Feed 曝光与点击回流
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
-- 已完成：AI 智能推流（异步 LLM 重排 + 推荐理由）
-- 下一步：A1 公告 + 已读 + 未读数
+- 已完成：AI 智能推流（异步 LLM 重排）、曝光与点击回流
+- 下一步：多路召回（热销/新品/分类/协同）
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
 
