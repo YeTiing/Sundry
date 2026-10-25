@@ -36,8 +36,9 @@ class AiFeedStorePoolTest {
 
     @BeforeEach
     void setUp() {
-        redis.delete(List.of(poolKey(), seenKey(), nextKey(), roundKey(), currentKey()));
-        clear(redis.keys("feed:ai:variant:view:" + USER_ID + ":*"));
+        redis.delete(List.of(poolKey(), seenKey(), nextKey(), roundKey(), currentKey(),
+                "feed:ai:pending:" + USER_ID, "feed:ai:queued:" + USER_ID));
+        redis.delete("feed:ai:queue");
     }
 
     @Test
@@ -139,6 +140,8 @@ class AiFeedStorePoolTest {
 
         assertThat(again.buildId()).isEqualTo("A");
         assertThat(again.items().get(0).id()).isEqualTo(9L);
+        // 下沉顺序已写回池子，翻页读到的是同一份
+        assertThat(store.findVariant(USER_ID, "A").items().get(0).id()).isEqualTo(9L);
         for (long id = 1; id <= 8; id++) {
             Long value = id;
             int position = -1;
@@ -169,6 +172,16 @@ class AiFeedStorePoolTest {
     }
 
     @Test
+    void secondEnqueueKeepsInFlightPending() {
+        String first = store.enqueue(USER_ID);
+        String second = store.enqueue(USER_ID);
+
+        assertThat(second).isEqualTo(first);
+        assertThat(store.pending(USER_ID)).isEqualTo(first);
+        assertThat(store.queueSize()).isEqualTo(1);
+    }
+
+    @Test
     void findVariantPrefersRequestedBuildId() {
         store.pushVariants(USER_ID, List.of(
                 variant("A", LocalDateTime.now(), 1L),
@@ -184,12 +197,6 @@ class AiFeedStorePoolTest {
         return snapshot.items().stream()
                 .map(FeedSnapshot.SnapshotItem::id)
                 .toList();
-    }
-
-    private void clear(java.util.Collection<String> keys) {
-        if (keys != null && !keys.isEmpty()) {
-            redis.delete(keys);
-        }
     }
 
     private FeedSnapshot variant(String buildId, LocalDateTime builtAt, Long... ids) {

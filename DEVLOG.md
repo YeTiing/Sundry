@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 211 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 214 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1952,6 +1952,26 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`fix: 策略指标排除 RULE 事件`
+
+## 2026-10-25 · Feed 变体池加固
+
+**做了什么**
+
+- 待上架区必须凑满 `feed-variant-count` 才提升；正式池为空时，单份批次也先顶上，避免回退规则页
+- `enqueue` 只在 `queued` 抢锁成功时写 `pending`，并发自动补算不会再把在途构建判成 STALE、白烧模型
+- 曝光下沉后的顺序直接写回池中元素（`LREM` 旧值 + `RPUSH` 新值），删除 `feed:ai:variant:view`，翻页只依赖池子一份数据
+- 池元素编码为 `buildId|builtAtMillis|JSON`：计数和按 buildId 查找只做字符串切分，不再解析整段 JSON；兼容旧的纯 JSON 元素
+- `feed_rerank_v2` 等前序修复一并生效
+
+**验证**
+
+- Java：214 个用例全部通过（新增：薄批次不提升、空池单份先用、第二次入队不覆盖 pending）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`perf: Feed 变体池加固`
 
 ## 待办 / 下一步
 

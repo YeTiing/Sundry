@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
-import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -37,7 +37,6 @@ public class AiFeedStore {
     private static final String POOL_SEEN_KEY = "feed:ai:pool:seen:%d";
     private static final String POOL_ROUND_KEY = "feed:ai:pool:round:%d";
     private static final String POOL_CURRENT_KEY = "feed:ai:pool:current:%d";
-    private static final String VARIANT_VIEW_KEY = "feed:ai:variant:view:%d:%s";
 
     private static final Duration LOCK_TTL = Duration.ofSeconds(60);
     private static final Duration ATTEMPT_TTL = Duration.ofMinutes(5);
@@ -65,6 +64,18 @@ public class AiFeedStore {
             end
             return v
             """, String.class);
+
+    /**
+     * 用下沉后的顺序替换池中的同一份变体。
+     */
+    private static final DefaultRedisScript<Long> REPLACE_ENTRY = new DefaultRedisScript<>("""
+            local removed = redis.call('LREM', KEYS[1], 1, ARGV[1])
+            if removed > 0 then
+                redis.call('RPUSH', KEYS[1], ARGV[2])
+                return 1
+            end
+            return 0
+            """, Long.class);
 
     /**
      * 覆盖式写入待上架区：ARGV[1] 是 TTL 秒数，其余是变体 JSON。
@@ -112,12 +123,14 @@ public class AiFeedStore {
             return null;
         }
         String buildId = UUID.randomUUID().toString();
-        redis.opsForValue().set(pendingKey(userId), buildId, properties.getFeedPendingTtl());
         Boolean first = redis.opsForValue()
                 .setIfAbsent(queuedKey(userId), buildId, properties.getFeedPendingTtl());
-        if (Boolean.TRUE.equals(first)) {
-            redis.opsForList().leftPush(QUEUE_KEY, String.valueOf(userId));
+        if (!Boolean.TRUE.equals(first)) {
+            // 已有在途构建，不覆盖 pending，避免把正常构建判成 STALE
+            return redis.opsForValue().get(pendingKey(userId));
         }
+        redis.opsForValue().set(pendingKey(userId), buildId, properties.getFeedPendingTtl());
+        redis.opsForList().leftPush(QUEUE_KEY, String.valueOf(userId));
         return buildId;
     }
 
@@ -142,7 +155,7 @@ public class AiFeedStore {
         }
         List<String> payloads = new ArrayList<>(variants.size());
         for (FeedSnapshot variant : variants) {
-            payloads.add(objectMapper.writeValueAsString(variant));
+            payloads.add(encode(variant));
         }
         String key = poolKey(userId);
         redis.opsForList().rightPushAll(key, payloads);
@@ -159,22 +172,25 @@ public class AiFeedStore {
             return null;
         }
         for (long i = 0; i < size; i++) {
-            String json = redis.execute(SWITCH_VARIANT, List.of(key));
-            if (json == null) {
+            String raw = redis.execute(SWITCH_VARIANT, List.of(key));
+            if (raw == null) {
                 return null;
             }
-            FeedSnapshot variant = parseVariant(json);
+            PoolEntry entry = decode(raw);
+            if (entry == null || isExpired(entry)) {
+                redis.opsForList().remove(key, 1, raw);
+                continue;
+            }
+            FeedSnapshot variant = parseVariant(entry.json());
             if (variant == null) {
-                redis.opsForList().remove(key, 1, json);
+                redis.opsForList().remove(key, 1, raw);
                 log.warn("AI 变体解析失败，已从池中移除 userId={}", userId);
                 continue;
             }
-            if (isExpired(variant)) {
-                redis.opsForList().remove(key, 1, json);
-                continue;
-            }
             FeedSnapshot viewed = sinkSeen(userId, variant);
-            saveVariantView(userId, viewed);
+            if (viewed != variant) {
+                redis.execute(REPLACE_ENTRY, List.of(key), raw, encode(viewed));
+            }
             redis.opsForValue().set(currentKey(userId), variant.buildId(),
                     properties.getFeedVariantTtl());
             return viewed;
@@ -197,7 +213,7 @@ public class AiFeedStore {
         List<String> args = new ArrayList<>(variants.size() + 1);
         args.add(String.valueOf(Math.max(1, properties.getFeedVariantTtl().toSeconds())));
         for (FeedSnapshot variant : variants) {
-            args.add(objectMapper.writeValueAsString(variant));
+            args.add(encode(variant));
         }
         redis.execute(REPLACE_LIST, List.of(nextPoolKey(userId)), args.toArray());
     }
@@ -233,24 +249,21 @@ public class AiFeedStore {
         String target = buildId == null
                 ? redis.opsForValue().get(currentKey(userId))
                 : buildId;
-        FeedSnapshot fallback = null;
-        FeedSnapshot resolved = null;
-        for (String json : values) {
-            FeedSnapshot variant = parseVariant(json);
-            if (variant == null || isExpired(variant)) {
-                redis.opsForList().remove(key, 1, json);
+        String fallbackJson = null;
+        for (String raw : values) {
+            PoolEntry entry = decode(raw);
+            if (entry == null || isExpired(entry)) {
+                redis.opsForList().remove(key, 1, raw);
                 continue;
             }
-            if (fallback == null) {
-                fallback = variant;
+            if (fallbackJson == null) {
+                fallbackJson = entry.json();
             }
-            if (target != null && target.equals(variant.buildId())) {
-                resolved = variant;
-                break;
+            if (target != null && target.equals(entry.buildId())) {
+                return parseVariant(entry.json());
             }
         }
-        FeedSnapshot variant = resolved == null ? fallback : resolved;
-        return variant == null ? null : viewOrSelf(userId, variant);
+        return fallbackJson == null ? null : parseVariant(fallbackJson);
     }
 
     /**
@@ -299,25 +312,6 @@ public class AiFeedStore {
                 variant.promptVersion(), items, variant.strategy());
     }
 
-    private void saveVariantView(Long userId, FeedSnapshot variant) {
-        redis.opsForValue().set(viewKey(userId, variant.buildId()),
-                objectMapper.writeValueAsString(variant),
-                properties.getFeedVariantTtl());
-    }
-
-    private FeedSnapshot viewOrSelf(Long userId, FeedSnapshot variant) {
-        String json = redis.opsForValue().get(viewKey(userId, variant.buildId()));
-        if (json == null) {
-            return variant;
-        }
-        FeedSnapshot view = parseVariant(json);
-        if (view == null || isExpired(view)) {
-            redis.delete(viewKey(userId, variant.buildId()));
-            return variant;
-        }
-        return view;
-    }
-
     public long usablePoolSize(Long userId) {
         return usableSize(poolKey(userId));
     }
@@ -357,9 +351,9 @@ public class AiFeedStore {
             return 0;
         }
         long count = 0;
-        for (String json : values) {
-            FeedSnapshot variant = parseVariant(json);
-            if (variant != null && !isExpired(variant)) {
+        for (String raw : values) {
+            PoolEntry entry = decode(raw);
+            if (entry != null && !isExpired(entry)) {
                 count++;
             }
         }
@@ -374,12 +368,43 @@ public class AiFeedStore {
         }
     }
 
-    private boolean isExpired(FeedSnapshot variant) {
-        if (variant.builtAt() == null) {
-            return true;
+    private String encode(FeedSnapshot variant) {
+        long builtAt = variant.builtAt() == null
+                ? 0
+                : variant.builtAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        return variant.buildId() + '|' + builtAt + '|' + objectMapper.writeValueAsString(variant);
+    }
+
+    /**
+     * 元素前缀带 buildId 和构建时间，计数/查找不用解析整段 JSON；兼容旧的纯 JSON 元素。
+     */
+    private PoolEntry decode(String raw) {
+        int first = raw.indexOf('|');
+        int second = first < 0 ? -1 : raw.indexOf('|', first + 1);
+        if (first > 0 && second > first) {
+            try {
+                long builtAt = Long.parseLong(raw.substring(first + 1, second));
+                return new PoolEntry(raw.substring(0, first), builtAt,
+                        raw.substring(second + 1));
+            } catch (NumberFormatException ex) {
+                // 旧格式，退回 JSON 解析
+            }
         }
-        return Duration.between(variant.builtAt(), LocalDateTime.now())
-                .compareTo(properties.getFeedVariantTtl()) > 0;
+        FeedSnapshot variant = parseVariant(raw);
+        if (variant == null || variant.builtAt() == null) {
+            return null;
+        }
+        long builtAt = variant.builtAt().atZone(ZoneId.systemDefault())
+                .toInstant().toEpochMilli();
+        return new PoolEntry(variant.buildId(), builtAt, raw);
+    }
+
+    private boolean isExpired(PoolEntry entry) {
+        return System.currentTimeMillis() - entry.builtAtMillis()
+                > properties.getFeedVariantTtl().toMillis();
+    }
+
+    private record PoolEntry(String buildId, long builtAtMillis, String json) {
     }
 
     /**
@@ -472,7 +497,4 @@ public class AiFeedStore {
         return POOL_CURRENT_KEY.formatted(userId);
     }
 
-    private String viewKey(Long userId, String buildId) {
-        return VARIANT_VIEW_KEY.formatted(userId, buildId);
-    }
 }

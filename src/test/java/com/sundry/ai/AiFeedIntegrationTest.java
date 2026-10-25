@@ -389,7 +389,10 @@ class AiFeedIntegrationTest {
         assertThat(values).isNotNull();
         List<FeedSnapshot> variants = new ArrayList<>();
         for (String value : values) {
-            variants.add(objectMapper.readValue(value, FeedSnapshot.class));
+            int first = value.indexOf('|');
+            int second = first < 0 ? -1 : value.indexOf('|', first + 1);
+            String json = second > first ? value.substring(second + 1) : value;
+            variants.add(objectMapper.readValue(json, FeedSnapshot.class));
         }
         return variants;
     }
@@ -480,6 +483,47 @@ class AiFeedIntegrationTest {
                         .param("size", "5")
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").value("NEXT:C"));
+    }
+
+    @Test
+    void partialNextBatchIsNotPromotedWhileActivePoolIsHealthy() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        List<Long> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM product ORDER BY id", Long.class);
+        store.pushVariants(user.id(), List.of(
+                variant("ACTIVE:A", ids.get(0), ids.get(1)),
+                variant("ACTIVE:B", ids.get(2), ids.get(3))));
+        store.pushNextVariants(user.id(), List.of(
+                variant("NEXT:C", ids.get(4), ids.get(5))));
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").value("ACTIVE:A"));
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").value("ACTIVE:B"));
+    }
+
+    @Test
+    void loneNextBatchIsUsedWhenActivePoolIsEmpty() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(6);
+        List<Long> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM product ORDER BY id", Long.class);
+        store.pushNextVariants(user.id(), List.of(
+                variant("NEXT:C", ids.get(0), ids.get(1))));
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(jsonPath("$.aiStatus").value("READY"))
                 .andExpect(jsonPath("$.aiBuildId").value("NEXT:C"));
     }

@@ -117,7 +117,10 @@ public class FeedService {
      * 点击换一批：待上架区有新鲜批次就先提升为正式池，再切一份。
      */
     private FeedSnapshot switchVariant(Long userId) {
-        if (aiFeedStore.usableNextPoolSize(userId) > 0) {
+        long next = aiFeedStore.usableNextPoolSize(userId);
+        // 完整批次才提升；正式池为空时，即便只有一份也先用上，避免回退规则页
+        if (next >= Math.max(1, aiProperties.getFeedVariantCount())
+                || (next > 0 && aiFeedStore.usablePoolSize(userId) == 0)) {
             aiFeedStore.promoteNext(userId);
         }
         return aiFeedStore.switchVariant(userId);
