@@ -2,8 +2,8 @@ from pathlib import Path
 
 from app.schemas import Candidate, Profile
 
-PROMPT_VERSION = "feed_rerank_v1"
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "feed_rerank_v1.txt"
+PROMPT_VERSION = "feed_rerank_v2"
+_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "feed_rerank_v2.txt"
 
 STRATEGY_INSTRUCTIONS = {
     "PREF": "附加偏好（不改变以上规则）：本轮按标准偏好排序，优先常看分类、历史价位和最近浏览。",

@@ -75,13 +75,15 @@ class AiFeedStorePoolTest {
     }
 
     @Test
-    void switchedVariantIsRecordedAsSeen() {
+    void recordSeenTracksExposedProductsOnly() {
         store.pushVariants(USER_ID, List.of(variant("A", LocalDateTime.now(), 11L, 12L)));
 
         store.switchVariant(USER_ID);
+        assertThat(redis.opsForZSet().score(seenKey(), "11")).isNull();
 
+        store.recordSeen(USER_ID, List.of(11L));
         assertThat(redis.opsForZSet().score(seenKey(), "11")).isNotNull();
-        assertThat(redis.opsForZSet().score(seenKey(), "12")).isNotNull();
+        assertThat(redis.opsForZSet().score(seenKey(), "12")).isNull();
         assertThat(redis.getExpire(seenKey())).isPositive();
     }
 
@@ -127,11 +129,11 @@ class AiFeedStorePoolTest {
                 variant("A", LocalDateTime.now(), first),
                 variant("B", LocalDateTime.now(), second)));
 
-        store.switchVariant(USER_ID);
+        store.recordSeen(USER_ID, ids(store.switchVariant(USER_ID)));
         assertThat(redis.opsForZSet().score(seenKey(), "1")).isNotNull();
         assertThat(redis.opsForZSet().rangeByScore(seenKey(),
                 System.currentTimeMillis() - 600_000, Double.MAX_VALUE)).contains("1");
-        store.switchVariant(USER_ID);
+        store.recordSeen(USER_ID, ids(store.switchVariant(USER_ID)));
 
         FeedSnapshot again = store.switchVariant(USER_ID);
 
@@ -178,6 +180,12 @@ class AiFeedStorePoolTest {
         assertThat(store.poolSize(USER_ID)).isEqualTo(2);
     }
 
+    private List<Long> ids(FeedSnapshot snapshot) {
+        return snapshot.items().stream()
+                .map(FeedSnapshot.SnapshotItem::id)
+                .toList();
+    }
+
     private void clear(java.util.Collection<String> keys) {
         if (keys != null && !keys.isEmpty()) {
             redis.delete(keys);
@@ -188,7 +196,7 @@ class AiFeedStorePoolTest {
         List<SnapshotItem> items = Arrays.stream(ids)
                 .map(id -> new SnapshotItem(id, "推荐"))
                 .toList();
-        return new FeedSnapshot(buildId, builtAt, "test-model", "feed_rerank_v1", items);
+        return new FeedSnapshot(buildId, builtAt, "test-model", "feed_rerank_v2", items);
     }
 
     private String poolKey() {

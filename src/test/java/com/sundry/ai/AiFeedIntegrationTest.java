@@ -157,7 +157,7 @@ class AiFeedIntegrationTest {
                     return new RerankResponse(List.of(
                             new RerankResponse.RerankItem(999999L, "编造"),
                             new RerankResponse.RerankItem(validId[0], "有效")),
-                            "deepseek-chat", "feed_rerank_v1");
+                            "deepseek-chat", "feed_rerank_v2");
                 });
 
         refreshAndBuild(user.token(), 5);
@@ -242,7 +242,7 @@ class AiFeedIntegrationTest {
                         items.add(new RerankResponse.RerankItem(
                                 request.candidates().get(i).id(), "旧结果"));
                     }
-                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v2");
                 });
 
         refresh(user.token(), 5).andExpect(jsonPath("$.aiStatus").value("PENDING"));
@@ -257,7 +257,7 @@ class AiFeedIntegrationTest {
 
         // 新请求随后正常构建
         when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
-                .thenReturn(new RerankResponse(List.of(), "deepseek-chat", "feed_rerank_v1"));
+                .thenReturn(new RerankResponse(List.of(), "deepseek-chat", "feed_rerank_v2"));
         processor.buildPending();
 
         mockMvc.perform(get("/api/feed")
@@ -311,7 +311,7 @@ class AiFeedIntegrationTest {
                         items.add(new RerankResponse.RerankItem(
                                 request.candidates().get(i).id(), "AI推荐"));
                     }
-                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v2");
                 });
 
         refresh(user.token(), 5);
@@ -340,7 +340,7 @@ class AiFeedIntegrationTest {
                         items.add(new RerankResponse.RerankItem(
                                 request.candidates().get(i).id(), "AI推荐"));
                     }
-                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v2");
                 });
 
         refresh(user.token(), 5);
@@ -369,7 +369,7 @@ class AiFeedIntegrationTest {
                         items.add(new RerankResponse.RerankItem(
                                 request.candidates().get(i).id(), "AI推荐"));
                     }
-                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v2");
                 });
 
         refresh(user.token(), 5);
@@ -416,7 +416,7 @@ class AiFeedIntegrationTest {
                         items.add(new RerankResponse.RerankItem(
                                 candidates.get(index).id(), "AI推荐"));
                     }
-                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v2");
                 });
 
         refreshAndBuild(user.token(), 5);
@@ -553,7 +553,7 @@ class AiFeedIntegrationTest {
                 "SELECT id FROM product ORDER BY id LIMIT 1", Long.class);
         store.pushVariants(user.id(), List.of(
                 new FeedSnapshot("OLD:A", LocalDateTime.now().minusMinutes(21),
-                        "deepseek-chat", "feed_rerank_v1",
+                        "deepseek-chat", "feed_rerank_v2",
                         List.of(new FeedSnapshot.SnapshotItem(productId, null)), "PREF")));
 
         refresh(user.token(), 3)
@@ -616,7 +616,7 @@ class AiFeedIntegrationTest {
             items.add(new FeedSnapshot.SnapshotItem(id, "AI推荐"));
         }
         return new FeedSnapshot(buildId, LocalDateTime.now(), "deepseek-chat",
-                "feed_rerank_v1", items, "PREF");
+                "feed_rerank_v2", items, "PREF");
     }
 
     private void stubRerankReversed(List<List<Long>> captured) {
@@ -635,7 +635,7 @@ class AiFeedIntegrationTest {
                     for (int i = 0; i < Math.min(5, reversed.size()); i++) {
                         items.add(new RerankResponse.RerankItem(reversed.get(i), "AI推荐"));
                     }
-                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v1");
+                    return new RerankResponse(items, "deepseek-chat", "feed_rerank_v2");
                 });
     }
 

@@ -52,7 +52,7 @@ def test_health_needs_no_token():
     client = TestClient(app)
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["promptVersion"] == "feed_rerank_v1"
+    assert response.json()["promptVersion"] == "feed_rerank_v2"
 
 
 def test_missing_token_rejected():
@@ -90,7 +90,7 @@ def test_returns_only_candidate_ids_and_reasons():
     data = response.json()
     assert [item["id"] for item in data["items"]] == [362, 74]
     assert data["items"][0]["reason"] == "符合数码配件偏好"
-    assert data["promptVersion"] == "feed_rerank_v1"
+    assert data["promptVersion"] == "feed_rerank_v2"
 
 
 def test_out_of_candidate_ids_are_dropped():

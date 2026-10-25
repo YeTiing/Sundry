@@ -90,8 +90,11 @@ public class FeedService {
             if (refresh || (buildId == null && offset == 0)) {
                 FeedSnapshot variant = switchVariant(userId);
                 if (variant != null) {
+                    FeedPage page = pageFromSnapshot(
+                            variant, offset, size, STATUS_READY, variant.buildId());
+                    recordExposed(userId, page.items());
                     finishSwitch(userId);
-                    return pageFromSnapshot(variant, offset, size, STATUS_READY, variant.buildId());
+                    return page;
                 }
                 return pendingPage(userId, offset, size, refresh);
             }
@@ -134,6 +137,17 @@ public class FeedService {
             return aiFeedStore.findVariant(userId, buildId);
         }
         return null;
+    }
+
+    private void recordExposed(Long userId, List<ProductView> views) {
+        if (views == null || views.isEmpty()) {
+            return;
+        }
+        try {
+            aiFeedStore.recordSeen(userId, views.stream().map(ProductView::id).toList());
+        } catch (RuntimeException ex) {
+            log.warn("AI 曝光记录失败 userId={}", userId, ex);
+        }
     }
 
     private FeedPage pendingPage(Long userId, int offset, int size, boolean forceBuild) {

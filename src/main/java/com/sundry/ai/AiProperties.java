@@ -18,7 +18,6 @@ public class AiProperties {
     private Duration timeout = Duration.ofSeconds(5);
     private int feedCandidateLimit = 60;
     private int feedRerankLimit = 20;
-    private Duration feedCacheTtl = Duration.ofMinutes(10);
     private Duration feedPendingTtl = Duration.ofMinutes(2);
     private Duration feedVariantTtl = Duration.ofMinutes(20);
     private int feedVariantCount = 2;
@@ -73,14 +72,6 @@ public class AiProperties {
 
     public void setFeedRerankLimit(int feedRerankLimit) {
         this.feedRerankLimit = feedRerankLimit;
-    }
-
-    public Duration getFeedCacheTtl() {
-        return feedCacheTtl;
-    }
-
-    public void setFeedCacheTtl(Duration feedCacheTtl) {
-        this.feedCacheTtl = feedCacheTtl;
     }
 
     public Duration getFeedPendingTtl() {

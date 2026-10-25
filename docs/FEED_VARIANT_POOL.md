@@ -104,7 +104,7 @@ feed:ai:attempt:{uid}    STR   保留，失败计数
   "strategy": "PREF",
   "builtAt": "2026-10-25T16:30:00",
   "model": "deepseek-v4-flash",
-  "promptVersion": "feed_rerank_v1",
+  "promptVersion": "feed_rerank_v2",
   "items": [
     { "id": 101, "reason": "你常看的户外类目" },
     { "id": 205, "reason": null }

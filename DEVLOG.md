@@ -1921,6 +1921,24 @@ sundry_seckill_compensation_total = 0
 
 - 待提交：`feat: 首页重开切换下一份变体`
 
+## 2026-10-25 · Feed 变体池审查修复
+
+**做了什么**
+
+- 已曝光记录只写本次实际返回的那一页商品，不再把整份变体（约 60 个）都标记为曝光；下沉逻辑据此更准确
+- prompt 版本升到 `feed_rerank_v2`，prompt 文件同步重命名，审计和指标可以区分新老版本
+- 删除旧快照读写（`snapshot` / `saveSnapshot` / 快照 key）和无用的 `feed-cache-ttl` 配置
+
+**验证**
+
+- Java：211 个用例全部通过（曝光记录用例改为只记返回商品）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`fix: Feed 变体池审查修复`
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。

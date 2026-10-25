@@ -10,6 +10,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -27,7 +28,6 @@ public class AiFeedStore {
     public static final String QUEUE_KEY = "feed:ai:queue";
     public static final String PROCESSING_KEY = "feed:ai:processing";
 
-    private static final String SNAPSHOT_KEY = "feed:ai:snapshot:%d";
     private static final String PENDING_KEY = "feed:ai:pending:%d";
     private static final String QUEUED_KEY = "feed:ai:queued:%d";
     private static final String ATTEMPT_KEY = "feed:ai:attempt:%d";
@@ -133,26 +133,6 @@ public class AiFeedStore {
         redis.delete(queuedKey(userId));
     }
 
-    public FeedSnapshot snapshot(Long userId) {
-        String json = redis.opsForValue().get(snapshotKey(userId));
-        if (json == null) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(json, FeedSnapshot.class);
-        } catch (RuntimeException ex) {
-            log.warn("AI 快照解析失败，已删除 userId={}", userId, ex);
-            redis.delete(snapshotKey(userId));
-            return null;
-        }
-    }
-
-    public void saveSnapshot(Long userId, FeedSnapshot snapshot) {
-        redis.opsForValue().set(snapshotKey(userId),
-                objectMapper.writeValueAsString(snapshot),
-                properties.getFeedCacheTtl());
-    }
-
     /**
      * 把一批变体写入环形池。列表整体按变体 TTL 过期。
      */
@@ -194,7 +174,6 @@ public class AiFeedStore {
                 continue;
             }
             FeedSnapshot viewed = sinkSeen(userId, variant);
-            recordSeen(userId, variant);
             saveVariantView(userId, viewed);
             redis.opsForValue().set(currentKey(userId), variant.buildId(),
                     properties.getFeedVariantTtl());
@@ -403,15 +382,18 @@ public class AiFeedStore {
                 .compareTo(properties.getFeedVariantTtl()) > 0;
     }
 
-    private void recordSeen(Long userId, FeedSnapshot variant) {
-        if (variant.items() == null || variant.items().isEmpty()) {
+    /**
+     * 记录本次真正返回给用户的商品，而不是整份变体。
+     */
+    public void recordSeen(Long userId, Collection<Long> productIds) {
+        if (productIds == null || productIds.isEmpty()) {
             return;
         }
         String key = poolSeenKey(userId);
         long now = System.currentTimeMillis();
-        for (FeedSnapshot.SnapshotItem item : variant.items()) {
-            if (item != null && item.id() != null) {
-                redis.opsForZSet().add(key, String.valueOf(item.id()), now);
+        for (Long id : productIds) {
+            if (id != null) {
+                redis.opsForZSet().add(key, String.valueOf(id), now);
             }
         }
         redis.expire(key, POOL_SEEN_TTL);
@@ -452,10 +434,6 @@ public class AiFeedStore {
     public long queueSize() {
         Long size = redis.opsForList().size(QUEUE_KEY);
         return size == null ? 0 : size;
-    }
-
-    private String snapshotKey(Long userId) {
-        return SNAPSHOT_KEY.formatted(userId);
     }
 
     private String pendingKey(Long userId) {
