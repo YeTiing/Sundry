@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；异步队列、buildId 防覆盖、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 192 个 Java 集成测试 + 16 个 Python 用例 |
+| 测试 | 197 个 Java 集成测试 + 16 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1783,6 +1783,30 @@ sundry_seckill_compensation_total = 0
 
 - `6c7d65f` feat: 商品向量增量更新与过期清理
 - `7acf9f5` feat: 商品标签与标签偏好排序
+
+## 2026-10-25 · AI 推流变体池（切片 1：存储层）
+
+**做了什么**
+
+- 设计文档 `docs/FEED_VARIANT_POOL.md` 评审通过，确认：变体数 2、策略 `PREF`/`EXPLORE`/`PRICE`、TTL 20 分钟、已曝光商品下沉、保留首次访问轮询；额外确认补齐 A/B/C/D 四类构建触发点
+- `AiFeedStore` 新增环形池 `feed:ai:pool:{uid}`（LIST）和 `feed:ai:pool:seen:{uid}`（ZSET，TTL 1 小时）
+- Lua 原子切换：`LPOP` 池头 + `RPUSH` 池尾，并发下每个请求拿到不同变体
+- `switchVariant` 跳过并按值移除过期/损坏变体，命中后把商品 id 写入 `pool:seen`
+- 新增配置 `app.ai.feed-variant-ttl`，默认 20m
+- 旧快照 `feed:ai:snapshot:{uid}` 和全部旧方法保持不变，现有读取路径未改
+
+**遇到问题**
+
+- 环形池长度不随切换下降，设计文档 §4.5 的「剩余 = LLEN(pool)」不能作为补算水位；补算触发点改为「未过期变体数不足」，留到切片 3 落地
+
+**验证**
+
+- 新增 `AiFeedStorePoolTest` 5 个用例：环形顺序与回绕、过期跳过并移除、全部过期返回空池、已曝光记录、20 次并发切换各取到 10 次（Lua 原子性）
+- `TEST_DB_PASSWORD=123456 mvn test` → 197 个用例全部通过（原 192 + 5）
+
+**提交**
+
+- 待提交：`feat: AI 推流变体池存储层`
 
 ## 待办 / 下一步
 

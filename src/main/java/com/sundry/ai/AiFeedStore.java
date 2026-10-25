@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,9 +30,12 @@ public class AiFeedStore {
     private static final String QUEUED_KEY = "feed:ai:queued:%d";
     private static final String ATTEMPT_KEY = "feed:ai:attempt:%d";
     private static final String LOCK_KEY = "feed:ai:lock:%d";
+    private static final String POOL_KEY = "feed:ai:pool:%d";
+    private static final String POOL_SEEN_KEY = "feed:ai:pool:seen:%d";
 
     private static final Duration LOCK_TTL = Duration.ofSeconds(60);
     private static final Duration ATTEMPT_TTL = Duration.ofMinutes(5);
+    private static final Duration POOL_SEEN_TTL = Duration.ofHours(1);
 
     private static final DefaultRedisScript<Long> RELEASE_LOCK = new DefaultRedisScript<>("""
             if redis.call('GET', KEYS[1]) == ARGV[1] then
@@ -38,6 +43,17 @@ public class AiFeedStore {
             end
             return 0
             """, Long.class);
+
+    /**
+     * 环形切换：池头取出后放回池尾。多实例并发时每个请求拿到不同变体。
+     */
+    private static final DefaultRedisScript<String> SWITCH_VARIANT = new DefaultRedisScript<>("""
+            local v = redis.call('LPOP', KEYS[1])
+            if v then
+                redis.call('RPUSH', KEYS[1], v)
+            end
+            return v
+            """, String.class);
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -101,6 +117,87 @@ public class AiFeedStore {
                 properties.getFeedCacheTtl());
     }
 
+    /**
+     * 把一批变体写入环形池。列表整体按变体 TTL 过期。
+     */
+    public void pushVariants(Long userId, List<FeedSnapshot> variants) {
+        if (variants == null || variants.isEmpty()) {
+            return;
+        }
+        List<String> payloads = new ArrayList<>(variants.size());
+        for (FeedSnapshot variant : variants) {
+            payloads.add(objectMapper.writeValueAsString(variant));
+        }
+        String key = poolKey(userId);
+        redis.opsForList().rightPushAll(key, payloads);
+        redis.expire(key, properties.getFeedVariantTtl());
+    }
+
+    /**
+     * 原子切到下一份变体。过期或损坏的变体直接移除并继续取下一份；池空返回 null。
+     */
+    public FeedSnapshot switchVariant(Long userId) {
+        String key = poolKey(userId);
+        Long size = redis.opsForList().size(key);
+        if (size == null || size == 0) {
+            return null;
+        }
+        for (long i = 0; i < size; i++) {
+            String json = redis.execute(SWITCH_VARIANT, List.of(key));
+            if (json == null) {
+                return null;
+            }
+            FeedSnapshot variant = parseVariant(json);
+            if (variant == null) {
+                redis.opsForList().remove(key, 1, json);
+                log.warn("AI 变体解析失败，已从池中移除 userId={}", userId);
+                continue;
+            }
+            if (isExpired(variant)) {
+                redis.opsForList().remove(key, 1, json);
+                continue;
+            }
+            recordSeen(userId, variant);
+            return variant;
+        }
+        return null;
+    }
+
+    public long poolSize(Long userId) {
+        Long size = redis.opsForList().size(poolKey(userId));
+        return size == null ? 0 : size;
+    }
+
+    private FeedSnapshot parseVariant(String json) {
+        try {
+            return objectMapper.readValue(json, FeedSnapshot.class);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private boolean isExpired(FeedSnapshot variant) {
+        if (variant.builtAt() == null) {
+            return true;
+        }
+        return Duration.between(variant.builtAt(), LocalDateTime.now())
+                .compareTo(properties.getFeedVariantTtl()) > 0;
+    }
+
+    private void recordSeen(Long userId, FeedSnapshot variant) {
+        if (variant.items() == null || variant.items().isEmpty()) {
+            return;
+        }
+        String key = poolSeenKey(userId);
+        long now = System.currentTimeMillis();
+        for (FeedSnapshot.SnapshotItem item : variant.items()) {
+            if (item != null && item.id() != null) {
+                redis.opsForZSet().add(key, String.valueOf(item.id()), now);
+            }
+        }
+        redis.expire(key, POOL_SEEN_TTL);
+    }
+
     public long nextAttempt(Long userId) {
         Long count = redis.opsForValue().increment(attemptKey(userId));
         redis.expire(attemptKey(userId), ATTEMPT_TTL);
@@ -156,5 +253,13 @@ public class AiFeedStore {
 
     private String lockKey(Long userId) {
         return LOCK_KEY.formatted(userId);
+    }
+
+    private String poolKey(Long userId) {
+        return POOL_KEY.formatted(userId);
+    }
+
+    private String poolSeenKey(Long userId) {
+        return POOL_SEEN_KEY.formatted(userId);
     }
 }

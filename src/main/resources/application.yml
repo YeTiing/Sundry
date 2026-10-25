@@ -112,6 +112,7 @@ app:
     feed-rerank-limit: ${AI_FEED_RERANK_LIMIT:20}
     feed-cache-ttl: ${AI_FEED_CACHE_TTL:10m}
     feed-pending-ttl: ${AI_FEED_PENDING_TTL:2m}
+    feed-variant-ttl: ${AI_FEED_VARIANT_TTL:20m}
     feed-batch-size: ${AI_FEED_BATCH_SIZE:5}
     feed-build-interval: ${AI_FEED_BUILD_INTERVAL:1s}
     feed-queue-max: ${AI_FEED_QUEUE_MAX:1000}
