@@ -123,4 +123,26 @@
         LIMIT #{limit}
     </select>
 
+    <select id="findRecentViewedProductIds" resultType="long">
+        SELECT product_id
+        FROM user_behavior
+        WHERE user_id = #{userId}
+          AND event_type = 'VIEW'
+          AND created_at &gt;= #{since}
+        GROUP BY product_id
+        ORDER BY MAX(created_at) DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findRecentPurchasedProductIds" resultType="long">
+        SELECT oi.product_id
+        FROM order_item oi
+        JOIN orders o ON o.id = oi.order_id
+        WHERE o.user_id = #{userId}
+          AND o.status NOT IN ('CANCELLED', 'REFUNDED')
+        GROUP BY oi.product_id
+        ORDER BY MAX(o.created_at) DESC
+        LIMIT #{limit}
+    </select>
+
 </mapper>

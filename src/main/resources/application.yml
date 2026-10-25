@@ -89,6 +89,14 @@ app:
     recall-min-candidates: ${FEED_RECALL_MIN_CANDIDATES:60}
     recall-max-candidates: ${FEED_RECALL_MAX_CANDIDATES:500}
     recall-hot-days: ${FEED_RECALL_HOT_DAYS:30}
+    recall-semantic-limit: ${FEED_RECALL_SEMANTIC_LIMIT:100}
+  milvus:
+    enabled: ${MILVUS_ENABLED:true}
+    base-url: ${MILVUS_URL:http://127.0.0.1:19530}
+    collection: ${MILVUS_COLLECTION:sundry_product_vector}
+    dim: ${EMBED_DIM:1024}
+    metric: COSINE
+    timeout: 10s
   ai:
     enabled: ${AI_FEED_ENABLED:true}
     base-url: ${AI_BASE_URL:http://127.0.0.1:8000}

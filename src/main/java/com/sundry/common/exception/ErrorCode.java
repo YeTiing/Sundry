@@ -70,6 +70,9 @@ public enum ErrorCode {
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "文件不存在"),
     FILE_IN_USE(HttpStatus.CONFLICT, "文件已被商品或订单使用，不能删除"),
     FILE_DELETE_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "文件删除失败，请稍后重试"),
+    EMBEDDING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "向量生成失败，请稍后重试"),
+    EMBEDDING_DIMENSION_MISMATCH(HttpStatus.CONFLICT, "embedding 维度与配置不一致"),
+    VECTOR_STORE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "向量库不可用，请稍后重试"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "服务器内部错误");
 
     private final HttpStatus status;

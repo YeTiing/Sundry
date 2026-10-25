@@ -2,6 +2,7 @@ package com.sundry.ai;
 
 import com.sundry.ai.dto.RerankRequest;
 import com.sundry.ai.dto.RerankResponse;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
@@ -22,7 +23,8 @@ public class AiFeedClient {
     private final AiProperties properties;
     private final ObjectMapper objectMapper;
 
-    public AiFeedClient(RestClient aiRestClient, AiProperties properties, ObjectMapper objectMapper) {
+    public AiFeedClient(@Qualifier("aiRestClient") RestClient aiRestClient,
+                        AiProperties properties, ObjectMapper objectMapper) {
         this.restClient = aiRestClient;
         this.properties = properties;
         this.objectMapper = objectMapper;

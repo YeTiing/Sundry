@@ -17,6 +17,9 @@ app:
   ai:
     # 默认关闭；AI 推流用例单独开启并替换 AiFeedClient
     enabled: false
+  milvus:
+    # 标准测试不依赖 Milvus；语义召回用例单独用 fake client
+    enabled: false
   security:
     super-admin-phone: "13900000000"
   seckill:

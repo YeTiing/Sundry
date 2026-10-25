@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.sundry.feed.ProductEmbeddingMapper">
+
+    <insert id="upsertBatch">
+        INSERT INTO product_embedding (product_id, model, dim, vector)
+        VALUES
+        <foreach collection="items" item="item" separator=",">
+            (#{item.productId}, #{item.model}, #{item.dim}, #{item.vector})
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            model = VALUES(model),
+            dim = VALUES(dim),
+            vector = VALUES(vector),
+            updated_at = NOW(3)
+    </insert>
+
+    <select id="findByProductIds" resultType="com.sundry.feed.ProductEmbedding">
+        SELECT product_id, model, dim, vector
+        FROM product_embedding
+        WHERE product_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM product_embedding
+    </select>
+
+</mapper>

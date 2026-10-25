@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, constr
 
 
 class CategoryPreference(BaseModel):
@@ -52,3 +52,17 @@ class RerankResponse(BaseModel):
     items: list[RerankItem]
     model: str
     prompt_version: str = Field(serialization_alias="promptVersion")
+
+
+EmbeddingText = constr(strip_whitespace=True, min_length=1, max_length=2000)
+
+
+class EmbeddingRequest(BaseModel):
+    # 百炼 embedding 单批最多 25 条
+    texts: list[EmbeddingText] = Field(min_length=1, max_length=25)
+
+
+class EmbeddingResponse(BaseModel):
+    vectors: list[list[float]]
+    model: str
+    dim: int

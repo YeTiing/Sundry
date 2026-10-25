@@ -26,12 +26,15 @@ public class FeedRecallService {
 
     private final FeedQueryMapper feedQueryMapper;
     private final ProductMapper productMapper;
+    private final SemanticRecallService semanticRecallService;
     private final FeedProperties properties;
 
     public FeedRecallService(FeedQueryMapper feedQueryMapper, ProductMapper productMapper,
+                             SemanticRecallService semanticRecallService,
                              FeedProperties properties) {
         this.feedQueryMapper = feedQueryMapper;
         this.productMapper = productMapper;
+        this.semanticRecallService = semanticRecallService;
         this.properties = properties;
     }
 
@@ -41,6 +44,7 @@ public class FeedRecallService {
 
         int category = 0;
         int coPurchase = 0;
+        int semantic = 0;
         if (userId != null) {
             List<Long> topCategories = affinity.entrySet().stream()
                     .sorted(Map.Entry.<Long, Double>comparingByValue().reversed())
@@ -53,6 +57,8 @@ public class FeedRecallService {
             }
             coPurchase = addAll(ids, feedQueryMapper.findCoPurchaseProductIds(
                     userId, limit(properties.getRecallCoPurchaseLimit())));
+            semantic = addAll(ids, semanticRecallService.recall(
+                    userId, limit(properties.getRecallSemanticLimit())));
         }
 
         int hot = addAll(ids, feedQueryMapper.findHotProductIds(
@@ -74,9 +80,9 @@ public class FeedRecallService {
         List<Long> result = ids.stream()
                 .limit(limit(properties.getRecallMaxCandidates()))
                 .toList();
-        log.debug("feed recall userId={} total={} hot={} new={} category={} coPurchase={}",
-                userId, result.size(), hot, newCount, category, coPurchase);
-        return new RecallResult(result, hot, newCount, category, coPurchase, affinity);
+        log.debug("feed recall userId={} total={} hot={} new={} category={} coPurchase={} semantic={}",
+                userId, result.size(), hot, newCount, category, coPurchase, semantic);
+        return new RecallResult(result, hot, newCount, category, coPurchase, semantic, affinity);
     }
 
     private Map<Long, Double> affinity(Long userId) {
@@ -105,6 +111,6 @@ public class FeedRecallService {
     }
 
     public record RecallResult(List<Long> ids, int hot, int newCount, int category,
-                               int coPurchase, Map<Long, Double> affinity) {
+                               int coPurchase, int semantic, Map<Long, Double> affinity) {
     }
 }

@@ -33,4 +33,11 @@ public interface FeedQueryMapper {
 
     List<Long> findCoPurchaseProductIds(@Param("userId") Long userId,
                                         @Param("limit") int limit);
+
+    List<Long> findRecentViewedProductIds(@Param("userId") Long userId,
+                                          @Param("since") LocalDateTime since,
+                                          @Param("limit") int limit);
+
+    List<Long> findRecentPurchasedProductIds(@Param("userId") Long userId,
+                                             @Param("limit") int limit);
 }

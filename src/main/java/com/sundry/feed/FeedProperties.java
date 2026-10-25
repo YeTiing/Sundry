@@ -27,6 +27,7 @@ public class FeedProperties {
     private int recallMinCandidates = 60;
     private int recallMaxCandidates = 500;
     private int recallHotDays = 30;
+    private int recallSemanticLimit = 100;
 
     public int getBehaviorBatchSize() {
         return behaviorBatchSize;
@@ -162,5 +163,13 @@ public class FeedProperties {
 
     public void setRecallHotDays(int recallHotDays) {
         this.recallHotDays = recallHotDays;
+    }
+
+    public int getRecallSemanticLimit() {
+        return recallSemanticLimit;
+    }
+
+    public void setRecallSemanticLimit(int recallSemanticLimit) {
+        this.recallSemanticLimit = recallSemanticLimit;
     }
 }
