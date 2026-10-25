@@ -257,7 +257,12 @@ app:
     feed-build-cooldown: ${AI_FEED_BUILD_COOLDOWN:10s}      # 每用户构建冷却
     feed-build-rate-limit: ${AI_FEED_BUILD_RATE_LIMIT:20}   # 全站每分钟构建上限
     feed-build-concurrency: ${AI_FEED_BUILD_CONCURRENCY:2}  # 单实例同时构建的用户数
+    feed-variant-max-items: ${AI_FEED_VARIANT_MAX_ITEMS:120} # 每份变体最多保留的商品数
+    feed-llm-max-concurrent: ${AI_FEED_LLM_MAX_CONCURRENT:4} # 单实例模型并发
+    feed-llm-cooldown: ${AI_FEED_LLM_COOLDOWN:30s}           # 429 后暂停请求模型
 ```
+
+读接口限流：登录用户 120 次/分钟、匿名 IP 60 次/分钟。Redis 连续 5 次失败后熔断 30 秒，期间使用进程内的最近一页和规则排序缓存兜底。
 
 `spring.task.scheduling.pool.size` 建议不小于 4，避免构建任务阻塞订单超时、秒杀关单等定时任务。
 

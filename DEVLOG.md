@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 223 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 229 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -2052,6 +2052,30 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`perf: Feed 读路径批量与轻量状态轮询`
+
+## 2026-10-25 · Feed 内存、限流与熔断
+
+**做了什么**
+
+- 变体长度上限 `feed-variant-max-items=120`，AI 变体和首访临时变体都截断，Redis 内存不再随召回池无界增长
+- 读接口限流：登录用户 120 次/分钟，匿名按 IP 60 次/分钟，超限返回 429；覆盖 `/api/feed`、`/api/feed/status`、`/api/feed/events`
+- Redis 读熔断：连续 5 次失败后打开 30 秒，期间不再逐请求实时算规则；本地缓存最近一页（30 秒）和规则排序结果（1 分钟）兜底
+- 模型调用闸门：单实例最多 4 个在途请求；拿不到许可直接规则兜底；收到 429 后冷却 30 秒，期间不再请求供应商
+
+**验证**
+
+- Java：229 个用例全部通过（新增：变体截断、模型闸门并发与冷却、读限流、熔断状态机）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**上线注意**
+
+- 生产 Redis 建议设置 `maxmemory` + `volatile-lru`，与 20 分钟变体 TTL 配合，避免内存无限增长
+- 若改 Redis Cluster，需要给 `pool` / `next` 等 key 加相同的 hash tag，否则提升脚本会跨 slot 失败
+
+**提交**
+
+- 待提交：`perf: Feed 内存、限流与熔断`
 
 ## 待办 / 下一步
 

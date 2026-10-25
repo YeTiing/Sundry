@@ -248,7 +248,7 @@ public class AiFeedBuildProcessor {
         MergeResult merged = merge(List.of(), bundle);
         return new VariantBuild(strategy + ":" + UUID.randomUUID(), strategy,
                 FeedSnapshot.RULE_FALLBACK_MODEL, "rule_fallback",
-                merged.items(), 0);
+                limit(merged.items()), 0);
     }
 
     private VariantBuild buildVariant(Long userId, AiFeedProfileService.CandidateBundle bundle,
@@ -261,7 +261,15 @@ public class AiFeedBuildProcessor {
             return null;
         }
         return new VariantBuild(strategy + ":" + UUID.randomUUID(), strategy,
-                response.model(), response.promptVersion(), merged.items(), merged.llmCount());
+                response.model(), response.promptVersion(),
+                limit(merged.items()), merged.llmCount());
+    }
+
+    private List<SnapshotItem> limit(List<SnapshotItem> items) {
+        int max = Math.max(1, properties.getFeedVariantMaxItems());
+        return items.size() <= max
+                ? items
+                : new ArrayList<>(items.subList(0, max));
     }
 
     private List<String> strategiesFor() {

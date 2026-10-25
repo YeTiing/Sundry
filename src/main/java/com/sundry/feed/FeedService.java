@@ -10,6 +10,8 @@ import com.sundry.catalog.ProductType;
 import com.sundry.catalog.dto.ProductView;
 import com.sundry.common.api.ScrollPage;
 import com.sundry.common.exception.BusinessException;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.sundry.feed.dto.FeedPage;
 import com.sundry.feed.dto.FeedStatusView;
 import org.slf4j.Logger;
@@ -59,11 +61,22 @@ public class FeedService {
     private final StringRedisTemplate redis;
     private final AiProperties aiProperties;
     private final AiFeedStore aiFeedStore;
+    private final FeedCircuitBreaker breaker;
+
+    private final Cache<Long, List<Long>> rankCache = Caffeine.newBuilder()
+            .maximumSize(5_000)
+            .expireAfterWrite(Duration.ofMinutes(1))
+            .build();
+    private final Cache<String, FeedPage> fallbackPages = Caffeine.newBuilder()
+            .maximumSize(2_000)
+            .expireAfterWrite(Duration.ofSeconds(30))
+            .build();
 
     public FeedService(ProductMapper productMapper, FeedQueryMapper feedQueryMapper,
                        FeedRecallService feedRecallService,
                        ProductService productService, StringRedisTemplate redis,
-                       AiProperties aiProperties, AiFeedStore aiFeedStore) {
+                       AiProperties aiProperties, AiFeedStore aiFeedStore,
+                       FeedCircuitBreaker breaker) {
         this.productMapper = productMapper;
         this.feedQueryMapper = feedQueryMapper;
         this.feedRecallService = feedRecallService;
@@ -71,6 +84,7 @@ public class FeedService {
         this.redis = redis;
         this.aiProperties = aiProperties;
         this.aiFeedStore = aiFeedStore;
+        this.breaker = breaker;
     }
 
     public FeedPage feed(Long userId, Long cursor, int size, boolean refresh, String buildId) {
@@ -126,8 +140,44 @@ public class FeedService {
     }
 
     private FeedPage aiPage(Long userId, int offset, int size, boolean refresh, String buildId) {
+        if (!breaker.allow()) {
+            return fallbackPage(userId, offset, size);
+        }
         try {
-            // 点击换一批，或无 buildId 的首屏请求（重新打开 / F5），都切下一份
+            FeedPage page = doAiPage(userId, offset, size, refresh, buildId);
+            breaker.success();
+            fallbackPages.put(pageKey(userId, offset, size), page);
+            return page;
+        } catch (RuntimeException ex) {
+            breaker.failure();
+            log.warn("AI 变体池读取失败，使用本地兜底 userId={}", userId, ex);
+            return fallbackPage(userId, offset, size);
+        }
+    }
+
+    /**
+     * Redis 连续失败时优先返回本地缓存，避免每个请求都实时算规则打爆数据库。
+     */
+    private FeedPage fallbackPage(Long userId, int offset, int size) {
+        String key = pageKey(userId, offset, size);
+        FeedPage cached = fallbackPages.getIfPresent(key);
+        if (cached != null) {
+            return cached;
+        }
+        List<Long> ranked = userId == null ? rank(null) : rankCache.get(userId, this::rank);
+        ScrollPage<ProductView> page = paginate(ranked, offset, size);
+        FeedPage result = new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
+                STATUS_FALLBACK, null, null);
+        fallbackPages.put(key, result);
+        return result;
+    }
+
+    private String pageKey(Long userId, int offset, int size) {
+        return (userId == null ? "anon" : userId) + ":" + offset + ":" + size;
+    }
+
+    private FeedPage doAiPage(Long userId, int offset, int size, boolean refresh, String buildId) {
+        // 点击换一批，或无 buildId 的首屏请求（重新打开 / F5），都切下一份
             if (refresh || (buildId == null && offset == 0)) {
                 FeedSnapshot variant = switchVariant(userId);
                 boolean seeded = false;
@@ -167,12 +217,6 @@ public class FeedService {
                         statusOf(userId, variant), variant.buildId());
             }
             return pendingPage(userId, offset, size, false);
-        } catch (RuntimeException ex) {
-            log.warn("AI 变体池读取失败，降级规则排序 userId={}", userId, ex);
-            ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
-            return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
-                    STATUS_FALLBACK, null, null);
-        }
     }
 
     /**
@@ -219,8 +263,12 @@ public class FeedService {
             if (ranked.isEmpty()) {
                 return null;
             }
-            List<FeedSnapshot.SnapshotItem> items = new ArrayList<>(ranked.size());
+            int max = Math.max(1, aiProperties.getFeedVariantMaxItems());
+            List<FeedSnapshot.SnapshotItem> items = new ArrayList<>(Math.min(ranked.size(), max));
             for (Long id : ranked) {
+                if (items.size() >= max) {
+                    break;
+                }
                 items.add(new FeedSnapshot.SnapshotItem(id, null));
             }
             int shift = Math.min(PROVISIONAL_HEAD_SHIFT, items.size());

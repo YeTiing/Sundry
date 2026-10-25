@@ -3,6 +3,7 @@ package com.sundry.feed;
 import com.sundry.auth.security.AuthenticatedUser;
 import com.sundry.feed.dto.FeedPage;
 import com.sundry.feed.dto.FeedStatusView;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -21,9 +22,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class FeedController {
 
     private final FeedService feedService;
+    private final FeedRateLimiter rateLimiter;
 
-    public FeedController(FeedService feedService) {
+    public FeedController(FeedService feedService, FeedRateLimiter rateLimiter) {
         this.feedService = feedService;
+        this.rateLimiter = rateLimiter;
     }
 
     @GetMapping
@@ -32,12 +35,18 @@ public class FeedController {
             @RequestParam(defaultValue = "12") @Min(1) @Max(50) int size,
             @RequestParam(defaultValue = "false") boolean refresh,
             @RequestParam(required = false) String buildId,
-            @AuthenticationPrincipal AuthenticatedUser user) {
-        return feedService.feed(user == null ? null : user.id(), cursor, size, refresh, buildId);
+            @AuthenticationPrincipal AuthenticatedUser user,
+            HttpServletRequest request) {
+        Long userId = user == null ? null : user.id();
+        rateLimiter.check(userId, request.getRemoteAddr());
+        return feedService.feed(userId, cursor, size, refresh, buildId);
     }
 
     @GetMapping("/status")
-    public FeedStatusView status(@AuthenticationPrincipal AuthenticatedUser user) {
-        return feedService.status(user == null ? null : user.id());
+    public FeedStatusView status(@AuthenticationPrincipal AuthenticatedUser user,
+                                 HttpServletRequest request) {
+        Long userId = user == null ? null : user.id();
+        rateLimiter.check(userId, request.getRemoteAddr());
+        return feedService.status(userId);
     }
 }

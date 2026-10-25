@@ -28,6 +28,8 @@ public class FeedProperties {
     private int recallMaxCandidates = 500;
     private int recallHotDays = 30;
     private int recallSemanticLimit = 100;
+    private int rateLimitUserPerMinute = 120;
+    private int rateLimitIpPerMinute = 60;
 
     public int getBehaviorBatchSize() {
         return behaviorBatchSize;
@@ -171,5 +173,21 @@ public class FeedProperties {
 
     public void setRecallSemanticLimit(int recallSemanticLimit) {
         this.recallSemanticLimit = recallSemanticLimit;
+    }
+
+    public int getRateLimitUserPerMinute() {
+        return rateLimitUserPerMinute;
+    }
+
+    public void setRateLimitUserPerMinute(int rateLimitUserPerMinute) {
+        this.rateLimitUserPerMinute = rateLimitUserPerMinute;
+    }
+
+    public int getRateLimitIpPerMinute() {
+        return rateLimitIpPerMinute;
+    }
+
+    public void setRateLimitIpPerMinute(int rateLimitIpPerMinute) {
+        this.rateLimitIpPerMinute = rateLimitIpPerMinute;
     }
 }

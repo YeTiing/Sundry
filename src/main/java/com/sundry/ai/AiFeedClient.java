@@ -22,12 +22,15 @@ public class AiFeedClient {
     private final RestClient restClient;
     private final AiProperties properties;
     private final ObjectMapper objectMapper;
+    private final AiLlmGate gate;
 
     public AiFeedClient(@Qualifier("aiRestClient") RestClient aiRestClient,
-                        AiProperties properties, ObjectMapper objectMapper) {
+                        AiProperties properties, ObjectMapper objectMapper,
+                        AiLlmGate gate) {
         this.restClient = aiRestClient;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.gate = gate;
     }
 
     public RerankResponse rerank(RerankRequest request, String traceId) {
@@ -38,6 +41,7 @@ public class AiFeedClient {
             throw new AiFeedException("AI_TOKEN_MISSING");
         }
 
+        gate.ensureReady();
         String payload;
         try {
             payload = objectMapper.writeValueAsString(request);
@@ -45,6 +49,7 @@ public class AiFeedClient {
             throw new AiFeedException("AI_REQUEST_INVALID", ex);
         }
 
+        gate.acquire();
         try {
             RerankResponse response = restClient.post()
                     .uri("/internal/feed/rerank")
@@ -60,9 +65,14 @@ public class AiFeedClient {
             }
             return response;
         } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 429) {
+                gate.coolDown();
+            }
             throw new AiFeedException("AI_HTTP_" + ex.getStatusCode().value(), ex);
         } catch (ResourceAccessException ex) {
             throw new AiFeedException("AI_UNAVAILABLE", ex);
+        } finally {
+            gate.release();
         }
     }
 }

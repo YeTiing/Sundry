@@ -50,7 +50,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.ai.max-attempts=2",
         "app.ai.feed-variant-count=2",
         "app.ai.feed-variant-dedup-head=3",
-        "app.ai.feed-variant-deadline=1s"
+        "app.ai.feed-variant-deadline=1s",
+        "app.feed.recall-new-limit=200"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -591,6 +592,19 @@ class AiFeedIntegrationTest {
         assertThat(JsonPath.<String>read(body(upgraded), "$.aiBuildId"))
                 .isNotEqualTo(provisional);
         assertThat(store.nextPoolSize(user.id())).isZero();
+    }
+
+    @Test
+    void variantLengthIsCapped() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(200);
+        stubRerankReversed(new ArrayList<>());
+
+        refreshAndBuild(user.token(), 5);
+
+        assertThat(nextPool(user.id()))
+                .hasSize(2)
+                .allMatch(variant -> variant.items().size() == 120);
     }
 
     @Test

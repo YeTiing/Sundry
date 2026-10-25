@@ -26,6 +26,10 @@ public class AiProperties {
     private Duration feedBuildCooldown = Duration.ofSeconds(10);
     private int feedBuildRateLimit = 20;
     private int feedBuildConcurrency = 2;
+    private int feedVariantMaxItems = 120;
+    private int feedLlmMaxConcurrent = 4;
+    private Duration feedLlmAcquireTimeout = Duration.ofSeconds(2);
+    private Duration feedLlmCooldown = Duration.ofSeconds(30);
     private int feedBatchSize = 5;
     private int feedQueueMax = 1000;
     private int maxAttempts = 2;
@@ -147,6 +151,38 @@ public class AiProperties {
 
     public void setFeedBuildRateLimit(int feedBuildRateLimit) {
         this.feedBuildRateLimit = feedBuildRateLimit;
+    }
+
+    public int getFeedVariantMaxItems() {
+        return feedVariantMaxItems;
+    }
+
+    public void setFeedVariantMaxItems(int feedVariantMaxItems) {
+        this.feedVariantMaxItems = feedVariantMaxItems;
+    }
+
+    public int getFeedLlmMaxConcurrent() {
+        return feedLlmMaxConcurrent;
+    }
+
+    public void setFeedLlmMaxConcurrent(int feedLlmMaxConcurrent) {
+        this.feedLlmMaxConcurrent = feedLlmMaxConcurrent;
+    }
+
+    public Duration getFeedLlmAcquireTimeout() {
+        return feedLlmAcquireTimeout;
+    }
+
+    public void setFeedLlmAcquireTimeout(Duration feedLlmAcquireTimeout) {
+        this.feedLlmAcquireTimeout = feedLlmAcquireTimeout;
+    }
+
+    public Duration getFeedLlmCooldown() {
+        return feedLlmCooldown;
+    }
+
+    public void setFeedLlmCooldown(Duration feedLlmCooldown) {
+        this.feedLlmCooldown = feedLlmCooldown;
     }
 
     public int getFeedBatchSize() {
