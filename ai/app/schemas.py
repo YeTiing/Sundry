@@ -39,6 +39,31 @@ class RerankRequest(BaseModel):
     strategy: str | None = Field(default=None, max_length=16)
 
 
+class AssistantToolCall(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=64)
+    arguments: str = Field(default="{}", max_length=4000)
+
+
+class AssistantChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=500)
+    history: list[dict] = Field(default_factory=list, max_length=6)
+    role: str = Field(max_length=16)
+    # OpenAI tools 形状，由 Java 生成后原样下发
+    tools: list[dict] = Field(min_length=1, max_length=20)
+
+
+class AssistantChatResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    tool_calls: list[AssistantToolCall] = Field(
+        default_factory=list, serialization_alias="toolCalls"
+    )
+    content: str = ""
+    model: str
+    prompt_version: str = Field(serialization_alias="promptVersion")
+
+
 class RerankItem(BaseModel):
     id: int
     reason: str = ""

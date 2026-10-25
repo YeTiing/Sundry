@@ -8,8 +8,17 @@ from pydantic import ValidationError
 from app.config import Settings, get_settings
 from app.embeddings import EmbeddingClient, get_embedding_client
 from app.llm import LlmClient, get_llm
-from app.prompt import PROMPT_VERSION, build_user_prompt, system_prompt
+from app.prompt import (
+    ASSISTANT_PROMPT_VERSION,
+    PROMPT_VERSION,
+    assistant_prompt,
+    build_user_prompt,
+    system_prompt,
+)
 from app.schemas import (
+    AssistantChatRequest,
+    AssistantChatResponse,
+    AssistantToolCall,
     EmbeddingRequest,
     EmbeddingResponse,
     LlmOutput,
@@ -105,6 +114,51 @@ async def rerank(
         model=settings.deepseek_model,
         prompt_version=PROMPT_VERSION,
     )
+
+
+@app.post(
+    "/internal/assistant/chat",
+    response_model=AssistantChatResponse,
+    dependencies=[Depends(require_token)],
+)
+async def assistant_chat(
+    request: AssistantChatRequest,
+    llm: LlmClient = Depends(get_llm),
+) -> AssistantChatResponse:
+    try:
+        result = await llm.complete_with_tools(
+            assistant_prompt(),
+            _assistant_user_prompt(request),
+            request.tools,
+        )
+    except Exception as exc:
+        logger.warning("assistant llm failed", exc_info=exc)
+        raise HTTPException(status_code=503, detail="assistant unavailable") from exc
+
+    calls: list[AssistantToolCall] = []
+    for item in result.get("tool_calls", []):
+        try:
+            calls.append(AssistantToolCall(**item))
+        except (TypeError, ValidationError):
+            continue
+
+    return AssistantChatResponse(
+        tool_calls=calls,
+        content=result.get("content", "") or "",
+        model=result.get("model", ""),
+        prompt_version=ASSISTANT_PROMPT_VERSION,
+    )
+
+
+def _assistant_user_prompt(request: AssistantChatRequest) -> str:
+    lines = [f"用户角色：{request.role}", f"用户问题：{request.message}"]
+    if request.history:
+        lines.append("最近对话：")
+        for item in request.history[-6:]:
+            role = str(item.get("role", "user"))[:16]
+            content = str(item.get("content", ""))[:300]
+            lines.append(f"- {role}: {content}")
+    return "\n".join(lines)
 
 
 def _clean_reason(reason: str) -> str:

@@ -1,16 +1,20 @@
 package com.sundry.assistant;
 
 import com.sundry.auth.security.AuthenticatedUser;
+import com.sundry.user.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * 助手入口。L0 只做规则导航；未命中统一走 clarify，L1 再接模型。
+ * 助手入口：规则快路径优先，未命中再让模型选工具；所有执行与权限都在 Java。
  */
 @Service
 public class AssistantService {
@@ -19,18 +23,30 @@ public class AssistantService {
 
     private static final Pattern PHONE = Pattern.compile("(?<!\\d)(1[3-9]\\d{9})(?!\\d)");
     private static final Pattern LONG_DIGITS = Pattern.compile("\\b\\d{12,32}\\b");
+
     private static final String CLARIFY =
             "我还没学会这个问题的回答。你可以试试：我的订单、购物车、商品列表。";
+    private static final String DEGRADED =
+            "助手暂时不可用，你可以试试：我的订单、购物车、商品列表。";
+    private static final String REJECT_MULTI = "我一次只能完成一个操作。";
+    private static final String REJECT_UNKNOWN = "我暂时无法完成这个操作。";
+    private static final String REJECT_ROUTE = "我打不开这个页面。";
+    private static final String REJECT_ARGS = "我没能理解这个操作。";
 
     private final RouteCatalog catalog;
     private final AssistantChatLogMapper logMapper;
     private final AssistantRateLimiter rateLimiter;
+    private final AssistantClient client;
+    private final ObjectMapper objectMapper;
 
     public AssistantService(RouteCatalog catalog, AssistantChatLogMapper logMapper,
-                            AssistantRateLimiter rateLimiter) {
+                            AssistantRateLimiter rateLimiter, AssistantClient client,
+                            ObjectMapper objectMapper) {
         this.catalog = catalog;
         this.logMapper = logMapper;
         this.rateLimiter = rateLimiter;
+        this.client = client;
+        this.objectMapper = objectMapper;
     }
 
     public AssistantReply chat(AuthenticatedUser user, AssistantChatRequest request) {
@@ -42,21 +58,127 @@ public class AssistantService {
 
         RouteDefinition route = catalog.match(message, user.role());
         if (route != null) {
-            audit(user, request, safeMessage, "RULE", "navigate", null, route.name(),
-                    "OK", null, start, traceId);
-            return new AssistantReply("navigate",
-                    "已为你找到「" + route.label() + "」入口，点击下方按钮打开。",
-                    route.name(), route.label(), Map.of(), traceId);
+            audit(user, request, safeMessage, "RULE", "navigate", null, null,
+                    route.name(), "OK", null, start, traceId);
+            return navigate(route, traceId);
+        }
+        return chatWithModel(user, request, message, safeMessage, traceId, start);
+    }
+
+    private AssistantReply chatWithModel(AuthenticatedUser user, AssistantChatRequest request,
+                                         String message, String safeMessage,
+                                         String traceId, long start) {
+        AssistantLlmResponse response;
+        try {
+            response = client.chat(new AssistantLlmRequest(message, List.of(),
+                    user.role().name(), toolsFor(user.role())), traceId);
+        } catch (RuntimeException ex) {
+            log.warn("助手模型不可用 userId={} reason={}", user.id(), ex.getMessage());
+            audit(user, request, safeMessage, "LLM", "clarify", null, null,
+                    null, "DEGRADED", "AI_UNAVAILABLE", start, traceId);
+            return clarify(DEGRADED, traceId);
         }
 
-        audit(user, request, safeMessage, "RULE", "clarify", null, null,
-                "DEGRADED", "NO_MATCH", start, traceId);
-        return new AssistantReply("clarify", CLARIFY, null, null, Map.of(), traceId);
+        if (response == null) {
+            audit(user, request, safeMessage, "LLM", "clarify", null, null,
+                    null, "DEGRADED", "AI_EMPTY_RESPONSE", start, traceId);
+            return clarify(DEGRADED, traceId);
+        }
+
+        List<AssistantLlmResponse.ToolCall> calls = response.toolCalls();
+        if (calls == null || calls.isEmpty()) {
+            String content = response.content() == null ? "" : response.content().trim();
+            if (content.isEmpty()) {
+                audit(user, request, safeMessage, "LLM", "clarify", null, null,
+                        null, "DEGRADED", "NO_CONTENT", start, traceId);
+                return clarify(CLARIFY, traceId);
+            }
+            String answer = content.length() > 1000 ? content.substring(0, 1000) : content;
+            audit(user, request, safeMessage, "LLM", "answer", null, null,
+                    null, "OK", null, start, traceId);
+            return new AssistantReply("answer", answer, null, null, Map.of(), traceId);
+        }
+
+        if (calls.size() > 1) {
+            audit(user, request, safeMessage, "LLM", "clarify", null, null,
+                    null, "REJECTED", "MULTI_TOOL", start, traceId);
+            return clarify(REJECT_MULTI, traceId);
+        }
+
+        AssistantLlmResponse.ToolCall call = calls.get(0);
+        if (call == null || !"navigate".equals(call.name())) {
+            audit(user, request, safeMessage, "LLM", "clarify",
+                    call == null ? null : call.name(), null,
+                    null, "REJECTED", "UNKNOWN_TOOL", start, traceId);
+            return clarify(REJECT_UNKNOWN, traceId);
+        }
+
+        JsonNode arguments;
+        try {
+            arguments = objectMapper.readTree(call.arguments());
+        } catch (RuntimeException ex) {
+            audit(user, request, safeMessage, "LLM", "clarify", "navigate", null,
+                    null, "REJECTED", "INVALID_ARGS", start, traceId);
+            return clarify(REJECT_ARGS, traceId);
+        }
+        if (arguments == null || !arguments.isObject()) {
+            audit(user, request, safeMessage, "LLM", "clarify", "navigate", null,
+                    null, "REJECTED", "INVALID_ARGS", start, traceId);
+            return clarify(REJECT_ARGS, traceId);
+        }
+
+        JsonNode routeNode = arguments.get("route");
+        String routeName = routeNode != null && routeNode.isTextual()
+                ? routeNode.asText().trim()
+                : "";
+        if (routeName.isEmpty()) {
+            audit(user, request, safeMessage, "LLM", "clarify", "navigate", null,
+                    null, "REJECTED", "INVALID_ARGS", start, traceId);
+            return clarify(REJECT_ARGS, traceId);
+        }
+
+        RouteDefinition target = catalog.findByName(routeName, user.role());
+        if (target == null) {
+            audit(user, request, safeMessage, "LLM", "clarify", "navigate",
+                    call.arguments(), null, "REJECTED", "FORBIDDEN_ROUTE", start, traceId);
+            return clarify(REJECT_ROUTE, traceId);
+        }
+
+        audit(user, request, safeMessage, "LLM", "navigate", "navigate",
+                call.arguments(), target.name(), "OK", null, start, traceId);
+        return navigate(target, traceId);
+    }
+
+    private List<AssistantTool> toolsFor(Role role) {
+        List<String> routes = catalog.visibleTo(role).stream()
+                .map(RouteDefinition::name)
+                .toList();
+        Map<String, Object> parameters = Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "route", Map.of("type", "string", "enum", routes)),
+                "required", List.of("route"));
+        AssistantTool.Function function = new AssistantTool.Function(
+                "navigate",
+                "帮用户打开本项目内的某个页面。只在用户问『在哪』『怎么去』『打开』『进入』时使用。",
+                parameters);
+        return List.of(new AssistantTool("function", function));
+    }
+
+    private AssistantReply navigate(RouteDefinition route, String traceId) {
+        return new AssistantReply("navigate",
+                "已为你找到「" + route.label() + "」入口，点击下方按钮打开。",
+                route.name(), route.label(), Map.of(), traceId);
+    }
+
+    private AssistantReply clarify(String reply, String traceId) {
+        return new AssistantReply("clarify", reply, null, null, Map.of(), traceId);
     }
 
     private void audit(AuthenticatedUser user, AssistantChatRequest request, String message,
-                       String source, String action, String toolName, String route,
-                       String status, String rejectReason, long start, String traceId) {
+                       String source, String action, String toolName, String arguments,
+                       String route, String status, String rejectReason,
+                       long start, String traceId) {
         try {
             AssistantChatLog entry = new AssistantChatLog();
             entry.setUserId(user.id());
@@ -66,6 +188,7 @@ public class AssistantService {
             entry.setSource(source);
             entry.setAction(action);
             entry.setToolName(toolName);
+            entry.setArguments(arguments);
             entry.setRoute(route);
             entry.setStatus(status);
             entry.setRejectReason(rejectReason);

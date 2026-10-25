@@ -4,6 +4,10 @@ from app.schemas import Candidate, Profile
 
 PROMPT_VERSION = "feed_rerank_v2"
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "feed_rerank_v2.txt"
+ASSISTANT_PROMPT_VERSION = "assistant_v1"
+_ASSISTANT_PROMPT_PATH = (
+    Path(__file__).resolve().parent.parent / "prompts" / "assistant_v1.txt"
+)
 
 STRATEGY_INSTRUCTIONS = {
     "PREF": "附加偏好（不改变以上规则）：本轮按标准偏好排序，优先常看分类、历史价位和最近浏览。",
@@ -17,6 +21,10 @@ def system_prompt(strategy: str | None = None) -> str:
     if not instruction:
         return base
     return f"{base}\n\n{instruction}"
+
+
+def assistant_prompt() -> str:
+    return _ASSISTANT_PROMPT_PATH.read_text(encoding="utf-8").strip()
 
 
 def build_user_prompt(profile: Profile, candidates: list[Candidate], limit: int) -> str:

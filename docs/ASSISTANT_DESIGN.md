@@ -1,6 +1,6 @@
 # AI 助手框架（A4）设计文档
 
-> 状态：**设计定稿；L0 已完成，L1~L4 待开发**
+> 状态：**设计定稿；L0/L1 已完成，L2~L4 待开发**
 > 日期：2026-10-25
 > 关联：`docs/NL2SQL_DESIGN.md`（A5）、`docs/BACKLOG.md` A4/A7、`docs/FUTURE_DESIGN.md` 第 4 节
 > 用途：开发时按本文执行，避免重新推导
@@ -259,6 +259,8 @@ Java 工具注册表（唯一事实来源）
 ```
 
 **`roles` 不下发。** 模型不需要知道权限，权限只在 Java 校验。
+
+**route 枚举按角色动态生成**：USER 只看到 `feed/products/cart/addresses/orders/account`，管理员才会看到 `admin-*`。L1 只下发 `navigate` 一个工具；L2 再追加业务工具。
 
 ### 6.3 模型返回
 

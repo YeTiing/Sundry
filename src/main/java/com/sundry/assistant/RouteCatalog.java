@@ -38,6 +38,13 @@ public class RouteCatalog {
                 .toList();
     }
 
+    public RouteDefinition findByName(String name, Role role) {
+        return visibleTo(role).stream()
+                .filter(route -> route.name().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+
     /**
      * 规则快路径：长同义词优先，解释型问题不跳转。
      */

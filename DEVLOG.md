@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 243 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 247 个 Java 集成测试 + 22 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -2136,6 +2136,26 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: A5 S1 语义层与词汇表`
+
+## 2026-10-25 · A4 L1：模型选择工具
+
+**做了什么**
+
+- Python 新增 `/internal/assistant/chat`：原生 tools 协议，返回 tool_calls 或文本；prompt `assistant_v1`
+- Java 按角色生成 `navigate` 工具（route 枚举只含当前角色可见路由），不把 roles 下发给模型
+- Java 固定顺序校验：最多 1 个调用 → 工具已知 → 参数是 JSON 对象 → route 必填 → 路由对当前角色可见
+- 拒绝、答案、降级全部写 `ai_chat_log`；参数原文仅在合法 JSON 时入库
+- 规则快路径仍然优先；模型 8 秒超时后返回降级提示，不影响导航
+
+**验证**
+
+- Java：247 个用例全部通过（新增：模型导航、越权路由、多工具、未知工具、文本回答、模型不可用降级）
+- Python：22 个用例通过（新增：tool_calls、文本回答、内部令牌、空工具校验）
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: A4 L1 模型选择工具`
 
 ## 待办 / 下一步
 

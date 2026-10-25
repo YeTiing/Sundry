@@ -11,6 +11,10 @@ logger = logging.getLogger("sundry.ai")
 class LlmClient(Protocol):
     async def complete(self, system: str, user: str) -> str: ...
 
+    async def complete_with_tools(
+        self, system: str, user: str, tools: list[dict]
+    ) -> dict: ...
+
 
 class DeepSeekClient:
     """DeepSeek 走 OpenAI 兼容协议；密钥只在 Python 进程里。"""
@@ -52,6 +56,36 @@ class DeepSeekClient:
                 str(choice.message)[:500],
             )
         return last
+
+    async def complete_with_tools(
+        self, system: str, user: str, tools: list[dict]
+    ) -> dict:
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            tools=tools,
+            tool_choice="auto",
+            temperature=0,
+            max_tokens=800,
+            timeout=self._timeout,
+        )
+        message = response.choices[0].message
+        calls = [
+            {
+                "id": call.id,
+                "name": call.function.name,
+                "arguments": call.function.arguments or "{}",
+            }
+            for call in (message.tool_calls or [])
+        ]
+        return {
+            "tool_calls": calls,
+            "content": message.content or "",
+            "model": self._model,
+        }
 
 
 _client: LlmClient | None = None
