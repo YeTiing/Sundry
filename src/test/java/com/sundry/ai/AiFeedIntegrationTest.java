@@ -443,40 +443,78 @@ class AiFeedIntegrationTest {
     }
 
     @Test
-    void activePoolIsNotReplacedUntilUserClicks() throws Exception {
+    void paginationKeepsCurrentVariant() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        List<Long> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM product ORDER BY id", Long.class);
+        store.pushVariants(user.id(), List.of(
+                variant("ACTIVE:A", ids.subList(0, 8).toArray(Long[]::new)),
+                variant("ACTIVE:B", ids.subList(8, 12).toArray(Long[]::new))));
+
+        MvcResult first = mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").value("ACTIVE:A"))
+                .andReturn();
+        long cursor = ((Number) JsonPath.read(body(first), "$.nextCursor")).longValue();
+
+        // 浏览中途备好了新批次，翻页仍固定当前变体
+        store.pushNextVariants(user.id(), List.of(
+                variant("NEXT:C", ids.get(0), ids.get(1)),
+                variant("NEXT:D", ids.get(2))));
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .param("cursor", String.valueOf(cursor))
+                        .param("buildId", "ACTIVE:A")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").value("ACTIVE:A"));
+
+        // 重新打开（无 buildId 首屏）才切到新批次
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").value("NEXT:C"));
+    }
+
+    @Test
+    void reopenRotatesToNextVariant() throws Exception {
         Session user = register(USER_PHONE);
         seedProducts(12);
         List<Long> ids = jdbcTemplate.queryForList(
                 "SELECT id FROM product ORDER BY id", Long.class);
         store.pushVariants(user.id(), List.of(
                 variant("ACTIVE:A", ids.get(0), ids.get(1)),
-                variant("ACTIVE:B", ids.get(2))));
-        store.pushNextVariants(user.id(), List.of(
-                variant("NEXT:C", ids.get(3), ids.get(4)),
-                variant("NEXT:D", ids.get(5))));
+                variant("ACTIVE:B", ids.get(2), ids.get(3))));
 
-        for (int i = 0; i < 2; i++) {
-            mockMvc.perform(get("/api/feed")
-                            .param("size", "5")
-                            .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.aiStatus").value("READY"))
-                    .andExpect(jsonPath("$.aiBuildId").value("ACTIVE:A"));
-        }
-
-        mockMvc.perform(get("/api/feed")
+        MvcResult first = mockMvc.perform(get("/api/feed")
                         .param("size", "5")
-                        .param("refresh", "true")
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.aiStatus").value("READY"))
-                .andExpect(jsonPath("$.aiBuildId").value("NEXT:C"));
+                .andExpect(jsonPath("$.aiBuildId").value("ACTIVE:A"))
+                .andReturn();
+
+        MvcResult second = mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiBuildId").value("ACTIVE:B"))
+                .andReturn();
+        assertThat(ids(first)).isNotEqualTo(ids(second));
+        assertThat(store.queueSize()).isEqualTo(1);
 
         mockMvc.perform(get("/api/feed")
                         .param("size", "5")
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.aiBuildId").value("NEXT:C"));
+                .andExpect(jsonPath("$.aiBuildId").value("ACTIVE:A"));
     }
 
     @Test

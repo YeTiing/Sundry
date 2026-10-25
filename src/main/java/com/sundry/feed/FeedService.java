@@ -86,13 +86,14 @@ public class FeedService {
 
     private FeedPage aiPage(Long userId, int offset, int size, boolean refresh, String buildId) {
         try {
-            if (refresh) {
+            // 点击换一批，或无 buildId 的首屏请求（重新打开 / F5），都切下一份
+            if (refresh || (buildId == null && offset == 0)) {
                 FeedSnapshot variant = switchVariant(userId);
                 if (variant != null) {
                     finishSwitch(userId);
                     return pageFromSnapshot(variant, offset, size, STATUS_READY, variant.buildId());
                 }
-                return pendingPage(userId, offset, size, true);
+                return pendingPage(userId, offset, size, refresh);
             }
 
             FeedSnapshot variant = findVariant(userId, buildId);
