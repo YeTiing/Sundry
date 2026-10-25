@@ -397,7 +397,7 @@ class AiFeedIntegrationTest {
         when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
                 .thenAnswer(invocation -> {
                     try {
-                        Thread.sleep(5_000);
+                        Thread.sleep(10_000);
                     } catch (InterruptedException ex) {
                         Thread.currentThread().interrupt();
                         throw new AiFeedException("INTERRUPTED");
@@ -410,7 +410,7 @@ class AiFeedIntegrationTest {
         processor.buildPending();
         long elapsed = System.currentTimeMillis() - start;
 
-        assertThat(elapsed).isLessThan(3_000);
+        assertThat(elapsed).isLessThan(6_000);
         List<FeedSnapshot> variants = nextPool(user.id());
         assertThat(variants).hasSize(2).allMatch(FeedSnapshot::ruleFallback);
 

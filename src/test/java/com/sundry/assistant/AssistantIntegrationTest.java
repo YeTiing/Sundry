@@ -263,6 +263,67 @@ class AssistantIntegrationTest {
     }
 
     @Test
+    void orderToolReturnsOnlyOwnOrders() throws Exception {
+        Session user = register(USER_PHONE);
+        order(user.id(), "TEST-ORDER-001", "SHIPPED");
+        when(assistantClient.chat(any(), anyString())).thenReturn(new AssistantLlmResponse(
+                List.of(new AssistantLlmResponse.ToolCall("c1", "list_my_orders", "{}")),
+                "", "deepseek", "assistant_v1"));
+
+        mockMvc.perform(post("/api/assistant/chat")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"我的包裹到哪了\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.action").value("tool"))
+                .andExpect(jsonPath("$.reply",
+                        org.hamcrest.Matchers.containsString("TEST-ORDER-001")))
+                .andExpect(jsonPath("$.reply",
+                        org.hamcrest.Matchers.containsString("已发货")));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT action FROM ai_chat_log WHERE user_id = ?", String.class, user.id()))
+                .isEqualTo("tool");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT tool_name FROM ai_chat_log WHERE user_id = ?", String.class, user.id()))
+                .isEqualTo("list_my_orders");
+    }
+
+    @Test
+    void productStatusToolIsAdminOnly() throws Exception {
+        Session user = register(USER_PHONE);
+        Session admin = register(ADMIN_PHONE);
+        long productId = product("ON_SALE");
+        String args = "{\"productId\":" + productId + "}";
+        when(assistantClient.chat(any(), anyString())).thenReturn(new AssistantLlmResponse(
+                List.of(new AssistantLlmResponse.ToolCall("c1", "get_product_status", args)),
+                "", "deepseek", "assistant_v1"));
+
+        mockMvc.perform(post("/api/assistant/chat")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"我的包裹到哪了\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.action").value("tool"))
+                .andExpect(jsonPath("$.reply",
+                        org.hamcrest.Matchers.containsString("助手测试商品")))
+                .andExpect(jsonPath("$.reply",
+                        org.hamcrest.Matchers.containsString("在售")));
+
+        mockMvc.perform(post("/api/assistant/chat")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"我的包裹到哪了\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.action").value("clarify"));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT reject_reason FROM ai_chat_log WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+                String.class, user.id()))
+                .isEqualTo("FORBIDDEN_TOOL");
+    }
+
+    @Test
     void eleventhRequestInAMinuteIsRateLimited() throws Exception {
         Session user = register(USER_PHONE);
 
@@ -279,6 +340,26 @@ class AssistantIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"你好\"}"))
                 .andExpect(status().isTooManyRequests());
+    }
+
+    private void order(Long userId, String orderNo, String status) {
+        jdbcTemplate.update("""
+                INSERT INTO orders (order_no, user_id, status, total_amount, has_physical, created_at)
+                VALUES (?, ?, ?, 123.45, 1, NOW(3))
+                """, orderNo, userId, status);
+    }
+
+    private long product(String status) {
+        long categoryId = jdbcTemplate.queryForObject(
+                "SELECT id FROM category WHERE name = '实物'", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO product
+                    (category_id, name, description, type, price, stock, status,
+                     created_at, updated_at)
+                VALUES (?, '助手测试商品', '测试', 'PHYSICAL', 19.90, 10, ?, NOW(3), NOW(3))
+                """, categoryId, status);
+        return jdbcTemplate.queryForObject(
+                "SELECT id FROM product WHERE name = '助手测试商品'", Long.class);
     }
 
     private String bearer(String token) {

@@ -230,6 +230,7 @@ function go(entry: ChatEntry): void {
   font-size: 13px;
   line-height: 1.6;
   text-align: left;
+  white-space: pre-wrap;
 }
 
 .assistant-entry[data-role='user'] .assistant-text {

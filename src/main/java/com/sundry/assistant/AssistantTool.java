@@ -1,12 +1,23 @@
 package com.sundry.assistant;
 
+import com.sundry.user.Role;
+import tools.jackson.databind.JsonNode;
+
 import java.util.Map;
+import java.util.Set;
 
 /**
- * OpenAI tools 形状；roles 不下发。
+ * 可执行工具。模型只负责选工具和填参，权限与执行都在 Java。
  */
-public record AssistantTool(String type, Function function) {
+public interface AssistantTool {
 
-    public record Function(String name, String description, Map<String, Object> parameters) {
-    }
+    String name();
+
+    String description();
+
+    Set<Role> roles();
+
+    Map<String, Object> parameters();
+
+    AssistantToolResult execute(Long userId, JsonNode args);
 }

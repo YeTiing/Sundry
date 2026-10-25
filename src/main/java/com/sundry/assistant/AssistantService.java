@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -37,15 +38,17 @@ public class AssistantService {
     private final AssistantChatLogMapper logMapper;
     private final AssistantRateLimiter rateLimiter;
     private final AssistantClient client;
+    private final AssistantToolRegistry registry;
     private final ObjectMapper objectMapper;
 
     public AssistantService(RouteCatalog catalog, AssistantChatLogMapper logMapper,
                             AssistantRateLimiter rateLimiter, AssistantClient client,
-                            ObjectMapper objectMapper) {
+                            AssistantToolRegistry registry, ObjectMapper objectMapper) {
         this.catalog = catalog;
         this.logMapper = logMapper;
         this.rateLimiter = rateLimiter;
         this.client = client;
+        this.registry = registry;
         this.objectMapper = objectMapper;
     }
 
@@ -106,27 +109,27 @@ public class AssistantService {
         }
 
         AssistantLlmResponse.ToolCall call = calls.get(0);
-        if (call == null || !"navigate".equals(call.name())) {
-            audit(user, request, safeMessage, "LLM", "clarify",
-                    call == null ? null : call.name(), null,
+        if (call == null) {
+            audit(user, request, safeMessage, "LLM", "clarify", null, null,
                     null, "REJECTED", "UNKNOWN_TOOL", start, traceId);
             return clarify(REJECT_UNKNOWN, traceId);
         }
+        if ("navigate".equals(call.name())) {
+            return handleNavigate(user, request, safeMessage, call, start, traceId);
+        }
+        return handleBusinessTool(user, request, safeMessage, call, start, traceId);
+    }
 
-        JsonNode arguments;
-        try {
-            arguments = objectMapper.readTree(call.arguments());
-        } catch (RuntimeException ex) {
+    private AssistantReply handleNavigate(AuthenticatedUser user, AssistantChatRequest request,
+                                          String safeMessage,
+                                          AssistantLlmResponse.ToolCall call,
+                                          long start, String traceId) {
+        JsonNode arguments = parseArguments(call.arguments());
+        if (arguments == null) {
             audit(user, request, safeMessage, "LLM", "clarify", "navigate", null,
                     null, "REJECTED", "INVALID_ARGS", start, traceId);
             return clarify(REJECT_ARGS, traceId);
         }
-        if (arguments == null || !arguments.isObject()) {
-            audit(user, request, safeMessage, "LLM", "clarify", "navigate", null,
-                    null, "REJECTED", "INVALID_ARGS", start, traceId);
-            return clarify(REJECT_ARGS, traceId);
-        }
-
         JsonNode routeNode = arguments.get("route");
         String routeName = routeNode != null && routeNode.isTextual()
                 ? routeNode.asText().trim()
@@ -136,20 +139,68 @@ public class AssistantService {
                     null, "REJECTED", "INVALID_ARGS", start, traceId);
             return clarify(REJECT_ARGS, traceId);
         }
-
         RouteDefinition target = catalog.findByName(routeName, user.role());
         if (target == null) {
             audit(user, request, safeMessage, "LLM", "clarify", "navigate",
                     call.arguments(), null, "REJECTED", "FORBIDDEN_ROUTE", start, traceId);
             return clarify(REJECT_ROUTE, traceId);
         }
-
         audit(user, request, safeMessage, "LLM", "navigate", "navigate",
                 call.arguments(), target.name(), "OK", null, start, traceId);
         return navigate(target, traceId);
     }
 
-    private List<AssistantTool> toolsFor(Role role) {
+    private AssistantReply handleBusinessTool(AuthenticatedUser user, AssistantChatRequest request,
+                                              String safeMessage,
+                                              AssistantLlmResponse.ToolCall call,
+                                              long start, String traceId) {
+        AssistantTool tool = registry.find(call.name(), user.role());
+        if (tool == null) {
+            String reason = registry.exists(call.name()) ? "FORBIDDEN_TOOL" : "UNKNOWN_TOOL";
+            audit(user, request, safeMessage, "LLM", "clarify", call.name(), null,
+                    null, "REJECTED", reason, start, traceId);
+            return clarify(REJECT_UNKNOWN, traceId);
+        }
+        JsonNode arguments = parseArguments(call.arguments());
+        if (arguments == null) {
+            audit(user, request, safeMessage, "LLM", "clarify", call.name(), null,
+                    null, "REJECTED", "INVALID_ARGS", start, traceId);
+            return clarify(REJECT_ARGS, traceId);
+        }
+        try {
+            AssistantToolResult result = tool.execute(user.id(), arguments);
+            audit(user, request, safeMessage, "LLM", "tool", call.name(),
+                    call.arguments(), null, "OK", null, start, traceId);
+            return new AssistantReply("tool", result.reply(), null, null, Map.of(), traceId);
+        } catch (AssistantToolException ex) {
+            audit(user, request, safeMessage, "LLM", "clarify", call.name(),
+                    call.arguments(), null, "REJECTED", ex.getCode(), start, traceId);
+            return clarify(ex.getReply(), traceId);
+        } catch (RuntimeException ex) {
+            log.warn("助手工具执行失败 userId={} tool={}", user.id(), call.name(), ex);
+            audit(user, request, safeMessage, "LLM", "clarify", call.name(),
+                    call.arguments(), null, "REJECTED", "TOOL_ERROR", start, traceId);
+            return clarify("这个操作暂时没有完成，请稍后再试。", traceId);
+        }
+    }
+
+    private JsonNode parseArguments(String raw) {
+        try {
+            JsonNode node = objectMapper.readTree(raw);
+            return node != null && node.isObject() ? node : null;
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private List<AssistantToolSpec> toolsFor(Role role) {
+        List<AssistantToolSpec> specs = new ArrayList<>();
+        specs.add(navigateSpec(role));
+        specs.addAll(registry.specsFor(role));
+        return specs;
+    }
+
+    private AssistantToolSpec navigateSpec(Role role) {
         List<String> routes = catalog.visibleTo(role).stream()
                 .map(RouteDefinition::name)
                 .toList();
@@ -158,11 +209,11 @@ public class AssistantService {
                 "properties", Map.of(
                         "route", Map.of("type", "string", "enum", routes)),
                 "required", List.of("route"));
-        AssistantTool.Function function = new AssistantTool.Function(
+        AssistantToolSpec.Function function = new AssistantToolSpec.Function(
                 "navigate",
                 "帮用户打开本项目内的某个页面。只在用户问『在哪』『怎么去』『打开』『进入』时使用。",
                 parameters);
-        return List.of(new AssistantTool("function", function));
+        return new AssistantToolSpec("function", function);
     }
 
     private AssistantReply navigate(RouteDefinition route, String traceId) {

@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 247 个 Java 集成测试 + 22 个 Python 用例 |
+| 测试 | 249 个 Java 集成测试 + 22 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -2156,6 +2156,27 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: A4 L1 模型选择工具`
+
+## 2026-10-25 · A4 L2：订单与商品状态工具
+
+**做了什么**
+
+- 新增 `AssistantTool` 接口与 `AssistantToolRegistry`：按角色裁剪工具定义，执行前再校验一次
+- 新增 `list_my_orders`：只查 JWT 用户本人的订单，可带状态，展示最近 5 个
+- 新增 `get_product_status`：仅 ADMIN / SUPER_ADMIN，返回名称、上下架状态、库存、价格
+- 模型工具调用校验扩展到业务工具：未知工具 `UNKNOWN_TOOL`、越权 `FORBIDDEN_TOOL`、参数错误、工具执行异常分别审计
+- 工具成功返回 `action=tool` + 模板化中文回复；前端助手面板支持多行文本
+- 顺带放宽慢模型截止测试的时间阈值，避免机器负载高时误报
+
+**验证**
+
+- Java：249 个用例全部通过（新增：本人订单工具、管理员商品状态、普通用户越权拒绝）
+- Python：22 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: A4 L2 订单与商品状态工具`
 
 ## 待办 / 下一步
 
