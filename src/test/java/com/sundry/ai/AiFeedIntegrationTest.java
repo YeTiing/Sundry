@@ -594,6 +594,59 @@ class AiFeedIntegrationTest {
     }
 
     @Test
+    void statusReportsPendingThenReady() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(12);
+        stubRerankReversed(new ArrayList<>());
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"));
+
+        mockMvc.perform(get("/api/feed/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("PENDING"))
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty());
+
+        processor.buildPending();
+
+        mockMvc.perform(get("/api/feed/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.aiBuildId").isNotEmpty())
+                .andExpect(jsonPath("$.feedBuildId").isNotEmpty());
+    }
+
+    @Test
+    void anonymousStatusIsDisabled() throws Exception {
+        mockMvc.perform(get("/api/feed/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("DISABLED"));
+    }
+
+    @Test
+    void offShelfProductsAreSkippedInBatchHydration() throws Exception {
+        Session user = register(USER_PHONE);
+        seedProducts(6);
+        List<Long> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM product ORDER BY id", Long.class);
+        jdbcTemplate.update("UPDATE product SET status = 'OFF_SHELF' WHERE id = ?", ids.get(2));
+        store.pushVariants(user.id(), List.of(
+                variant("ACTIVE:A", ids.toArray(Long[]::new))));
+
+        mockMvc.perform(get("/api/feed")
+                        .param("size", "6")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiStatus").value("READY"))
+                .andExpect(jsonPath("$.items.length()").value(5))
+                .andExpect(jsonPath("$.hasMore").value(false));
+    }
+
+    @Test
     void partialNextBatchIsNotPromotedWhileActivePoolIsHealthy() throws Exception {
         Session user = register(USER_PHONE);
         seedProducts(12);

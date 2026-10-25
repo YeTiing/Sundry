@@ -63,6 +63,12 @@ export interface FeedPage {
   feedBuildId: string | null
 }
 
+export interface FeedStatus {
+  aiStatus: AiFeedStatus
+  aiBuildId: string | null
+  feedBuildId: string | null
+}
+
 export type FeedEventType = 'EXPOSURE' | 'CLICK'
 export type FeedAlgorithm = 'AI' | 'RULE'
 

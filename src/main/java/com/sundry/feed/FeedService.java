@@ -11,6 +11,7 @@ import com.sundry.catalog.dto.ProductView;
 import com.sundry.common.api.ScrollPage;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.feed.dto.FeedPage;
+import com.sundry.feed.dto.FeedStatusView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -47,6 +48,7 @@ public class FeedService {
     private static final int DIVERSITY_BLOCK = 12;
     private static final int CATEGORY_CAP_PER_BLOCK = 5;
     private static final int PROVISIONAL_HEAD_SHIFT = 12;
+    private static final int HYDRATE_BUFFER = 5;
     private static final Duration SNAPSHOT_TTL = Duration.ofMinutes(5);
     private static final String SNAPSHOT_KEY = "feed:home:%s";
 
@@ -84,6 +86,43 @@ public class FeedService {
                     STATUS_FALLBACK, null, null);
         }
         return aiPage(userId, offset, size, refresh, buildId);
+    }
+
+    /**
+     * 轻量状态查询：不返回商品，供前端轮询使用。
+     */
+    public FeedStatusView status(Long userId) {
+        if (userId == null) {
+            return new FeedStatusView(STATUS_DISABLED, null, null);
+        }
+        if (!aiProperties.isEnabled()
+                || aiProperties.getInternalToken() == null
+                || aiProperties.getInternalToken().isBlank()) {
+            return new FeedStatusView(STATUS_FALLBACK, null, null);
+        }
+        try {
+            FeedSnapshot variant = aiFeedStore.findVariant(userId, null);
+            if (variant == null) {
+                String pending = aiFeedStore.pending(userId);
+                return new FeedStatusView(pending == null ? STATUS_FALLBACK : STATUS_PENDING,
+                        null, null);
+            }
+            String status;
+            if (!variant.ruleFallback()) {
+                status = STATUS_READY;
+            } else if (aiFeedStore.hasPromotableNextBatch(userId)) {
+                // AI 批次已就绪，前端拉一次列表即可完成提升
+                status = STATUS_READY;
+            } else if (aiFeedStore.pending(userId) != null) {
+                status = STATUS_PENDING;
+            } else {
+                status = STATUS_FALLBACK;
+            }
+            return new FeedStatusView(status, variant.buildId(), variant.buildId());
+        } catch (RuntimeException ex) {
+            log.warn("读取 Feed 状态失败 userId={}", userId, ex);
+            return new FeedStatusView(STATUS_FALLBACK, null, null);
+        }
     }
 
     private FeedPage aiPage(Long userId, int offset, int size, boolean refresh, String buildId) {
@@ -295,10 +334,21 @@ public class FeedService {
         List<ProductView> views = new ArrayList<>();
         int index = Math.min(Math.max(0, offset), items.size());
         while (views.size() < size && index < items.size()) {
-            FeedSnapshot.SnapshotItem item = items.get(index++);
-            ProductView view = hydrate(item.id());
-            if (view != null) {
-                views.add(withReason(view, item.reason()));
+            int want = Math.min(items.size() - index, size - views.size() + HYDRATE_BUFFER);
+            List<FeedSnapshot.SnapshotItem> chunk = items.subList(index, index + want);
+            List<Long> ids = chunk.stream()
+                    .map(FeedSnapshot.SnapshotItem::id)
+                    .toList();
+            Map<Long, ProductView> found = productService.findPublicBatch(ids);
+            for (FeedSnapshot.SnapshotItem item : chunk) {
+                index++;
+                ProductView view = found.get(item.id());
+                if (view != null) {
+                    views.add(withReason(view, item.reason()));
+                    if (views.size() >= size) {
+                        break;
+                    }
+                }
             }
         }
         boolean hasMore = index < items.size();

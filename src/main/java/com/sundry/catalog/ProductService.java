@@ -19,7 +19,9 @@ import org.springframework.stereotype.Service;
 
 import java.math.RoundingMode;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -95,6 +97,19 @@ public class ProductService {
         List<ProductView> items = productMapper.findPageAdmin(status, offset, size)
                 .stream().map(this::toView).toList();
         return new PageResponse<>(items, productMapper.countAdmin(status), page, size);
+    }
+
+    /**
+     * 批量取公开商品；下架/删除的商品不会出现在返回的 map 里。
+     */
+    public Map<Long, ProductView> findPublicBatch(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        return cache.details(ids, id -> {
+            Product product = productMapper.findPublicById(id);
+            return product == null ? null : toView(product);
+        });
     }
 
     public ProductView findPublic(Long id) {

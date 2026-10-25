@@ -2,7 +2,9 @@ package com.sundry.ai;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
@@ -477,11 +479,15 @@ public class AiFeedStore {
             return;
         }
         String key = poolSeenKey(userId);
-        long now = System.currentTimeMillis();
+        double score = System.currentTimeMillis();
+        Set<ZSetOperations.TypedTuple<String>> tuples = new HashSet<>();
         for (Long id : productIds) {
             if (id != null) {
-                redis.opsForZSet().add(key, String.valueOf(id), now);
+                tuples.add(new DefaultTypedTuple<>(String.valueOf(id), score));
             }
+        }
+        if (!tuples.isEmpty()) {
+            redis.opsForZSet().add(key, tuples);
         }
         redis.expire(key, POOL_SEEN_TTL);
     }

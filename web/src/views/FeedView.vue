@@ -15,9 +15,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useFeedStore } from '@/stores/feed'
 
 const PAGE_SIZE = 12
-// LLM 重排实测 4~11 秒，轮询窗口覆盖 15 秒
-const POLL_TIMES = 10
-const POLL_INTERVAL_MS = 1500
+// 轻量状态轮询；退避到 5 秒，总窗口约 36 秒
+const POLL_DELAYS = [1500, 2000, 3000, 4000, 5000, 5000, 5000, 5000, 5000, 5000]
 
 const auth = useAuthStore()
 const store = useFeedStore()
@@ -138,26 +137,19 @@ async function loadFirst(
  * 后台构建期间轮询：只在 PENDING 时继续，READY 立即替换。
  */
 async function pollUntilReady(token: number): Promise<void> {
-  for (let i = 0; i < POLL_TIMES; i++) {
-    await sleep(POLL_INTERVAL_MS)
+  for (const delay of POLL_DELAYS) {
+    await sleep(delay)
     if (token !== pollToken) return
     try {
-      const page = await feedApi.getFeed(null, PAGE_SIZE, false, aiBuildId.value)
+      const status = await feedApi.getStatus()
       if (token !== pollToken) return
-      if (page.aiStatus === 'READY') {
-        products.value = page.items
-        cursor.value = page.nextCursor
-        hasMore.value = page.hasMore
-        aiStatus.value = page.aiStatus
-        aiBuildId.value = page.aiBuildId
-        feedBuildId.value = page.feedBuildId
-        startImpression()
-        exposeSoon(requestSeq)
+      if (status.aiStatus === 'READY') {
+        await loadFirst(false)
         return
       }
-      if (page.aiStatus !== 'PENDING') return
+      if (status.aiStatus !== 'PENDING') return
     } catch {
-      // 单次轮询失败不打断，继续等下一轮
+      // 单次状态查询失败不打断，继续等下一轮
     }
   }
 }

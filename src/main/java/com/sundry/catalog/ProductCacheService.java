@@ -14,11 +14,16 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -79,6 +84,61 @@ public class ProductCacheService {
     /**
      * 返回 null 表示商品不存在，调用方负责转成 404。
      */
+    /**
+     * 批量取商品详情：本地缓存命中后，剩余 key 一次 MGET，仍未命中的再走单条重建。
+     */
+    public Map<Long, ProductView> details(Collection<Long> ids, Function<Long, ProductView> loader) {
+        Map<Long, ProductView> result = new LinkedHashMap<>();
+        List<Long> missing = new ArrayList<>();
+        for (Long id : ids) {
+            ProductView local = detailLocal.getIfPresent(id);
+            if (local != null) {
+                result.put(id, local);
+            } else {
+                missing.add(id);
+            }
+        }
+        if (missing.isEmpty()) {
+            return result;
+        }
+
+        List<String> keys = missing.stream().map(DETAIL_KEY::formatted).toList();
+        List<String> values = null;
+        try {
+            values = redis.opsForValue().multiGet(keys);
+        } catch (RuntimeException ex) {
+            log.warn("批量读取商品缓存失败 size={}", missing.size(), ex);
+        }
+
+        List<Long> unresolved = new ArrayList<>();
+        for (int i = 0; i < missing.size(); i++) {
+            Long id = missing.get(i);
+            String json = values == null ? null : values.get(i);
+            ProductView cached = null;
+            if (json != null) {
+                try {
+                    cached = objectMapper.readValue(json, ProductView.class);
+                } catch (RuntimeException ex) {
+                    log.warn("商品缓存解析失败 id={}", id, ex);
+                }
+            }
+            if (cached == null) {
+                unresolved.add(id);
+                continue;
+            }
+            detailLocal.put(id, cached);
+            result.put(id, cached);
+        }
+
+        for (Long id : unresolved) {
+            ProductView view = detail(id, () -> loader.apply(id));
+            if (view != null) {
+                result.put(id, view);
+            }
+        }
+        return result;
+    }
+
     public ProductView detail(Long id, Supplier<ProductView> loader) {
         ProductView local = detailLocal.getIfPresent(id);
         if (local != null) {

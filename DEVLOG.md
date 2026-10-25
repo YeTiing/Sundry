@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 219 个 Java 集成测试 + 18 个 Python 用例 |
+| 测试 | 223 个 Java 集成测试 + 18 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -2031,6 +2031,27 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`perf: Feed 构建并发与播种锁`
+
+## 2026-10-25 · Feed 读路径批量与轻量轮询
+
+**做了什么**
+
+- `recordSeen` 从每页 12 次 `ZADD` 改为一次批量写入
+- `ProductCacheService.details`：本地 Caffeine 命中后，剩余 key 一次 `MGET`，仍未命中的再走单条重建
+- `pageFromSnapshot` 改为批量取商品详情，多取 5 个作为下架/删除的缓冲；游标只推进实际消费的位置
+- 新增 `GET /api/feed/status`：只返回状态和 buildId，不查商品，供前端轮询
+- 前端改为轮询轻量状态，间隔 1.5s → 5s 退避，总窗口约 36 秒；`READY` 后再拉一次完整列表
+- `/api/feed/status` 与 `/api/feed` 一样允许匿名访问
+
+**验证**
+
+- Java：223 个用例全部通过（新增：状态 PENDING/READY、匿名为 DISABLED、批量取详情时跳过下架商品）
+- Python：18 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`perf: Feed 读路径批量与轻量状态轮询`
 
 ## 待办 / 下一步
 

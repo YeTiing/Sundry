@@ -2,6 +2,7 @@ package com.sundry.feed;
 
 import com.sundry.auth.security.AuthenticatedUser;
 import com.sundry.feed.dto.FeedPage;
+import com.sundry.feed.dto.FeedStatusView;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -33,5 +34,10 @@ public class FeedController {
             @RequestParam(required = false) String buildId,
             @AuthenticationPrincipal AuthenticatedUser user) {
         return feedService.feed(user == null ? null : user.id(), cursor, size, refresh, buildId);
+    }
+
+    @GetMapping("/status")
+    public FeedStatusView status(@AuthenticationPrincipal AuthenticatedUser user) {
+        return feedService.status(user == null ? null : user.id());
     }
 }

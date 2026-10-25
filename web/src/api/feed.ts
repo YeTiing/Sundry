@@ -1,5 +1,5 @@
 import { http } from './http'
-import type { FeedEventPayload, FeedPage } from './types'
+import type { FeedEventPayload, FeedPage, FeedStatus } from './types'
 
 export const feedApi = {
   getFeed(
@@ -19,6 +19,10 @@ export const feedApi = {
       params.set('buildId', buildId)
     }
     return http.get<FeedPage>(`/feed?${params.toString()}`)
+  },
+
+  getStatus(): Promise<FeedStatus> {
+    return http.get<FeedStatus>('/feed/status')
   },
 
   recordEvents(payload: FeedEventPayload, keepalive = false): Promise<void> {
