@@ -215,6 +215,16 @@
         ORDER BY p.id
     </select>
 
+    <select id="findEmbeddingCandidate" resultType="com.sundry.catalog.Product">
+        SELECT p.id, p.category_id, p.name, p.description,
+               c.name AS category_name
+        FROM product p
+        JOIN category c ON c.id = p.category_id AND c.status = 1
+        WHERE p.id = #{id}
+          AND p.status = 'ON_SALE'
+          AND p.deleted_at IS NULL
+    </select>
+
     <select id="findCategoriesByIds" resultType="com.sundry.catalog.Product">
         SELECT id, category_id
         FROM product

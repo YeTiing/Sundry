@@ -13,6 +13,7 @@ import com.sundry.file.FileObjectMapper;
 import com.sundry.file.digital.DigitalUploadGateway;
 import com.sundry.order.dto.DownloadView;
 import com.sundry.storage.ObjectStorage;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -33,16 +34,19 @@ public class ProductService {
     private final ObjectStorage storage;
     private final DigitalUploadGateway digitalGateway;
     private final ProductCacheService cache;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ProductService(ProductMapper productMapper, CategoryMapper categoryMapper,
                           FileObjectMapper fileObjectMapper, ObjectStorage storage,
-                          DigitalUploadGateway digitalGateway, ProductCacheService cache) {
+                          DigitalUploadGateway digitalGateway, ProductCacheService cache,
+                          ApplicationEventPublisher eventPublisher) {
         this.productMapper = productMapper;
         this.categoryMapper = categoryMapper;
         this.fileObjectMapper = fileObjectMapper;
         this.storage = storage;
         this.digitalGateway = digitalGateway;
         this.cache = cache;
+        this.eventPublisher = eventPublisher;
     }
 
     public List<CategoryView> categories() {
@@ -165,6 +169,7 @@ public class ProductService {
         }
         cache.evictDetail(product.getId());
         cache.evictLists();
+        eventPublisher.publishEvent(new ProductChangedEvent(product.getId()));
         return toView(productMapper.findById(product.getId()));
     }
 
@@ -196,6 +201,7 @@ public class ProductService {
         if (!Objects.equals(existing.getCategoryId(), request.categoryId())) {
             cache.evictLists();
         }
+        eventPublisher.publishEvent(new ProductChangedEvent(id));
         return toView(productMapper.findById(id));
     }
 
@@ -205,6 +211,7 @@ public class ProductService {
         }
         productMapper.updateStatus(id, status);
         evict(id);
+        eventPublisher.publishEvent(new ProductChangedEvent(id));
         return toView(productMapper.findById(id));
     }
 
@@ -219,6 +226,7 @@ public class ProductService {
         }
         productMapper.softDelete(id);
         evict(id);
+        eventPublisher.publishEvent(new ProductChangedEvent(id));
     }
 
     public PageResponse<ProductView> findDeletedPage(int page, int size) {
@@ -236,6 +244,7 @@ public class ProductService {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
         evict(id);
+        eventPublisher.publishEvent(new ProductChangedEvent(id));
         return toView(productMapper.findById(id));
     }
 

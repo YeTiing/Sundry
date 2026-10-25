@@ -97,6 +97,12 @@ app:
     dim: ${EMBED_DIM:1024}
     metric: COSINE
     timeout: 10s
+  embedding:
+    sync-enabled: ${EMBEDDING_SYNC_ENABLED:true}
+    sync-interval: ${EMBEDDING_SYNC_INTERVAL:5m}
+    sync-batch-size: ${EMBEDDING_SYNC_BATCH_SIZE:200}
+    sync-max-batches: ${EMBEDDING_SYNC_MAX_BATCHES:4}
+    orphan-batch-size: ${EMBEDDING_ORPHAN_BATCH_SIZE:200}
   ai:
     enabled: ${AI_FEED_ENABLED:true}
     base-url: ${AI_BASE_URL:http://127.0.0.1:8000}

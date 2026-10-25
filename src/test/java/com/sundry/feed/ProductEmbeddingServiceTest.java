@@ -51,6 +51,61 @@ class ProductEmbeddingServiceTest {
     }
 
     @Test
+    void refreshUpsertsSingleProduct() {
+        properties.setEnabled(true);
+        properties.setDim(2);
+        when(productMapper.findEmbeddingCandidate(1L)).thenReturn(product(1L, "商品1"));
+        when(embeddingClient.embed(anyList())).thenReturn(
+                new EmbeddingClient.EmbeddingResult(
+                        List.of(List.of(1.0f, 0.0f)), "test-model", 2));
+
+        service().refresh(1L);
+
+        verify(embeddingMapper).upsertBatch(anyList());
+        verify(milvusClient).upsert(anyList(), anyList());
+    }
+
+    @Test
+    void refreshMissingProductDeletesVector() {
+        properties.setEnabled(true);
+        when(productMapper.findEmbeddingCandidate(1L)).thenReturn(null);
+
+        service().refresh(1L);
+
+        verify(milvusClient).delete(List.of(1L));
+        verify(embeddingMapper).deleteByProductIds(List.of(1L));
+    }
+
+    @Test
+    void syncStaleProcessesMissingProducts() {
+        properties.setEnabled(true);
+        properties.setDim(2);
+        when(embeddingMapper.findStaleProducts(200))
+                .thenReturn(List.of(product(1L, "商品1")));
+        when(embeddingClient.embed(anyList())).thenReturn(
+                new EmbeddingClient.EmbeddingResult(
+                        List.of(List.of(1.0f, 0.0f)), "test-model", 2));
+
+        int processed = service().syncStale(200, 4);
+
+        assertThat(processed).isEqualTo(1);
+        verify(embeddingMapper).upsertBatch(anyList());
+        verify(milvusClient).upsert(anyList(), anyList());
+    }
+
+    @Test
+    void removeOrphansDeletesBothStores() {
+        properties.setEnabled(true);
+        when(embeddingMapper.findOrphanProductIds(200)).thenReturn(List.of(1L, 2L));
+
+        int removed = service().removeOrphans(200);
+
+        assertThat(removed).isEqualTo(2);
+        verify(milvusClient).delete(List.of(1L, 2L));
+        verify(embeddingMapper).deleteByProductIds(List.of(1L, 2L));
+    }
+
+    @Test
     void failsWhenMilvusDisabled() {
         properties.setEnabled(false);
         assertThatThrownBy(() -> service().rebuild())

@@ -77,6 +77,16 @@ public class MilvusClient {
         }
     }
 
+    public void delete(List<Long> productIds) {
+        if (!properties.isEnabled() || productIds.isEmpty()) {
+            return;
+        }
+        ensureCollection();
+        post("/v2/vectordb/entities/delete", Map.of(
+                "collectionName", properties.getCollection(),
+                "ids", productIds));
+    }
+
     public List<Long> search(float[] vector, int limit) {
         if (!properties.isEnabled()) {
             return List.of();

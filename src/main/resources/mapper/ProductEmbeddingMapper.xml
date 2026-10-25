@@ -27,4 +27,33 @@
         SELECT COUNT(*) FROM product_embedding
     </select>
 
+    <select id="findStaleProducts" resultType="com.sundry.catalog.Product">
+        SELECT p.id, p.category_id, p.name, p.description,
+               c.name AS category_name
+        FROM product p
+        JOIN category c ON c.id = p.category_id AND c.status = 1
+        LEFT JOIN product_embedding e ON e.product_id = p.id
+        WHERE p.status = 'ON_SALE'
+          AND p.deleted_at IS NULL
+          AND (e.product_id IS NULL OR e.updated_at &lt; p.updated_at)
+        ORDER BY p.updated_at ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findOrphanProductIds" resultType="long">
+        SELECT e.product_id
+        FROM product_embedding e
+        LEFT JOIN product p ON p.id = e.product_id
+        WHERE p.id IS NULL
+           OR p.status &lt;&gt; 'ON_SALE'
+           OR p.deleted_at IS NOT NULL
+        LIMIT #{limit}
+    </select>
+
+    <delete id="deleteByProductIds">
+        DELETE FROM product_embedding
+        WHERE product_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
 </mapper>
