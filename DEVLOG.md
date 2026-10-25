@@ -1947,7 +1947,7 @@ sundry_seckill_compensation_total = 0
 
 **验证**
 
-- Java：210 个用例通过（指标用例新增“RULE 事件带 PREF buildId 不计入”断言）
+- Java：211 个用例通过（指标用例新增“RULE 事件带 PREF buildId 不计入”断言）
 
 **提交**
 
