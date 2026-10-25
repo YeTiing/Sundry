@@ -30,11 +30,11 @@
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
 | 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
-| 推荐 | 首页 Feed：浏览行为、分类偏好、热销/新品/探索混排、Redis 快照、无限滑动；登录用户 AI 异步重排；曝光/点击 Kafka 异步回流 |
+| 推荐 | 首页 Feed：多路召回（分类/协同/热销/新品）、规则打分、多样性重排、Redis 快照、无限滑动；登录用户 AI 异步重排；曝光/点击 Kafka 异步回流 |
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排；异步队列、buildId 防覆盖、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 173 个 Java 集成测试 + 11 个 Python 用例 |
+| 测试 | 175 个 Java 集成测试 + 11 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1617,12 +1617,45 @@ sundry_seckill_compensation_total = 0
 
 - `a0d8fae` feat: Feed 曝光/点击过期清理
 
+## 2026-10-25 · Feed 多路召回
+
+**做了什么**
+
+- 4 路召回，全部查 MySQL，不新增中间件：
+  - 分类偏好：最近 14 天浏览 + 最近 10 笔订单的 Top 3 分类，取 120
+  - 协同：买过同款的其他用户还买了什么，取 80
+  - 热销：近 30 天销量 Top 120
+  - 新品：上架时间倒序 Top 60
+- 合并去重；匿名/冷启动只走热销 + 新品；不足 60 用全量兜底；上限 500
+- 召回只改变候选集；规则打分、多样性、LLM 重排不变
+- 配置项：`recall-hot-limit` / `recall-new-limit` / `recall-category-limit` /
+  `recall-co-purchase-limit` / `recall-min-candidates` / `recall-max-candidates` /
+  `recall-hot-days`
+- 新增 `FeedRecallService`；`FeedService` 改用 `findForFeedByIds` 批量取详情
+
+**说明**
+
+- 没有上 Milvus / 向量召回；782 个商品全量 SQL 足够
+- 协同查询要求"其他用户也买过锚点商品"，避免把无关商品算进来
+- 偏好权重购买 ×3，窗口与现有 Feed 一致
+- 召回结果按分类 → 协同 → 热销 → 新品顺序合并，超出上限时优先保留用户相关项
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 175 个用例全部通过（新增 2 个）
+- 覆盖：四路都能召回、匿名只有热销+新品、合并去重
+- 原有 173 个用例全部通过
+
+**提交**
+
+- `17ab59c` feat: Feed 多路召回（分类/协同/热销/新品）
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
-- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理
-- 下一步：多路召回（热销/新品/分类/协同）
+- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理、多路召回
+- 下一步：离线评估（CTR / NDCG / 召回率）
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
 
