@@ -1,6 +1,6 @@
 # NL2SQL 开发方案（A4 / A5 / A7）
 
-> 状态：**设计定稿，未开发**
+> 状态：**S1 已完成，S2~S6 待开发**
 > 日期：2026-10-25
 > 关联：`docs/FUTURE_DESIGN.md` 第 4、5 节、`docs/BACKLOG.md` A4/A5/A7
 > 用途：开发时按本文执行，避免重新推导
@@ -58,11 +58,19 @@ src/main/resources/semantic/semantic-layer.yml
 version: 1
 
 base:
-  from: orders o
+  from_table: orders
+  from_alias: o
   joins:
-    - order_item oi ON oi.order_id = o.id
-    - product p ON p.id = oi.product_id
-    - category c ON c.id = p.category_id
+    # 注意 "on" 必须加引号：YAML 1.1 会把裸 on 解析成布尔值 true
+    - table: order_item
+      alias: oi
+      "on": oi.order_id = o.id
+    - table: product
+      alias: p
+      "on": p.id = oi.product_id
+    - table: category
+      alias: c
+      "on": c.id = p.category_id
   # 已支付口径：未支付、已取消天然被排除；退款订单仍算已支付
   where:
     - "o.paid_at IS NOT NULL"

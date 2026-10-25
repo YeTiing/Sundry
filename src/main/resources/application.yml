@@ -75,6 +75,12 @@ app:
     rate-limit-per-second: ${SECKILL_RATE_LIMIT:5}
   assistant:
     rate-limit-per-minute: ${ASSISTANT_RATE_LIMIT:10}
+  nl2sql:
+    enabled: ${NL2SQL_ENABLED:false}
+    free-sql-enabled: ${NL2SQL_FREE_SQL:false}
+    query-timeout-seconds: ${NL2SQL_QUERY_TIMEOUT:3}
+    max-rows: ${NL2SQL_MAX_ROWS:1000}
+    rate-limit-per-minute: ${NL2SQL_RATE_LIMIT:10}
   feed:
     behavior-batch-size: 500
     behavior-flush-interval: 2s
