@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排；异步队列、buildId 防覆盖、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 170 个 Java 集成测试 + 11 个 Python 用例 |
+| 测试 | 173 个 Java 集成测试 + 11 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
 
@@ -1587,11 +1587,41 @@ sundry_seckill_compensation_total = 0
 
 - `f93e748` feat: Feed 事件走 Kafka 异步落库
 
+## 2026-10-25 · Feed 曝光/点击过期清理
+
+**做了什么**
+
+- 曝光保留 **14 天**、点击保留 **90 天**，均可配置
+- 每天 4:30 执行，分批删除（默认 5000/批、最多 10 批），避免长事务
+- 配置项：
+  - `app.feed.event-exposure-retention-days`
+  - `app.feed.event-click-retention-days`
+  - `app.feed.event-cleanup-batch-size`
+  - `app.feed.event-cleanup-max-batches`
+  - `app.feed.event-cleanup-cron`
+- 复用 `idx_feed_event_type_time (event_type, created_at)`
+- 测试环境关闭定时任务，测试直接调用 processor
+
+**说明**
+
+- 清理的是分析数据，不影响用户偏好；偏好来自 `user_behavior`，仍保留 30 天
+- 点击比曝光保留更久，因为点击量小、价值高
+- 以后迁到 ClickHouse 时，保留策略改成 ClickHouse TTL
+
+**验证**
+
+- `TEST_DB_PASSWORD=123456 mvn test` → 173 个用例全部通过（新增 3 个）
+- 覆盖：过期曝光/点击删除、近期数据保留、分批上限
+
+**提交**
+
+- `a0d8fae` feat: Feed 曝光/点击过期清理
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
-- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据
+- 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理
 - 下一步：多路召回（热销/新品/分类/协同）
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
