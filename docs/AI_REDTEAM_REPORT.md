@@ -174,13 +174,13 @@
 
 ### 5.1 高优先级（上线前）
 
-1. **配置只读数据源**：当前未配置 `NL2SQL_DB_*` 时回退主数据源。生产必须使用 `SELECT`-only 账号，且只授业务表。
-2. **审计问题原文含 PII 风险**：`nl2sql_log.question` 原样入库；助手侧已对手机号/长数字脱敏。建议统一在 NL2SQL 审计前脱敏。
+1. ~~**配置只读数据源**~~：**已整改**。本机已创建 `sundry_nl2sql@127.0.0.1`，仅 `SELECT ON sundry.*`，配置写入 gitignored 的 `application-local.yml`；生产仍必须按同样方式配置 `NL2SQL_DB_*`。
+2. ~~**审计问题原文含 PII 风险**~~：**已整改**。新增 `PiiMasker`，助手与 NL2SQL 共用；`nl2sql_log.question`、`reject_reason` 和 NL2SQL 会话问题入库前脱敏。
 
 ### 5.2 中优先级
 
-3. **模型输出结构失败无重试**：真实链路出现 1 次“模型输出不符合计划结构”。建议对计划解析失败做一次重试，或加 JSON 修复，不影响安全边界。
-4. **单机限流**：多实例部署时每个实例独立计数，实际配额会放大。需要时改为 Redis 限流。
+3. ~~**模型输出结构失败无重试**~~：**已整改**。根因是模型输出 `granularity: null`；Python 计划 schema 现在对可选字段的 `null` 归一化（`granularity → day`、`dimensions/filters/sort → []`、`time → {}`、`limit → 10`），与 Java 默认值一致。
+4. ~~**单机限流**~~：**已整改**。`Nl2sqlRateLimiter` 改为 Redis ZSET 滑动窗口 + Lua 原子脚本，多实例共享同一配额；Redis 不可用时放行并告警。
 5. **宽查询结果 1000 行上限**：返回体和前端渲染有压力，建议按 UI 需要下调展示上限。
 
 ### 5.3 不需要改的
@@ -203,7 +203,18 @@
 
 ---
 
-## 7. 复现
+## 7. 整改记录（2026-10-26）
+
+| # | 问题 | 整改 | 验证 |
+|---|---|---|---|
+| 1 | 未配置只读库，回退主库 | 创建 `sundry_nl2sql@127.0.0.1`，仅 `SELECT ON sundry.*`；写入 gitignored 的 `application-local.yml` | SELECT 200；INSERT 拒绝；`mysql.user` 读取拒绝；真实查询日志不再出现“回退主数据源” |
+| 2 | `nl2sql_log.question` 未脱敏 | 新增 `PiiMasker`；助手与 NL2SQL 共用；审计问题/原因、会话问题统一脱敏 | 手机号 `138****8000`、订单号 `1234****2345`；修复中文紧邻长数字时 `\b` 不生效的问题 |
+| 3 | 模型输出 `granularity: null` 判定失败 | Python 计划 schema 对可选字段 `null` 归一化 | 新增 null 归一化用例；真实退款率查询不再因该字段失败 |
+| 4 | 限流是单机 Caffeine | 改为 Redis ZSET 滑动窗口 + Lua，多实例共享 | 10 次/分钟精确；30 并发 10×200/20×429；100 并发 10×200/90×429 |
+
+整改后全量：Java 335、Python 29、`npm run build` 通过。
+
+## 8. 复现
 
 ```bash
 # 确定性红队（模型 mock，55 用例）

@@ -2,6 +2,7 @@ package com.sundry.assistant;
 
 import com.sundry.auth.security.AuthenticatedUser;
 import com.sundry.common.session.SessionIds;
+import com.sundry.common.text.PiiMasker;
 import com.sundry.user.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +14,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * 助手入口：规则快路径优先，未命中再让模型选工具；所有执行与权限都在 Java。
@@ -22,9 +22,6 @@ import java.util.regex.Pattern;
 public class AssistantService {
 
     private static final Logger log = LoggerFactory.getLogger(AssistantService.class);
-
-    private static final Pattern PHONE = Pattern.compile("(?<!\\d)(1[3-9]\\d{9})(?!\\d)");
-    private static final Pattern LONG_DIGITS = Pattern.compile("\\b\\d{12,32}\\b");
 
     private static final String CLARIFY =
             "我还没学会这个问题的回答。你可以试试：我的订单、购物车、商品列表。";
@@ -61,7 +58,7 @@ public class AssistantService {
         long start = System.currentTimeMillis();
         String traceId = UUID.randomUUID().toString();
         String message = request.message() == null ? "" : request.message().trim();
-        String safeMessage = mask(message);
+        String safeMessage = PiiMasker.mask(message);
         String sessionId = SessionIds.normalize(request.sessionId());
         AssistantChatRequest normalized = new AssistantChatRequest(sessionId, request.message());
 
@@ -271,12 +268,4 @@ public class AssistantService {
         }
     }
 
-    private String mask(String text) {
-        String masked = PHONE.matcher(text).replaceAll(match ->
-                match.group().substring(0, 3) + "****" + match.group().substring(7));
-        return LONG_DIGITS.matcher(masked).replaceAll(match -> {
-            String digits = match.group();
-            return digits.substring(0, 4) + "****" + digits.substring(digits.length() - 4);
-        });
-    }
 }

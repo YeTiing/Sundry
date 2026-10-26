@@ -115,6 +115,31 @@ def test_history_is_rendered_into_prompt():
     assert "结果行数：2" in user_prompt
 
 
+def test_null_optional_fields_are_normalized():
+    payload = {
+        "metrics": ["refund_rate"],
+        "dimensions": None,
+        "filters": None,
+        "time": None,
+        "granularity": None,
+        "sort": None,
+        "limit": None,
+    }
+    response = client(json.dumps(payload)).post(
+        "/internal/nl2sql/plan", json=body(), headers={"X-Internal-Token": "test-token"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unsupported"] is False
+    assert data["plan"]["dimensions"] == []
+    assert data["plan"]["filters"] == []
+    assert data["plan"]["sort"] == []
+    assert data["plan"]["granularity"] == "day"
+    assert data["plan"]["limit"] == 10
+    assert data["plan"]["time"] == {"preset": None}
+
+
 def test_unsupported_passthrough():
     response = client(
         json.dumps({"unsupported": True, "reason": "词汇表没有这个维度"})

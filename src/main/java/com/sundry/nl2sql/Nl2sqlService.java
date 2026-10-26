@@ -5,6 +5,7 @@ import com.sundry.common.api.PageResponse;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
 import com.sundry.common.session.SessionIds;
+import com.sundry.common.text.PiiMasker;
 import com.sundry.nl2sql.ValidatedPlan.Dimension;
 import com.sundry.nl2sql.ValidatedPlan.Metric;
 import com.sundry.nl2sql.dto.Nl2sqlLogView;
@@ -99,6 +100,7 @@ public class Nl2sqlService {
         long start = System.currentTimeMillis();
         String traceId = UUID.randomUUID().toString();
         String question = request.question().trim();
+        String safeQuestion = PiiMasker.mask(question);
         List<Map<String, String>> history = sessionStore.history(user.id(), sessionId);
 
         Nl2sqlPlanResponse planResponse;
@@ -153,7 +155,7 @@ public class Nl2sqlService {
 
         audit(user, normalized, question, planJson, spec.sql(),
                 rows.size(), "SUCCESS", null, start, traceId);
-        sessionStore.append(user.id(), sessionId, question, planJson, rows.size());
+        sessionStore.append(user.id(), sessionId, safeQuestion, planJson, rows.size());
         return view(plan, rows, planResponse.plan(), traceId, start);
     }
 
@@ -219,15 +221,16 @@ public class Nl2sqlService {
             entry.setUserId(user.id());
             entry.setRole(user.role().name());
             entry.setSessionId(request.sessionId());
-            entry.setQuestion(question);
+            entry.setQuestion(PiiMasker.mask(question));
             entry.setPlanJson(planJson);
             entry.setSqlText(sql);
             entry.setRowCount(rowCount);
             entry.setLatencyMs((int) Math.min(Integer.MAX_VALUE,
                     System.currentTimeMillis() - start));
             entry.setStatus(status);
-            entry.setRejectReason(reason == null ? null
-                    : reason.substring(0, Math.min(200, reason.length())));
+            String safeReason = PiiMasker.mask(reason);
+            entry.setRejectReason(safeReason == null ? null
+                    : safeReason.substring(0, Math.min(200, safeReason.length())));
             entry.setTraceId(traceId);
             logMapper.insert(entry);
         } catch (RuntimeException ex) {

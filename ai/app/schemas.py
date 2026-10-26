@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, constr
+from pydantic import BaseModel, ConfigDict, Field, constr, model_validator
 
 
 class CategoryPreference(BaseModel):
@@ -117,6 +117,24 @@ class Nl2SqlPlan(BaseModel):
     granularity: str = Field(default="day", pattern="^(day|week|month)$")
     sort: list[Nl2SqlSort] = Field(default_factory=list, max_length=3)
     limit: int = Field(default=10, ge=1, le=1000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_nulls(cls, data):
+        # 模型常把可选字段写成 null；Pydantic 的 default 只在字段缺失时生效
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        for key in ("dimensions", "filters", "sort"):
+            if normalized.get(key) is None:
+                normalized[key] = []
+        if normalized.get("time") is None:
+            normalized["time"] = {}
+        if normalized.get("granularity") in (None, ""):
+            normalized["granularity"] = "day"
+        if normalized.get("limit") is None:
+            normalized["limit"] = 10
+        return normalized
 
 
 class Nl2SqlPlanRequest(BaseModel):

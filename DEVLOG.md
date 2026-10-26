@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 328 个 Java 用例 + 28 个 Python 用例 |
+| 测试 | 335 个 Java 用例 + 29 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2317,12 +2317,42 @@ sundry_seckill_compensation_total = 0
 
 - 待提交：`test: A7 NL2SQL 红队评测`
 
+## 2026-10-26 · A7 整改：只读库、审计脱敏、Redis 限流、计划 null 兼容
+
+**做了什么**
+
+- 只读库
+  - 创建 MySQL 账号 `sundry_nl2sql@127.0.0.1`，仅 `SELECT ON sundry.*`
+  - 写入 gitignored 的 `application-local.yml`，真实查询不再回退主数据源
+  - 验证：SELECT 正常；INSERT 拒绝；`mysql.user` 读取拒绝
+- 审计脱敏
+  - 新增 `common/text/PiiMasker`，助手与 NL2SQL 共用
+  - `nl2sql_log.question`、`reject_reason`、NL2SQL 会话问题入库前脱敏
+  - 修复中文紧邻长数字时 Java `\b` 不生效的问题，改用前后瞻
+- 分布式限流
+  - `Nl2sqlRateLimiter` 从单机 Caffeine 改为 Redis ZSET 滑动窗口 + Lua 原子脚本
+  - 多实例共享同一用户配额；Redis 不可用时放行并告警
+- 模型结构兼容
+  - 根因：模型输出 `granularity: null`，Pydantic 的 default 不覆盖显式 null
+  - Python 计划 schema 对可选字段归一化：`granularity → day`、`dimensions/filters/sort → []`、`time → {}`、`limit → 10`
+
+**验证**
+
+- Java：335 个用例全部通过（新增 PiiMasker 3、Redis 限流 3、审计脱敏 1）
+- Python：29 个用例通过（新增 null 归一化 1）
+- 真实链路：一次查询 200，审计问题显示 `138****8000`，日志无“回退主数据源”
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`fix: A7 整改只读库、脱敏、Redis 限流与计划兼容`
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
 - 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理、多路召回、离线评估、管理端指标页、语义召回、向量增量、商品标签、方案 B（换一批即时变体）
-- 下一步：A7 已完成；S4b 一句话总结待定；上线前优先处理只读库、审计脱敏、真实支付
+- 下一步：A7 与整改已完成；S4b 一句话总结待定；上线前剩余真实支付、HTTPS、CI、备份等
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
 

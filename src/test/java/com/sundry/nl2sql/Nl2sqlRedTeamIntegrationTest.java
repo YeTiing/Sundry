@@ -98,6 +98,7 @@ class Nl2sqlRedTeamIntegrationTest {
         clear(redis.keys("auth:*"));
         clear(redis.keys("assistant:session:*"));
         clear(redis.keys("nl2sql:session:*"));
+        clear(redis.keys("nl2sql:rate:*"));
         smsSender.clear();
         reset(nl2sqlClient);
     }

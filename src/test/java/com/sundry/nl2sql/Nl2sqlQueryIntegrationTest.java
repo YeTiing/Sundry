@@ -80,6 +80,7 @@ class Nl2sqlQueryIntegrationTest {
         clear(redis.keys("auth:*"));
         clear(redis.keys("assistant:session:*"));
         clear(redis.keys("nl2sql:session:*"));
+        clear(redis.keys("nl2sql:rate:*"));
         smsSender.clear();
         reset(nl2sqlClient);
     }
@@ -251,6 +252,32 @@ class Nl2sqlQueryIntegrationTest {
                         .content("{\"question\":\"销售额\",\"sessionId\":\"bad:key\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void auditMasksPiiInQuestion() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        seedOrderData(admin.id());
+        stubPlan(new Nl2sqlPlanResponse.Plan(
+                List.of("gmv"), List.of(), List.of(),
+                new Nl2sqlPlanResponse.Plan.Time("LAST_30D"), "day", List.of(), 10));
+
+        mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"question":"最近30天销售额，手机号13800138000，订单号123456789012345"}
+                                """))
+                .andExpect(status().isOk());
+
+        String question = jdbcTemplate.queryForObject(
+                "SELECT question FROM nl2sql_log WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+                String.class, admin.id());
+        assertThat(question)
+                .contains("138****8000")
+                .contains("1234****2345")
+                .doesNotContain("13800138000")
+                .doesNotContain("123456789012345");
     }
 
     private void query(Session admin, String body) throws Exception {
