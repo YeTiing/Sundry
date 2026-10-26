@@ -71,13 +71,25 @@ public class SeckillStockService {
             """, Long.class);
 
     /**
-     * 取消订单时只还库存，保留购买标记，避免同一用户重复抢。
+     * 建单失败补偿：只还库存，保留购买标记。
      */
     private static final DefaultRedisScript<Long> RESTORE_STOCK_SCRIPT = new DefaultRedisScript<>("""
             if redis.call('EXISTS', KEYS[1]) == 1 then
                 return redis.call('INCRBY', KEYS[1], ARGV[1])
             end
             return 0
+            """, Long.class);
+
+    /**
+     * 取消订单：还库存并释放购买标记，允许同一用户重新抢。
+     * KEYS[1]=库存，KEYS[2]=购买者 Hash；ARGV[1]=归还数量，ARGV[2]=userId。
+     */
+    private static final DefaultRedisScript<Long> RELEASE_CANCELLED_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('EXISTS', KEYS[1]) == 1 then
+                redis.call('INCRBY', KEYS[1], ARGV[1])
+            end
+            redis.call('HDEL', KEYS[2], ARGV[2])
+            return 1
             """, Long.class);
 
     private static final DefaultRedisScript<Long> RELEASE_LOCK_SCRIPT = new DefaultRedisScript<>("""
@@ -178,6 +190,15 @@ public class SeckillStockService {
     public void restoreStock(Long activityId, int count) {
         redis.execute(RESTORE_STOCK_SCRIPT,
                 List.of(STOCK_KEY.formatted(activityId)), String.valueOf(count));
+    }
+
+    /**
+     * 取消后归还 quota 并移除购买标记，让用户可以重新抢。
+     */
+    public void releaseCancelledReservation(Long activityId, Long userId) {
+        redis.execute(RELEASE_CANCELLED_SCRIPT,
+                List.of(STOCK_KEY.formatted(activityId), BUYER_KEY.formatted(activityId)),
+                "1", String.valueOf(userId));
     }
 
     public void clear(Long activityId) {

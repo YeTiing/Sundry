@@ -90,6 +90,9 @@ class SeckillOrderIntegrationTest {
     @Autowired
     private SeckillReconcileService reconcileService;
 
+    @Autowired
+    private SeckillActivityMapper activityMapper;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
@@ -329,7 +332,7 @@ class SeckillOrderIntegrationTest {
     }
 
     @Test
-    void cancelRestoresActivityStockButKeepsBuyerBlocked() throws Exception {
+    void cancelRestoresStockAndAllowsRebuy() throws Exception {
         Session admin = register(ADMIN_PHONE);
         Session user = register(USER_PHONE);
         long productId = createPhysicalProduct(admin.token(), "取消秒杀", "100.00", 5);
@@ -348,19 +351,44 @@ class SeckillOrderIntegrationTest {
         assertThat(soldCount(activityId)).isZero();
         assertThat(stockOf(productId)).isEqualTo(5);
         assertThat(stockService.remaining(activityId)).isEqualTo(2);
+        // 取消后释放购买标记
+        assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
+                String.valueOf(user.id()))).isFalse();
 
-        MvcResult again = mockMvc.perform(post("/api/seckill/orders")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderBody(activityId, addressId)))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("SUCCESS"))
-                .andReturn();
-        mockMvc.perform(get("/api/seckill/results/{requestId}", requestIdOf(again))
+        String secondRequestId = submit(user.token(), activityId, addressId);
+        processLastMessage();
+        String secondOrderNo = orderNoOfResult(user.token(), secondRequestId);
+
+        assertThat(secondOrderNo).isNotEqualTo(orderNo);
+        assertThat(statusOf(orderNo)).isEqualTo("CANCELLED");
+        assertThat(statusOf(secondOrderNo)).isEqualTo("PENDING_PAYMENT");
+        assertThat(ordersOf(activityId)).isEqualTo(2);
+        assertThat(soldCount(activityId)).isEqualTo(1);
+        assertThat(stockService.remaining(activityId)).isEqualTo(1);
+    }
+
+    @Test
+    void redisRebuildAfterCancelDoesNotBlockRebuy() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        Session user = register(USER_PHONE);
+        long productId = createPhysicalProduct(admin.token(), "取消后重建", "100.00", 5);
+        long activityId = createActivity(admin.token(), productId, "50.00", 2);
+        activate(admin.token(), activityId);
+        long addressId = createAddress(user.token());
+
+        String requestId = submitAndProcess(user.token(), activityId, addressId);
+        String orderNo = orderNoOfResult(user.token(), requestId);
+        mockMvc.perform(post("/api/orders/{orderNo}/cancel", orderNo)
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.orderNo").value(orderNo));
-        assertThat(ordersOf(activityId)).isEqualTo(1);
+                .andExpect(status().isOk());
+
+        // 模拟 Redis 丢失后按 DB 重建：取消的订单不能再把用户写回购买者 Hash
+        stockService.clear(activityId);
+        stockService.ensureWarm(activityMapper.findById(activityId));
+
+        assertThat(stockService.remaining(activityId)).isEqualTo(2);
+        assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
+                String.valueOf(user.id()))).isFalse();
     }
 
     @Test
@@ -476,9 +504,15 @@ class SeckillOrderIntegrationTest {
         assertThat(soldCount(activityId)).isZero();
         assertThat(stockOf(productId)).isEqualTo(5);
         assertThat(stockService.remaining(activityId)).isEqualTo(2);
-        // 购买标记保留，不能重复抢
+        // 超时取消同样释放购买标记，可以重新抢
         assertThat(redis.opsForHash().hasKey("seckill:buyer:" + activityId,
-                String.valueOf(user.id()))).isTrue();
+                String.valueOf(user.id()))).isFalse();
+
+        String secondRequestId = submit(user.token(), activityId, addressId);
+        processLastMessage();
+        String secondOrderNo = orderNoOfResult(user.token(), secondRequestId);
+        assertThat(secondOrderNo).isNotEqualTo(orderNo);
+        assertThat(ordersOf(activityId)).isEqualTo(2);
     }
 
     @Test

@@ -221,7 +221,7 @@ public class OrderService {
             if (orderMapper.cancel(orderNo, userId) == 0) {
                 return 0;
             }
-            restoreStock(order);
+            restoreStock(order, true);
             return 1;
         });
         Order refreshed = requireUserOrder(userId, orderNo);
@@ -319,7 +319,7 @@ public class OrderService {
                 if (orderMapper.approveRefund(orderNo) == 0) {
                     throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
                 }
-                restoreStock(order);
+                restoreStock(order, false);
                 if (refundMapper.approve(refund.getId(), reviewerId, trimToNull(remark)) == 0) {
                     throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
                 }
@@ -523,7 +523,7 @@ public class OrderService {
                 if (orderMapper.completeReturn(orderNo) == 0) {
                     throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
                 }
-                restoreStock(order);
+                restoreStock(order, false);
                 if (refundMapper.completeReturn(refund.getId(), reviewerId) == 0) {
                     throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
                 }
@@ -669,7 +669,7 @@ public class OrderService {
             try {
                 transactionTemplate.executeWithoutResult(status -> {
                     if (orderMapper.cancelById(order.getId()) == 1) {
-                        restoreStock(order);
+                        restoreStock(order, true);
                     }
                 });
             } catch (RuntimeException ignored) {
@@ -688,7 +688,7 @@ public class OrderService {
         }
         transactionTemplate.executeWithoutResult(status -> {
             if (orderMapper.cancelByOrderNo(orderNo) == 1) {
-                restoreStock(order);
+                restoreStock(order, true);
             }
         });
     }
@@ -730,16 +730,24 @@ public class OrderService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private void restoreStock(Order order) {
+    /**
+     * @param releaseSeckillBuyer 取消单释放购买标记，允许重新抢；退款/退货不释放
+     */
+    private void restoreStock(Order order, boolean releaseSeckillBuyer) {
         for (OrderItem item : orderItemMapper.findByOrderId(order.getId())) {
             if (item.getProductType() == ProductType.PHYSICAL) {
                 productMapper.restoreStock(item.getProductId(), item.getQuantity());
             }
         }
-        // 秒杀订单取消后归还活动配额；购买标记保留，同一用户不能重复抢
         if (order.getOrderSource() == OrderSource.SECKILL && order.getActivityId() != null) {
             seckillActivityMapper.decrementSold(order.getActivityId());
-            seckillStockService.restoreStock(order.getActivityId(), 1);
+            if (releaseSeckillBuyer) {
+                // 取消后释放购买标记，用户可重新抢；退款/退货仍保留资格
+                seckillStockService.releaseCancelledReservation(
+                        order.getActivityId(), order.getUserId());
+            } else {
+                seckillStockService.restoreStock(order.getActivityId(), 1);
+            }
         }
     }
 

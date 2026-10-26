@@ -147,13 +147,16 @@
         SELECT <include refid="orderColumns"/>
         FROM orders
         WHERE user_id = #{userId} AND activity_id = #{activityId}
+          AND status &lt;&gt; 'CANCELLED'
         LIMIT 1
     </select>
 
+    <!-- 取消的订单不再占用购买资格；Redis 丢失后按这里重建购买者 Hash -->
     <select id="findSeckillBuyerIds" resultType="long">
         SELECT DISTINCT user_id
         FROM orders
         WHERE activity_id = #{activityId} AND order_source = 'SECKILL'
+          AND status &lt;&gt; 'CANCELLED'
     </select>
 
     <select id="countActiveSeckillOrders" resultType="long">
