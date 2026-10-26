@@ -33,6 +33,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -599,6 +600,26 @@ public class OrderService {
         long total = orderMapper.countByUserFiltered(userId, filters.status(),
                 filters.start(), filters.end(), filters.keyword());
         return new PageResponse<>(items, total, page, size);
+    }
+
+    public PurchaseSummary summarizePurchases(Long userId, OrderQueryFilters filters) {
+        Map<String, Object> row = orderMapper.summarizeByUserFiltered(userId,
+                filters.status(), filters.start(), filters.end(), filters.keyword());
+        return new PurchaseSummary(number(row, "orderCount"),
+                number(row, "itemCount"), amount(row, "totalAmount"));
+    }
+
+    private long number(Map<String, Object> row, String key) {
+        Object value = row == null ? null : row.get(key);
+        return value instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private BigDecimal amount(Map<String, Object> row, String key) {
+        Object value = row == null ? null : row.get(key);
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        return value instanceof BigDecimal decimal ? decimal : new BigDecimal(value.toString());
     }
 
     public OrderView userDetail(Long userId, String orderNo) {

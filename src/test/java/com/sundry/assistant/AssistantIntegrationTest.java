@@ -389,6 +389,47 @@ class AssistantIntegrationTest {
     }
 
     @Test
+    void purchaseSummaryCountsOnlyPaidOrdersAndFilters() throws Exception {
+        Session user = register(USER_PHONE);
+        LocalDateTime now = LocalDateTime.now();
+        long recent = paidOrder(user.id(), "PAY-ORDER-001", "PAID", "100.00",
+                now.minusDays(1), now.minusDays(1));
+        orderItem(recent, "耳机保护套", 2, "50.00");
+        long older = paidOrder(user.id(), "PAY-ORDER-002", "COMPLETED", "200.00",
+                now.minusDays(2), now.minusDays(2));
+        orderItem(older, "无线鼠标", 3, "66.67");
+        long unpaid = paidOrder(user.id(), "PAY-ORDER-003", "PENDING_PAYMENT", "900.00",
+                now.minusDays(1), null);
+        orderItem(unpaid, "蓝牙耳机 Pro", 9, "100.00");
+
+        Session other = register(OTHER_PHONE);
+        long foreign = paidOrder(other.id(), "OTHER-PAY-001", "PAID", "999.00",
+                now.minusDays(1), now.minusDays(1));
+        orderItem(foreign, "别人的耳机", 1, "999.00");
+
+        String filtered = replyOf(callPurchaseTool(user,
+                "{\"timeRange\":\"LAST_30D\",\"keyword\":\"耳机\"}"));
+        assertThat(filtered)
+                .contains("买过 1 单")
+                .contains("共 2 件商品")
+                .contains("¥100")
+                .contains("未扣退款");
+        assertThat(filtered).doesNotContain("900").doesNotContain("999");
+
+        String all = replyOf(callPurchaseTool(user, "{}"));
+        assertThat(all)
+                .contains("买过 2 单")
+                .contains("共 5 件商品")
+                .contains("¥300");
+
+        String none = replyOf(callPurchaseTool(user, "{\"keyword\":\"不存在的商品\"}"));
+        assertThat(none).contains("没有找到符合条件的已支付订单");
+
+        String bad = replyOf(callPurchaseTool(user, "{\"timeRange\":\"LAST_3Y\"}"));
+        assertThat(bad).contains("不支持这个时间范围");
+    }
+
+    @Test
     void productStatusToolIsAdminOnly() throws Exception {
         Session user = register(USER_PHONE);
         Session admin = register(ADMIN_PHONE);
@@ -534,9 +575,30 @@ class AssistantIntegrationTest {
                 """, orderId, name, new BigDecimal(price), quantity);
     }
 
+    private long paidOrder(Long userId, String orderNo, String status, String amount,
+                           LocalDateTime createdAt, LocalDateTime paidAt) {
+        jdbcTemplate.update("""
+                INSERT INTO orders
+                    (order_no, user_id, status, total_amount, has_physical, created_at, paid_at)
+                VALUES (?, ?, ?, ?, 1, ?, ?)
+                """, orderNo, userId, status, new BigDecimal(amount),
+                Timestamp.valueOf(createdAt),
+                paidAt == null ? null : Timestamp.valueOf(paidAt));
+        return jdbcTemplate.queryForObject(
+                "SELECT id FROM orders WHERE order_no = ?", Long.class, orderNo);
+    }
+
     private MvcResult callOrderTool(Session user, String args) throws Exception {
+        return callTool(user, "list_my_orders", args);
+    }
+
+    private MvcResult callPurchaseTool(Session user, String args) throws Exception {
+        return callTool(user, "summarize_my_purchases", args);
+    }
+
+    private MvcResult callTool(Session user, String tool, String args) throws Exception {
         when(assistantClient.chat(any(), anyString())).thenReturn(new AssistantLlmResponse(
-                List.of(new AssistantLlmResponse.ToolCall("c1", "list_my_orders", args)),
+                List.of(new AssistantLlmResponse.ToolCall("c1", tool, args)),
                 "", "deepseek", "assistant_v1"));
         return mockMvc.perform(post("/api/assistant/chat")
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))

@@ -90,6 +90,37 @@
         <include refid="userOrderConditions"/>
     </select>
 
+    <select id="summarizeByUserFiltered" resultType="java.util.Map">
+        SELECT COUNT(*) AS orderCount,
+               COALESCE(SUM(t.item_count), 0) AS itemCount,
+               COALESCE(SUM(t.total_amount), 0) AS totalAmount
+        FROM (
+            SELECT o.id, o.total_amount,
+                   COALESCE(SUM(oi.quantity), 0) AS item_count
+            FROM orders o
+            LEFT JOIN order_item oi ON oi.order_id = o.id
+            WHERE o.user_id = #{userId}
+              AND o.paid_at IS NOT NULL
+            <if test="status != null">
+                AND o.status = #{status}
+            </if>
+            <if test="start != null">
+                AND o.paid_at &gt;= #{start}
+            </if>
+            <if test="end != null">
+                AND o.paid_at &lt; #{end}
+            </if>
+            <if test="keyword != null">
+                AND EXISTS (
+                    SELECT 1 FROM order_item k
+                    WHERE k.order_id = o.id
+                      AND LOCATE(#{keyword}, k.product_name) &gt; 0
+                )
+            </if>
+            GROUP BY o.id, o.total_amount
+        ) t
+    </select>
+
     <select id="findPageAdmin" resultType="com.sundry.order.Order">
         SELECT <include refid="orderColumns"/>
         FROM orders

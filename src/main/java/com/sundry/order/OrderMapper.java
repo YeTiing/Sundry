@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface OrderMapper {
@@ -39,6 +40,12 @@ public interface OrderMapper {
                              @Param("start") LocalDateTime start,
                              @Param("end") LocalDateTime end,
                              @Param("keyword") String keyword);
+
+    Map<String, Object> summarizeByUserFiltered(@Param("userId") Long userId,
+                                                @Param("status") OrderStatus status,
+                                                @Param("start") LocalDateTime start,
+                                                @Param("end") LocalDateTime end,
+                                                @Param("keyword") String keyword);
 
     List<Order> findPageAdmin(@Param("status") OrderStatus status,
                               @Param("offset") long offset,
