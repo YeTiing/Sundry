@@ -1,6 +1,7 @@
 package com.sundry.assistant;
 
 import com.sundry.auth.security.AuthenticatedUser;
+import com.sundry.common.session.SessionIds;
 import com.sundry.user.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,16 +40,19 @@ public class AssistantService {
     private final AssistantRateLimiter rateLimiter;
     private final AssistantClient client;
     private final AssistantToolRegistry registry;
+    private final AssistantSessionStore sessionStore;
     private final ObjectMapper objectMapper;
 
     public AssistantService(RouteCatalog catalog, AssistantChatLogMapper logMapper,
                             AssistantRateLimiter rateLimiter, AssistantClient client,
-                            AssistantToolRegistry registry, ObjectMapper objectMapper) {
+                            AssistantToolRegistry registry, AssistantSessionStore sessionStore,
+                            ObjectMapper objectMapper) {
         this.catalog = catalog;
         this.logMapper = logMapper;
         this.rateLimiter = rateLimiter;
         this.client = client;
         this.registry = registry;
+        this.sessionStore = sessionStore;
         this.objectMapper = objectMapper;
     }
 
@@ -58,22 +62,26 @@ public class AssistantService {
         String traceId = UUID.randomUUID().toString();
         String message = request.message() == null ? "" : request.message().trim();
         String safeMessage = mask(message);
+        String sessionId = SessionIds.normalize(request.sessionId());
+        AssistantChatRequest normalized = new AssistantChatRequest(sessionId, request.message());
 
         RouteDefinition route = catalog.match(message, user.role());
         if (route != null) {
-            audit(user, request, safeMessage, "RULE", "navigate", null, null,
+            audit(user, normalized, safeMessage, "RULE", "navigate", null, null,
                     route.name(), "OK", null, start, traceId);
-            return navigate(route, traceId);
+            return remember(user.id(), sessionId, safeMessage, navigate(route, traceId));
         }
-        return chatWithModel(user, request, message, safeMessage, traceId, start);
+        List<Map<String, String>> history = sessionStore.history(user.id(), sessionId);
+        return chatWithModel(user, normalized, message, safeMessage, history, traceId, start);
     }
 
     private AssistantReply chatWithModel(AuthenticatedUser user, AssistantChatRequest request,
                                          String message, String safeMessage,
+                                         List<Map<String, String>> history,
                                          String traceId, long start) {
         AssistantLlmResponse response;
         try {
-            response = client.chat(new AssistantLlmRequest(message, List.of(),
+            response = client.chat(new AssistantLlmRequest(message, history,
                     user.role().name(), toolsFor(user.role())), traceId);
         } catch (RuntimeException ex) {
             log.warn("助手模型不可用 userId={} reason={}", user.id(), ex.getMessage());
@@ -99,7 +107,8 @@ public class AssistantService {
             String answer = content.length() > 1000 ? content.substring(0, 1000) : content;
             audit(user, request, safeMessage, "LLM", "answer", null, null,
                     null, "OK", null, start, traceId);
-            return new AssistantReply("answer", answer, null, null, Map.of(), traceId);
+            return remember(user.id(), request.sessionId(), safeMessage,
+                    new AssistantReply("answer", answer, null, null, Map.of(), traceId));
         }
 
         if (calls.size() > 1) {
@@ -147,7 +156,7 @@ public class AssistantService {
         }
         audit(user, request, safeMessage, "LLM", "navigate", "navigate",
                 call.arguments(), target.name(), "OK", null, start, traceId);
-        return navigate(target, traceId);
+        return remember(user.id(), request.sessionId(), safeMessage, navigate(target, traceId));
     }
 
     private AssistantReply handleBusinessTool(AuthenticatedUser user, AssistantChatRequest request,
@@ -172,7 +181,8 @@ public class AssistantService {
                     new AssistantToolContext(user.id(), user.role()), arguments);
             audit(user, request, safeMessage, "LLM", "tool", call.name(),
                     call.arguments(), null, "OK", null, start, traceId);
-            return new AssistantReply("tool", result.reply(), null, null, Map.of(), traceId);
+            return remember(user.id(), request.sessionId(), safeMessage,
+                    new AssistantReply("tool", result.reply(), null, null, Map.of(), traceId));
         } catch (AssistantToolException ex) {
             audit(user, request, safeMessage, "LLM", "clarify", call.name(),
                     call.arguments(), null, "REJECTED", ex.getCode(), start, traceId);
@@ -225,6 +235,15 @@ public class AssistantService {
 
     private AssistantReply clarify(String reply, String traceId) {
         return new AssistantReply("clarify", reply, null, null, Map.of(), traceId);
+    }
+
+    /**
+     * 只记录成功轮；降级和拒绝不写入，避免把失败上下文带进下一轮。
+     */
+    private AssistantReply remember(Long userId, String sessionId, String userMessage,
+                                    AssistantReply reply) {
+        sessionStore.append(userId, sessionId, userMessage, reply.reply());
+        return reply;
     }
 
     private void audit(AuthenticatedUser user, AssistantChatRequest request, String message,

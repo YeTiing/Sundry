@@ -5,6 +5,7 @@ import { adminNl2sqlApi } from '@/api/adminNl2sql'
 import type { Nl2sqlLogView, Nl2sqlQueryResult, Nl2sqlVocabulary } from '@/api/adminNl2sql'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
+import { getOrCreateSessionId } from '@/utils/session'
 
 const STATUS_OPTIONS = ['', 'SUCCESS', 'REJECTED', 'UNSUPPORTED', 'TIMEOUT', 'DB_ERROR', 'AI_UNAVAILABLE']
 const STATUS_LABELS: Record<string, string> = {
@@ -30,7 +31,7 @@ const router = useRouter()
 
 const vocabulary = ref<Nl2sqlVocabulary | null>(null)
 const question = ref('')
-const sessionId = ref(newSessionId())
+const sessionId = ref(getOrCreateSessionId('nl2sql'))
 const loading = ref(false)
 const result = ref<Nl2sqlQueryResult | null>(null)
 const error = ref('')
@@ -39,13 +40,6 @@ const errorCode = ref('')
 const logs = ref<Nl2sqlLogView[]>([])
 const logStatus = ref('')
 const logsLoading = ref(false)
-
-function newSessionId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-}
 
 function errorMessage(err: unknown): { code: string; message: string } {
   if (!(err instanceof ApiError)) {

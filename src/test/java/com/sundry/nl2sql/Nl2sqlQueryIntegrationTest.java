@@ -3,9 +3,11 @@ package com.sundry.nl2sql;
 import com.jayway.jsonpath.JsonPath;
 import com.sundry.auth.CapturingSmsSender;
 import com.sundry.auth.sms.SmsScene;
+import com.sundry.nl2sql.dto.Nl2sqlPlanRequest;
 import com.sundry.nl2sql.dto.Nl2sqlPlanResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -20,12 +22,15 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -73,6 +78,8 @@ class Nl2sqlQueryIntegrationTest {
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");
         clear(redis.keys("auth:*"));
+        clear(redis.keys("assistant:session:*"));
+        clear(redis.keys("nl2sql:session:*"));
         smsSender.clear();
         reset(nl2sqlClient);
     }
@@ -184,6 +191,74 @@ class Nl2sqlQueryIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT status FROM nl2sql_log WHERE user_id = ? ORDER BY id DESC LIMIT 1",
                 String.class, admin.id())).isEqualTo("REJECTED");
+    }
+
+    @Test
+    void plannerReceivesPreviousTurnsInSameSession() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        seedOrderData(admin.id());
+        stubPlan(new Nl2sqlPlanResponse.Plan(
+                List.of("gmv"), List.of("category"), List.of(),
+                new Nl2sqlPlanResponse.Plan.Time("LAST_30D"), "day", List.of(), 10));
+
+        query(admin, "{\"question\":\"最近30天各分类销售额\",\"sessionId\":\"nl-session-a\"}");
+        query(admin, "{\"question\":\"那上个月呢\",\"sessionId\":\"nl-session-a\"}");
+
+        ArgumentCaptor<Nl2sqlPlanRequest> captor =
+                ArgumentCaptor.forClass(Nl2sqlPlanRequest.class);
+        verify(nl2sqlClient, times(2)).plan(captor.capture(), anyString());
+        List<Map<String, String>> history = captor.getAllValues().get(1).history();
+        assertThat(history).hasSize(1);
+        assertThat(history.get(0))
+                .containsEntry("question", "最近30天各分类销售额")
+                .containsEntry("rowCount", "1");
+        assertThat(history.get(0).get("plan")).contains("gmv");
+
+        Long ttl = redis.getExpire("nl2sql:session:" + admin.id() + ":nl-session-a");
+        assertThat(ttl).isBetween(1L, 1800L);
+    }
+
+    @Test
+    void failedPlanIsNotRemembered() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        when(nl2sqlClient.plan(any(), anyString())).thenReturn(new Nl2sqlPlanResponse(
+                null, true, "词汇表没有这个维度", "deepseek", "nl2sql_plan_v1"));
+        mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"用户性别分布\",\"sessionId\":\"nl-session-b\"}"))
+                .andExpect(status().isBadRequest());
+
+        reset(nl2sqlClient);
+        stubPlan(new Nl2sqlPlanResponse.Plan(
+                List.of("gmv"), List.of(), List.of(),
+                new Nl2sqlPlanResponse.Plan.Time("LAST_30D"), "day", List.of(), 10));
+        seedOrderData(admin.id());
+        query(admin, "{\"question\":\"最近30天销售额\",\"sessionId\":\"nl-session-b\"}");
+
+        ArgumentCaptor<Nl2sqlPlanRequest> captor =
+                ArgumentCaptor.forClass(Nl2sqlPlanRequest.class);
+        verify(nl2sqlClient).plan(captor.capture(), anyString());
+        assertThat(captor.getValue().history()).isEmpty();
+    }
+
+    @Test
+    void invalidSessionIdIsRejected() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"销售额\",\"sessionId\":\"bad:key\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    private void query(Session admin, String body) throws Exception {
+        mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
     }
 
     private void stubPlan(Nl2sqlPlanResponse.Plan plan) {

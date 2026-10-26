@@ -5,6 +5,7 @@ import com.sundry.auth.CapturingSmsSender;
 import com.sundry.auth.sms.SmsScene;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -19,12 +20,15 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -74,6 +78,8 @@ class AssistantIntegrationTest {
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");
         clear(redis.keys("auth:*"));
+        clear(redis.keys("assistant:session:*"));
+        clear(redis.keys("nl2sql:session:*"));
         smsSender.clear();
     }
 
@@ -340,6 +346,76 @@ class AssistantIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"你好\"}"))
                 .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void modelReceivesPreviousTurnsInSameSession() throws Exception {
+        Session user = register(USER_PHONE);
+        when(assistantClient.chat(any(), anyString()))
+                .thenReturn(new AssistantLlmResponse(
+                        List.of(), "第一条回答", "deepseek", "assistant_v1"))
+                .thenReturn(new AssistantLlmResponse(
+                        List.of(), "第二条回答", "deepseek", "assistant_v1"));
+        chat(user, "{\"sessionId\":\"session-a\",\"message\":\"你好\"}");
+        chat(user, "{\"sessionId\":\"session-a\",\"message\":\"继续聊\"}");
+
+        ArgumentCaptor<AssistantLlmRequest> captor =
+                ArgumentCaptor.forClass(AssistantLlmRequest.class);
+        verify(assistantClient, times(2)).chat(captor.capture(), anyString());
+        List<Map<String, String>> history = captor.getAllValues().get(1).history();
+        assertThat(history).containsExactly(
+                Map.of("role", "user", "content", "你好"),
+                Map.of("role", "assistant", "content", "第一条回答"));
+    }
+
+    @Test
+    void ruleNavigationTurnIsRemembered() throws Exception {
+        Session user = register(USER_PHONE);
+        chat(user, "{\"sessionId\":\"session-b\",\"message\":\"我的订单在哪\"}");
+
+        when(assistantClient.chat(any(), anyString())).thenReturn(new AssistantLlmResponse(
+                List.of(), "好的", "deepseek", "assistant_v1"));
+        chat(user, "{\"sessionId\":\"session-b\",\"message\":\"你好\"}");
+
+        ArgumentCaptor<AssistantLlmRequest> captor =
+                ArgumentCaptor.forClass(AssistantLlmRequest.class);
+        verify(assistantClient).chat(captor.capture(), anyString());
+        List<Map<String, String>> history = captor.getValue().history();
+        assertThat(history).hasSize(2);
+        assertThat(history.get(0)).containsEntry("role", "user")
+                .containsEntry("content", "我的订单在哪");
+        assertThat(history.get(1).get("role")).isEqualTo("assistant");
+        assertThat(history.get(1).get("content")).contains("我的订单");
+    }
+
+    @Test
+    void degradedTurnIsNotRemembered() throws Exception {
+        Session user = register(USER_PHONE);
+        when(assistantClient.chat(any(), anyString()))
+                .thenThrow(new AssistantException("AI_UNAVAILABLE"));
+        chat(user, "{\"sessionId\":\"session-c\",\"message\":\"你好\"}");
+
+        String key = "assistant:session:" + user.id() + ":session-c";
+        assertThat(redis.opsForList().range(key, 0, -1)).isEmpty();
+    }
+
+    @Test
+    void invalidSessionIdIsRejected() throws Exception {
+        Session user = register(USER_PHONE);
+        mockMvc.perform(post("/api/assistant/chat")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sessionId\":\"bad:key\",\"message\":\"你好\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    private void chat(Session user, String body) throws Exception {
+        mockMvc.perform(post("/api/assistant/chat")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
     }
 
     private void order(Long userId, String orderNo, String status) {

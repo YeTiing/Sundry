@@ -4,6 +4,7 @@ import com.sundry.auth.security.AuthenticatedUser;
 import com.sundry.common.api.PageResponse;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
+import com.sundry.common.session.SessionIds;
 import com.sundry.nl2sql.ValidatedPlan.Dimension;
 import com.sundry.nl2sql.ValidatedPlan.Metric;
 import com.sundry.nl2sql.dto.Nl2sqlLogView;
@@ -44,13 +45,14 @@ public class Nl2sqlService {
     private final Nl2sqlQueryExecutor executor;
     private final Nl2sqlLogMapper logMapper;
     private final Nl2sqlRateLimiter rateLimiter;
+    private final Nl2sqlSessionStore sessionStore;
     private final ObjectMapper objectMapper;
 
     public Nl2sqlService(Nl2sqlProperties properties, SemanticLayerProvider provider,
                          Nl2sqlClient client, Nl2sqlPlanValidator validator,
                          Nl2sqlQueryBuilder builder, Nl2sqlQueryExecutor executor,
                          Nl2sqlLogMapper logMapper, Nl2sqlRateLimiter rateLimiter,
-                         ObjectMapper objectMapper) {
+                         Nl2sqlSessionStore sessionStore, ObjectMapper objectMapper) {
         this.properties = properties;
         this.provider = provider;
         this.client = client;
@@ -59,6 +61,7 @@ public class Nl2sqlService {
         this.executor = executor;
         this.logMapper = logMapper;
         this.rateLimiter = rateLimiter;
+        this.sessionStore = sessionStore;
         this.objectMapper = objectMapper;
     }
 
@@ -90,31 +93,35 @@ public class Nl2sqlService {
         if (!properties.isEnabled()) {
             throw new BusinessException(ErrorCode.NL2SQL_DISABLED);
         }
+        String sessionId = SessionIds.normalize(request.sessionId());
+        Nl2sqlQueryRequest normalized = new Nl2sqlQueryRequest(request.question(), sessionId);
         rateLimiter.check(user.id());
         long start = System.currentTimeMillis();
         String traceId = UUID.randomUUID().toString();
         String question = request.question().trim();
+        List<Map<String, String>> history = sessionStore.history(user.id(), sessionId);
 
         Nl2sqlPlanResponse planResponse;
         try {
             planResponse = client.plan(new Nl2sqlPlanRequest(question, user.role().name(),
-                    provider.layer().vocabulary(), List.of()), traceId);
+                    provider.layer().vocabulary(), history), traceId);
         } catch (RuntimeException ex) {
             log.warn("NL2SQL 规划失败 userId={} reason={}", user.id(), ex.getMessage());
-            audit(user, request, question, null, null, 0,
+            audit(user, normalized, question, null, null, 0,
                     "AI_UNAVAILABLE", "AI_UNAVAILABLE", start, traceId);
             throw new BusinessException(ErrorCode.NL2SQL_UNAVAILABLE);
         }
 
         if (planResponse == null) {
-            audit(user, request, question, null, null, 0,
+            audit(user, normalized, question, null, null, 0,
                     "AI_UNAVAILABLE", "EMPTY_RESPONSE", start, traceId);
             throw new BusinessException(ErrorCode.NL2SQL_UNAVAILABLE);
         }
+        String planJson = planJson(planResponse.plan());
         if (planResponse.unsupported()) {
             String reason = planResponse.reason() == null || planResponse.reason().isBlank()
                     ? "词汇表无法表达该问题" : planResponse.reason();
-            audit(user, request, question, planJson(planResponse.plan()), null, 0,
+            audit(user, normalized, question, planJson, null, 0,
                     "UNSUPPORTED", reason, start, traceId);
             throw new BusinessException(ErrorCode.NL2SQL_UNSUPPORTED, reason);
         }
@@ -123,7 +130,7 @@ public class Nl2sqlService {
         try {
             plan = validator.validate(planResponse.plan());
         } catch (Nl2sqlValidationException ex) {
-            audit(user, request, question, planJson(planResponse.plan()), null, 0,
+            audit(user, normalized, question, planJson, null, 0,
                     "REJECTED", ex.getCode() + ": " + ex.getMessage(), start, traceId);
             throw new BusinessException(ErrorCode.NL2SQL_PLAN_REJECTED, ex.getMessage());
         }
@@ -134,18 +141,19 @@ public class Nl2sqlService {
             rows = executor.execute(spec, properties.getQueryTimeoutSeconds(),
                     properties.getMaxRows());
         } catch (QueryTimeoutException ex) {
-            audit(user, request, question, planJson(planResponse.plan()), spec.sql(), 0,
+            audit(user, normalized, question, planJson, spec.sql(), 0,
                     "TIMEOUT", "QUERY_TIMEOUT", start, traceId);
             throw new BusinessException(ErrorCode.NL2SQL_QUERY_FAILED);
         } catch (DataAccessException | Nl2sqlException ex) {
             log.warn("NL2SQL 执行失败 userId={} reason={}", user.id(), ex.getMessage());
-            audit(user, request, question, planJson(planResponse.plan()), spec.sql(), 0,
+            audit(user, normalized, question, planJson, spec.sql(), 0,
                     "DB_ERROR", "DB_ERROR", start, traceId);
             throw new BusinessException(ErrorCode.NL2SQL_QUERY_FAILED);
         }
 
-        audit(user, request, question, planJson(planResponse.plan()), spec.sql(),
+        audit(user, normalized, question, planJson, spec.sql(),
                 rows.size(), "SUCCESS", null, start, traceId);
+        sessionStore.append(user.id(), sessionId, question, planJson, rows.size());
         return view(plan, rows, planResponse.plan(), traceId, start);
     }
 

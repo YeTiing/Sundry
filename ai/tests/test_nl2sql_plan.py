@@ -69,6 +69,52 @@ def test_valid_plan_is_returned():
     assert data["promptVersion"] == NL2SQL_PLAN_PROMPT_VERSION
 
 
+class CapturingLlm(FakeLlm):
+    def __init__(self, payload: str) -> None:
+        super().__init__(payload)
+        self.calls: list[tuple[str, str]] = []
+
+    async def complete(self, system: str, user: str) -> str:
+        self.calls.append((system, user))
+        return await super().complete(system, user)
+
+
+def test_history_is_rendered_into_prompt():
+    plan = {
+        "metrics": ["gmv"],
+        "dimensions": ["category"],
+        "filters": [],
+        "time": {"preset": "LAST_MONTH"},
+        "granularity": "day",
+        "sort": [],
+        "limit": 10,
+    }
+    llm = CapturingLlm(json.dumps(plan))
+    app.dependency_overrides[get_llm] = lambda: llm
+    request_body = {
+        **body(),
+        "history": [
+            {
+                "question": "上个月各分类销售额",
+                "plan": '{"metrics":["gmv"]}',
+                "rowCount": "2",
+            }
+        ],
+    }
+
+    response = TestClient(app).post(
+        "/internal/nl2sql/plan",
+        json=request_body,
+        headers={"X-Internal-Token": "test-token"},
+    )
+
+    assert response.status_code == 200
+    user_prompt = llm.calls[0][1]
+    assert "上个月各分类销售额" in user_prompt
+    assert '{"metrics":["gmv"]}' in user_prompt
+    assert "结果行数：2" in user_prompt
+
+
 def test_unsupported_passthrough():
     response = client(
         json.dumps({"unsupported": True, "reason": "词汇表没有这个维度"})

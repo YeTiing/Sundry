@@ -76,6 +76,8 @@ app:
   assistant:
     rate-limit-per-minute: ${ASSISTANT_RATE_LIMIT:10}
     timeout: ${ASSISTANT_TIMEOUT:8s}
+    session-ttl: ${ASSISTANT_SESSION_TTL:30m}
+    session-max-turns: ${ASSISTANT_SESSION_MAX_TURNS:3}
   nl2sql:
     enabled: ${NL2SQL_ENABLED:false}
     free-sql-enabled: ${NL2SQL_FREE_SQL:false}
@@ -83,6 +85,8 @@ app:
     max-rows: ${NL2SQL_MAX_ROWS:1000}
     rate-limit-per-minute: ${NL2SQL_RATE_LIMIT:10}
     plan-timeout: ${NL2SQL_PLAN_TIMEOUT:8s}
+    session-ttl: ${NL2SQL_SESSION_TTL:30m}
+    session-max-turns: ${NL2SQL_SESSION_MAX_TURNS:3}
     datasource:
       url: ${NL2SQL_DB_URL:}
       username: ${NL2SQL_DB_USERNAME:}

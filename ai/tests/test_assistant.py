@@ -85,6 +85,39 @@ def test_text_answer_is_passed_through():
     assert data["content"] == "可以在订单页查看物流。"
 
 
+class CapturingLlm(FakeLlm):
+    def __init__(self, result: dict) -> None:
+        super().__init__(result)
+        self.calls: list[tuple[str, str]] = []
+
+    async def complete_with_tools(self, system: str, user: str, tools: list[dict]) -> dict:
+        self.calls.append((system, user))
+        return await super().complete_with_tools(system, user, tools)
+
+
+def test_history_is_rendered_into_prompt():
+    llm = CapturingLlm(
+        {"tool_calls": [], "content": "好的", "model": "deepseek-v4-flash"}
+    )
+    app.dependency_overrides[get_llm] = lambda: llm
+    payload = {
+        **body(),
+        "history": [
+            {"role": "user", "content": "我的订单在哪"},
+            {"role": "assistant", "content": "已为你找到我的订单入口"},
+        ],
+    }
+
+    response = TestClient(app).post(
+        "/internal/assistant/chat", json=payload, headers={"X-Internal-Token": "test-token"}
+    )
+
+    assert response.status_code == 200
+    user_prompt = llm.calls[0][1]
+    assert "我的订单在哪" in user_prompt
+    assert "已为你找到我的订单入口" in user_prompt
+
+
 def test_requires_internal_token():
     response = client({"tool_calls": [], "content": "", "model": "x"}).post(
         "/internal/assistant/chat", json=body()

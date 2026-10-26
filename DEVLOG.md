@@ -3,7 +3,7 @@
 记录每个开发切片：做了什么、遇到什么问题、怎么解决、怎么验证。
 新条目追加在下方；顶部「当前状态」随最新进展更新。
 
-## 当前状态（2026-10-24）
+## 当前状态（2026-10-26）
 
 | 项 | 状态 |
 |---|---|
@@ -34,9 +34,9 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 249 个 Java 集成测试 + 22 个 Python 用例 |
+| 测试 | 273 个 Java 用例 + 28 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
-| 未完成 | 真实支付、退款真实资金流、通知公告、AI 助手、NL2SQL |
+| 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结、AI 红队评测 |
 
 ### 本地启动
 
@@ -2246,12 +2246,46 @@ sundry_seckill_compensation_total = 0
 
 - 待提交：`feat: A4 L3 query_sales 接入助手`
 
+## 2026-10-26 · A5 S4a / A4 L4：Redis 多轮会话
+
+**做了什么**
+
+- 新增 `AssistantSessionStore` 与 `Nl2sqlSessionStore`
+  - key 绑定 userId：`assistant:session:{userId}:{sessionId}`、`nl2sql:session:{userId}:{sessionId}`
+  - 默认保留最近 3 轮、TTL 30 分钟，每次成功写入刷新
+  - 助手只存 `{role, content}`；用户消息沿用审计脱敏，回复截断 500 字
+  - NL2SQL 只存 `{question, plan, rowCount}`，不存结果集和 SQL
+- 新增 `SessionIds`：sessionId 仅允许 `[A-Za-z0-9_-]{1,64}`；空值走单轮，非法返回 400
+- 助手：进入时读历史并随工具清单一并下发给 Python；规则导航轮也记录；只记成功轮，降级和拒绝不写入
+- NL2SQL：计划请求带最近 3 轮；只在查询成功后追加，失败不污染上下文
+- Python：NL2SQL prompt 渲染历史中的问题、计划和行数
+- 前端：sessionId 持久化到 `sessionStorage`，助手与经营分析各自独立
+- Redis 不可用时历史为空、写入只告警，不影响问答与查询
+
+**遇到问题**
+
+- Mockito `reset` 会同时清掉已记录的调用，多轮测试里先 reset 导致 `verify` 只看到 1 次
+
+**解决**
+
+- 改为连续 `thenReturn`，保留两次调用记录
+
+**验证**
+
+- Java：273 个用例全部通过（新增 13 个：会话读写/TTL/用户隔离/3 轮截断 6 个，助手多轮 4 个，NL2SQL 多轮 3 个）
+- Python：28 个用例通过（新增 2 个历史渲染用例）
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: A5 S4a Redis 多轮会话`
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。
 
 - 已完成：AI 智能推流、曝光/点击 Kafka 异步回流、演示数据、过期清理、多路召回、离线评估、管理端指标页、语义召回、向量增量、商品标签、方案 B（换一批即时变体）
-- 下一步：精排模型（需真实数据），或按原规划继续 A1/A4/A5/A7
+- 下一步：A5 S4b 一句话总结（模板兜底）→ A7 红队评测；精排模型需真实数据后再做
 - 之后：A4 助手框架 → A5 NL2SQL 安全 → A7 安全评测 → A3 推荐
 - 上线前：真实短信/支付、HTTPS、静态托管、CI、备份
 

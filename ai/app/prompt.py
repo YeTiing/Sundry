@@ -81,5 +81,11 @@ def build_nl2sql_user_prompt(vocabulary: dict, question: str, role: str,
     if history:
         lines.append("最近对话：")
         for item in history[-6:]:
-            lines.append(f"- 问：{item.get('question', '')}")
+            plan = item.get("plan", "")
+            if not isinstance(plan, str):
+                plan = json.dumps(plan, ensure_ascii=False)
+            lines.append(
+                f"- 问：{item.get('question', '')}；"
+                f"计划：{plan}；结果行数：{item.get('rowCount', '')}"
+            )
     return "\n".join(lines)

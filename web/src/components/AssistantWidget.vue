@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { assistantApi } from '@/api/assistant'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
+import { getOrCreateSessionId } from '@/utils/session'
 
 interface ChatEntry {
   role: 'user' | 'assistant'
@@ -20,14 +21,7 @@ const sending = ref(false)
 const input = ref('')
 const entries = ref<ChatEntry[]>([])
 const listRef = ref<HTMLElement | null>(null)
-const sessionId = ref(newSessionId())
-
-function newSessionId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-}
+const sessionId = ref(getOrCreateSessionId('assistant'))
 
 async function scrollToBottom(): Promise<void> {
   await nextTick()
