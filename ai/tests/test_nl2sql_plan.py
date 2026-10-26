@@ -12,7 +12,7 @@ class FakeLlm:
     def __init__(self, payload: str) -> None:
         self.payload = payload
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str, model: str | None = None) -> str:
         return self.payload
 
     async def complete_with_tools(self, system: str, user: str, tools: list[dict]) -> dict:
@@ -74,9 +74,9 @@ class CapturingLlm(FakeLlm):
         super().__init__(payload)
         self.calls: list[tuple[str, str]] = []
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str, model: str | None = None) -> str:
         self.calls.append((system, user))
-        return await super().complete(system, user)
+        return await super().complete(system, user, model=model)
 
 
 def test_history_is_rendered_into_prompt():

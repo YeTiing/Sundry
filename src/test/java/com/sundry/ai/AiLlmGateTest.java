@@ -13,15 +13,15 @@ class AiLlmGateTest {
     void limitsConcurrentCalls() {
         AiLlmGate gate = gate(1, 50, 1_000);
 
-        gate.acquire();
+        String first = gate.acquire();
         assertThatThrownBy(gate::acquire)
                 .isInstanceOf(AiFeedException.class)
                 .hasMessage("AI_BUSY");
 
-        gate.release();
+        gate.release(first);
         assertThatCode(() -> {
-            gate.acquire();
-            gate.release();
+            String lease = gate.acquire();
+            gate.release(lease);
         }).doesNotThrowAnyException();
     }
 

@@ -8,6 +8,7 @@ class Settings:
     deepseek_api_key: str
     deepseek_base_url: str
     deepseek_model: str
+    feed_rerank_model: str
     request_timeout: float
     embed_api_key: str
     embed_base_url: str
@@ -23,6 +24,11 @@ def get_settings() -> Settings:
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        # Feed 重排只输出 JSON，用非推理模型；推理模型会把输出额度耗在 reasoning 上
+        feed_rerank_model=(
+            os.getenv("FEED_RERANK_MODEL", "")
+            or os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        ),
         request_timeout=float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "5")),
         embed_api_key=os.getenv("EMBED_API_KEY", ""),
         embed_base_url=os.getenv(

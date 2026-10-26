@@ -13,7 +13,7 @@ class FakeLlm:
     def __init__(self, payload: str) -> None:
         self.payload = payload
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str, model: str | None = None) -> str:
         return self.payload
 
 

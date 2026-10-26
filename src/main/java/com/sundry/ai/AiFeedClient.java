@@ -49,7 +49,7 @@ public class AiFeedClient {
             throw new AiFeedException("AI_REQUEST_INVALID", ex);
         }
 
-        gate.acquire();
+        String llmLease = gate.acquire();
         try {
             RerankResponse response = restClient.post()
                     .uri("/internal/feed/rerank")
@@ -72,7 +72,7 @@ public class AiFeedClient {
         } catch (ResourceAccessException ex) {
             throw new AiFeedException("AI_UNAVAILABLE", ex);
         } finally {
-            gate.release();
+            gate.release(llmLease);
         }
     }
 }

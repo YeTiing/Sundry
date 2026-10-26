@@ -93,6 +93,7 @@ async def rerank(
     raw = await llm.complete(
         system_prompt(request.strategy),
         build_user_prompt(request.profile, request.candidates, request.limit),
+        model=settings.feed_rerank_model,
     )
 
     if not raw.strip():
@@ -117,7 +118,7 @@ async def rerank(
 
     return RerankResponse(
         items=cleaned,
-        model=settings.deepseek_model,
+        model=settings.feed_rerank_model,
         prompt_version=PROMPT_VERSION,
     )
 

@@ -1,5 +1,7 @@
 package com.sundry.ai;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.DefaultTypedTuple;
@@ -40,7 +42,9 @@ public class AiFeedStore {
     private static final String POOL_ROUND_KEY = "feed:ai:pool:round:%d";
     private static final String POOL_CURRENT_KEY = "feed:ai:pool:current:%d";
     private static final String BUILD_COOLDOWN_KEY = "feed:ai:build:cooldown:%d";
-    private static final String BUILD_RATE_KEY = "feed:ai:build:rate:%d";
+    private static final String BUILD_HOURLY_KEY = "feed:ai:build:hourly:%d";
+    public static final String BUILD_BUCKET_FIRST_KEY = "feed:ai:build:bucket:first";
+    public static final String BUILD_BUCKET_SHARED_KEY = "feed:ai:build:bucket:shared";
     private static final String SEED_LOCK_KEY = "feed:ai:seed:%d";
 
     private static final Duration LOCK_TTL = Duration.ofSeconds(60);
@@ -57,6 +61,49 @@ public class AiFeedStore {
                 return redis.call('DEL', KEYS[1])
             end
             return 0
+            """, Long.class);
+
+    /**
+     * 令牌桶：ARGV[1]=容量，ARGV[2]=每毫秒补充的令牌数。
+     * 只有真正拿到令牌才写回 tokens-1，被拒绝的请求不会消耗额度。
+     */
+    private static final DefaultRedisScript<Long> TOKEN_BUCKET = new DefaultRedisScript<>("""
+            local now = redis.call('TIME')
+            local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+            local capacity = tonumber(ARGV[1])
+            local rate = tonumber(ARGV[2])
+            local data = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
+            local tokens = tonumber(data[1])
+            local ts = tonumber(data[2])
+            if tokens == nil or ts == nil then
+                tokens = capacity
+                ts = nowMs
+            end
+            local elapsed = nowMs - ts
+            if elapsed < 0 then
+                elapsed = 0
+            end
+            tokens = math.min(capacity, tokens + elapsed * rate)
+            if tokens >= 1 then
+                tokens = tokens - 1
+                redis.call('HSET', KEYS[1], 'tokens', tostring(tokens), 'ts', nowMs)
+                redis.call('PEXPIRE', KEYS[1], 120000)
+                return 1
+            end
+            redis.call('HSET', KEYS[1], 'tokens', tostring(tokens), 'ts', nowMs)
+            redis.call('PEXPIRE', KEYS[1], 120000)
+            return 0
+            """, Long.class);
+
+    /**
+     * 每用户每小时构建计数；只在授予构建许可后调用。
+     */
+    private static final DefaultRedisScript<Long> INCR_HOURLY = new DefaultRedisScript<>("""
+            local count = redis.call('INCR', KEYS[1])
+            if count == 1 or redis.call('TTL', KEYS[1]) < 0 then
+                redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+            end
+            return count
             """, Long.class);
 
     /**
@@ -110,12 +157,14 @@ public class AiFeedStore {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final AiProperties properties;
+    private final MeterRegistry meterRegistry;
 
     public AiFeedStore(StringRedisTemplate redis, ObjectMapper objectMapper,
-                       AiProperties properties) {
+                       AiProperties properties, MeterRegistry meterRegistry) {
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -139,24 +188,84 @@ public class AiFeedStore {
         return buildId;
     }
 
-    /**
-     * 构建许可：每用户冷却 + 全局每分钟上限。只拦“新建榜单”，不拦切换。
-     */
     public boolean tryBuildPermit(Long userId) {
-        if (Boolean.TRUE.equals(redis.hasKey(cooldownKey(userId)))) {
-            return false;
-        }
-        String rateKey = BUILD_RATE_KEY.formatted(System.currentTimeMillis() / 60_000L);
-        Long count = redis.opsForValue().increment(rateKey);
-        if (count != null && count == 1L) {
-            redis.expire(rateKey, Duration.ofSeconds(70));
-        }
-        if (count != null && count > properties.getFeedBuildRateLimit()) {
-            return false;
-        }
-        Boolean first = redis.opsForValue().setIfAbsent(cooldownKey(userId), "1",
+        return tryBuildPermit(userId, BuildReason.REFILL);
+    }
+
+    /**
+     * 构建许可：用户冷却 + 每小时配额 + 全局令牌桶（首访有保底额度）。
+     * 只有真正授予时才扣额度；被拒绝的请求不会把全局计数打满。
+     */
+    public boolean tryBuildPermit(Long userId, BuildReason reason) {
+        // 冷却 key 同时做用户级互斥：拿不到说明 10 秒内已经尝试过
+        Boolean gate = redis.opsForValue().setIfAbsent(cooldownKey(userId), "1",
                 properties.getFeedBuildCooldown());
-        return Boolean.TRUE.equals(first);
+        if (!Boolean.TRUE.equals(gate)) {
+            recordPermit("rejected", "cooldown", reason);
+            return false;
+        }
+
+        int hourlyLimit = Math.max(0, properties.getFeedBuildPerUserHourly());
+        if (hourlyLimit > 0) {
+            String value = redis.opsForValue().get(hourlyKey(userId));
+            int used = value == null ? 0 : Integer.parseInt(value);
+            if (used >= hourlyLimit) {
+                shortenCooldown(userId);
+                recordPermit("rejected", "hourly_limit", reason);
+                return false;
+            }
+        }
+
+        int total = Math.max(1, properties.getFeedBuildRateLimit());
+        int percent = Math.min(100, Math.max(0, properties.getFeedBuildReservePercent()));
+        int firstCapacity = (int) Math.ceil(total * percent / 100.0);
+        if (percent > 0) {
+            firstCapacity = Math.max(1, firstCapacity);
+        }
+        firstCapacity = Math.min(firstCapacity, total);
+        int sharedCapacity = total - firstCapacity;
+
+        boolean granted = reason == BuildReason.COLD_START
+                && tryTakeToken(BUILD_BUCKET_FIRST_KEY, firstCapacity);
+        if (!granted && sharedCapacity > 0) {
+            granted = tryTakeToken(BUILD_BUCKET_SHARED_KEY, sharedCapacity);
+        }
+        if (!granted) {
+            shortenCooldown(userId);
+            recordPermit("rejected", "global_limit", reason);
+            return false;
+        }
+
+        if (hourlyLimit > 0) {
+            redis.execute(INCR_HOURLY, List.of(hourlyKey(userId)), "3600");
+        }
+        recordPermit("granted", "ok", reason);
+        return true;
+    }
+
+    private void shortenCooldown(Long userId) {
+        Duration reject = properties.getFeedBuildRejectCooldown();
+        if (reject != null && !reject.isZero() && !reject.isNegative()) {
+            redis.expire(cooldownKey(userId), reject);
+        }
+    }
+
+    private boolean tryTakeToken(String key, int capacity) {
+        if (capacity <= 0) {
+            return false;
+        }
+        Long result = redis.execute(TOKEN_BUCKET, List.of(key),
+                String.valueOf(capacity), String.valueOf(capacity / 60_000.0));
+        return result != null && result == 1L;
+    }
+
+    private void recordPermit(String result, String reason, BuildReason buildReason) {
+        Counter.builder("sundry.feed.ai.build.permit")
+                .tag("result", result)
+                .tag("reason", reason)
+                .tag("buildReason", buildReason.name())
+                .register(meterRegistry)
+                .increment();
     }
 
     /**
@@ -567,6 +676,10 @@ public class AiFeedStore {
 
     private String cooldownKey(Long userId) {
         return BUILD_COOLDOWN_KEY.formatted(userId);
+    }
+
+    private String hourlyKey(Long userId) {
+        return BUILD_HOURLY_KEY.formatted(userId);
     }
 
     private String seedLockKey(Long userId) {

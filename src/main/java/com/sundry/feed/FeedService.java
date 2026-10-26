@@ -2,6 +2,7 @@ package com.sundry.feed;
 
 import com.sundry.ai.AiFeedStore;
 import com.sundry.ai.AiProperties;
+import com.sundry.ai.BuildReason;
 import com.sundry.ai.FeedSnapshot;
 import com.sundry.catalog.Product;
 import com.sundry.catalog.ProductMapper;
@@ -198,7 +199,7 @@ public class FeedService {
                 if (variant != null) {
                     if (seeded) {
                         // 规则兜底变体先顶上，同时后台补算 AI
-                        ensureBuild(userId, true);
+                        ensureBuild(userId, true, BuildReason.COLD_START);
                     } else {
                         finishSwitch(userId);
                     }
@@ -221,7 +222,7 @@ public class FeedService {
                         finishSwitch(userId);
                     }
                 } else {
-                    ensureBuild(userId, false);
+                    ensureBuild(userId, false, BuildReason.REFILL);
                 }
                 return pageFromSnapshot(variant, offset, size,
                         statusOf(userId, variant), variant.buildId());
@@ -331,7 +332,8 @@ public class FeedService {
     }
 
     private FeedPage pendingPage(Long userId, int offset, int size, boolean forceBuild) {
-        boolean building = ensureBuild(userId, forceBuild);
+        boolean building = ensureBuild(userId, forceBuild,
+                forceBuild ? BuildReason.COLD_START : BuildReason.REFILL);
         ScrollPage<ProductView> page = rulePage(userId, offset, size, false);
         return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
                 building ? STATUS_PENDING : STATUS_FALLBACK, null, null);
@@ -340,7 +342,7 @@ public class FeedService {
     /**
      * 池子水位不足时入队补算。pending 存在说明已有构建在途；失败熔断期内不自动重试。
      */
-    private boolean ensureBuild(Long userId, boolean force) {
+    private boolean ensureBuild(Long userId, boolean force, BuildReason reason) {
         try {
             if (aiFeedStore.pending(userId) != null) {
                 return true;
@@ -355,7 +357,7 @@ public class FeedService {
                     return false;
                 }
             }
-            if (!aiFeedStore.tryBuildPermit(userId)) {
+            if (!aiFeedStore.tryBuildPermit(userId, reason)) {
                 return false;
             }
             return aiFeedStore.enqueue(userId) != null;
@@ -373,12 +375,12 @@ public class FeedService {
             long round = aiFeedStore.bumpRound(userId);
             if (round >= aiProperties.getEffectiveFeedVariantCount()) {
                 // 冷却/队列拒绝时保留轮次，下一次切换再试
-                if (ensureBuild(userId, true)) {
+                if (ensureBuild(userId, true, BuildReason.REFILL)) {
                     aiFeedStore.resetRound(userId);
                 }
                 return;
             }
-            ensureBuild(userId, false);
+            ensureBuild(userId, false, BuildReason.REFILL);
         } catch (RuntimeException ex) {
             log.warn("AI 补算水位检查失败 userId={}", userId, ex);
         }

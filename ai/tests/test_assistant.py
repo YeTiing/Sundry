@@ -10,7 +10,7 @@ class FakeLlm:
     def __init__(self, result: dict) -> None:
         self.result = result
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str, model: str | None = None) -> str:
         return ""
 
     async def complete_with_tools(self, system: str, user: str, tools: list[dict]) -> dict:

@@ -1,13 +1,16 @@
 package com.sundry.ai;
 
 import com.sundry.ai.FeedSnapshot.SnapshotItem;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,13 +37,31 @@ class AiFeedStorePoolTest {
     @Autowired
     private StringRedisTemplate redis;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
+
     @BeforeEach
     void setUp() {
         redis.delete(List.of(poolKey(), seenKey(), nextKey(), roundKey(), currentKey(),
                 "feed:ai:pending:" + USER_ID, "feed:ai:queued:" + USER_ID,
-                "feed:ai:build:cooldown:" + USER_ID, "feed:ai:seed:" + USER_ID));
+                "feed:ai:build:cooldown:" + USER_ID, "feed:ai:seed:" + USER_ID,
+                AiFeedStore.BUILD_BUCKET_FIRST_KEY, AiFeedStore.BUILD_BUCKET_SHARED_KEY));
         redis.delete("feed:ai:queue");
         clear(redis.keys("feed:ai:build:rate:*"));
+        clear(redis.keys("feed:ai:build:hourly:*"));
+    }
+
+    private AiFeedStore customStore(int rateLimit, int reservePercent, int hourly) {
+        AiProperties properties = new AiProperties();
+        properties.setFeedBuildRateLimit(rateLimit);
+        properties.setFeedBuildReservePercent(reservePercent);
+        properties.setFeedBuildPerUserHourly(hourly);
+        properties.setFeedBuildCooldown(Duration.ofMillis(50));
+        properties.setFeedBuildRejectCooldown(Duration.ofMillis(20));
+        return new AiFeedStore(redis, objectMapper, properties, meterRegistry);
     }
 
     @Test
@@ -190,6 +211,43 @@ class AiFeedStorePoolTest {
 
         redis.delete("feed:ai:build:cooldown:" + USER_ID);
         assertThat(store.tryBuildPermit(USER_ID)).isTrue();
+    }
+
+    @Test
+    void rejectedPermitDoesNotConsumeTokenOrHourlyQuota() {
+        AiFeedStore limited = customStore(1, 50, 100);
+        assertThat(limited.tryBuildPermit(USER_ID, BuildReason.COLD_START)).isTrue();
+        redis.delete("feed:ai:build:cooldown:" + USER_ID);
+
+        assertThat(limited.tryBuildPermit(USER_ID, BuildReason.COLD_START)).isFalse();
+        assertThat(redis.opsForValue().get("feed:ai:build:hourly:" + USER_ID)).isEqualTo("1");
+        Object tokens = redis.opsForHash().get(AiFeedStore.BUILD_BUCKET_FIRST_KEY, "tokens");
+        assertThat(Double.parseDouble(String.valueOf(tokens))).isLessThan(1.0);
+    }
+
+    @Test
+    void reservedQuotaIsNotUsedByRefill() {
+        AiFeedStore limited = customStore(2, 50, 100);
+        // shared 1 个；refill 用掉
+        assertThat(limited.tryBuildPermit(USER_ID, BuildReason.REFILL)).isTrue();
+        redis.delete("feed:ai:build:cooldown:" + USER_ID);
+        // first 1 个；cold start 仍能拿到
+        assertThat(limited.tryBuildPermit(USER_ID, BuildReason.COLD_START)).isTrue();
+        redis.delete("feed:ai:build:cooldown:" + USER_ID);
+        // refill 不能借用首访保底
+        assertThat(limited.tryBuildPermit(USER_ID, BuildReason.REFILL)).isFalse();
+    }
+
+    @Test
+    void hourlyQuotaLimitsGrantedBuildsOnly() {
+        AiFeedStore limited = customStore(100, 50, 2);
+        assertThat(limited.tryBuildPermit(USER_ID, BuildReason.COLD_START)).isTrue();
+        redis.delete("feed:ai:build:cooldown:" + USER_ID);
+        assertThat(limited.tryBuildPermit(USER_ID, BuildReason.REFILL)).isTrue();
+        redis.delete("feed:ai:build:cooldown:" + USER_ID);
+
+        assertThat(limited.tryBuildPermit(USER_ID, BuildReason.REFILL)).isFalse();
+        assertThat(redis.opsForValue().get("feed:ai:build:hourly:" + USER_ID)).isEqualTo("2");
     }
 
     @Test

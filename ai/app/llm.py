@@ -9,7 +9,9 @@ logger = logging.getLogger("sundry.ai")
 
 
 class LlmClient(Protocol):
-    async def complete(self, system: str, user: str) -> str: ...
+    async def complete(
+        self, system: str, user: str, model: str | None = None
+    ) -> str: ...
 
     async def complete_with_tools(
         self, system: str, user: str, tools: list[dict]
@@ -27,21 +29,26 @@ class DeepSeekClient:
         self._client = AsyncOpenAI(
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
+            # 关闭 SDK 隐式重试，否则一次超时会被放大成 2~3 倍等待时间
+            max_retries=0,
         )
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(
+        self, system: str, user: str, model: str | None = None
+    ) -> str:
         last = ""
         # DeepSeek 偶发返回空 content；重试一次，仍为空则交给 Java 侧降级
         for attempt in range(2):
             response = await self._client.chat.completions.create(
-                model=self._model,
+                model=model or self._model,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.2,
-                max_tokens=2500,
+                # 非推理模型 4000 足够输出 20 条；推理模型需要 8000 才不挤空正文
+                max_tokens=4000,
                 timeout=self._timeout,
             )
             choice = response.choices[0]

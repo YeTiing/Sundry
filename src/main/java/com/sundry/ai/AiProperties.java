@@ -25,9 +25,14 @@ public class AiProperties {
     private Duration feedVariantDeadline = Duration.ofSeconds(12);
     private Duration feedBuildCooldown = Duration.ofSeconds(10);
     private int feedBuildRateLimit = 20;
+    private int feedBuildReservePercent = 50;
+    private int feedBuildPerUserHourly = 6;
+    private Duration feedBuildRejectCooldown = Duration.ofSeconds(2);
     private int feedBuildConcurrency = 2;
     private int feedVariantMaxItems = 120;
     private int feedLlmMaxConcurrent = 4;
+    private int feedLlmGlobalConcurrency = 0;
+    private Duration feedLlmLeaseTtl = Duration.ofSeconds(60);
     private Duration feedLlmAcquireTimeout = Duration.ofSeconds(2);
     private Duration feedLlmCooldown = Duration.ofSeconds(30);
     private int feedBatchSize = 5;
@@ -153,6 +158,30 @@ public class AiProperties {
         this.feedBuildRateLimit = feedBuildRateLimit;
     }
 
+    public int getFeedBuildReservePercent() {
+        return feedBuildReservePercent;
+    }
+
+    public void setFeedBuildReservePercent(int feedBuildReservePercent) {
+        this.feedBuildReservePercent = feedBuildReservePercent;
+    }
+
+    public int getFeedBuildPerUserHourly() {
+        return feedBuildPerUserHourly;
+    }
+
+    public void setFeedBuildPerUserHourly(int feedBuildPerUserHourly) {
+        this.feedBuildPerUserHourly = feedBuildPerUserHourly;
+    }
+
+    public Duration getFeedBuildRejectCooldown() {
+        return feedBuildRejectCooldown;
+    }
+
+    public void setFeedBuildRejectCooldown(Duration feedBuildRejectCooldown) {
+        this.feedBuildRejectCooldown = feedBuildRejectCooldown;
+    }
+
     public int getFeedVariantMaxItems() {
         return feedVariantMaxItems;
     }
@@ -175,6 +204,22 @@ public class AiProperties {
 
     public void setFeedLlmAcquireTimeout(Duration feedLlmAcquireTimeout) {
         this.feedLlmAcquireTimeout = feedLlmAcquireTimeout;
+    }
+
+    public int getFeedLlmGlobalConcurrency() {
+        return feedLlmGlobalConcurrency;
+    }
+
+    public void setFeedLlmGlobalConcurrency(int feedLlmGlobalConcurrency) {
+        this.feedLlmGlobalConcurrency = feedLlmGlobalConcurrency;
+    }
+
+    public Duration getFeedLlmLeaseTtl() {
+        return feedLlmLeaseTtl;
+    }
+
+    public void setFeedLlmLeaseTtl(Duration feedLlmLeaseTtl) {
+        this.feedLlmLeaseTtl = feedLlmLeaseTtl;
     }
 
     public Duration getFeedLlmCooldown() {
