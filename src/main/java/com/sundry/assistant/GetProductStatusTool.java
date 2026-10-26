@@ -51,7 +51,7 @@ public class GetProductStatusTool implements AssistantTool {
     }
 
     @Override
-    public AssistantToolResult execute(Long userId, JsonNode args) {
+    public AssistantToolResult execute(AssistantToolContext context, JsonNode args) {
         JsonNode node = args.get("productId");
         if (node == null || !node.canConvertToLong() || node.asLong() <= 0) {
             throw new AssistantToolException("INVALID_ARGS", "请提供有效的商品 id。");

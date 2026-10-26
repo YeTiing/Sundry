@@ -168,7 +168,8 @@ public class AssistantService {
             return clarify(REJECT_ARGS, traceId);
         }
         try {
-            AssistantToolResult result = tool.execute(user.id(), arguments);
+            AssistantToolResult result = tool.execute(
+                    new AssistantToolContext(user.id(), user.role()), arguments);
             audit(user, request, safeMessage, "LLM", "tool", call.name(),
                     call.arguments(), null, "OK", null, start, traceId);
             return new AssistantReply("tool", result.reply(), null, null, Map.of(), traceId);

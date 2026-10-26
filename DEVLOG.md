@@ -2223,6 +2223,29 @@ sundry_seckill_compensation_total = 0
 
 - 待提交：`feat: A5 S3 管理端经营分析页`
 
+## 2026-10-26 · A4 L3：query_sales 接入助手
+
+**做了什么**
+
+- 工具执行上下文改为 `AssistantToolContext(userId, role)`，工具不再只拿到 userId
+- 新增 `query_sales` 工具
+  - 仅 ADMIN / SUPER_ADMIN 可见
+  - 参数 `question` 1~200 字
+  - 执行时复用 `Nl2sqlService` 全链路（计划、校验、只读 SQL、审计）
+  - 回复模板化：一句话结论 + 最多 5 行明细
+- `Nl2sqlService.query` 增加角色兜底校验，助手路径绕过 Controller 也不会越权
+- 经营分析未开放、计划被拒、限流、服务不可用都映射成助手可读文案
+
+**验证**
+
+- Java：261 个用例全部通过（新增管理员经营分析、普通用户越权 2 个用例）
+- Python：26 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: A4 L3 query_sales 接入助手`
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。

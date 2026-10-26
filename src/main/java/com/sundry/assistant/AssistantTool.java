@@ -19,5 +19,5 @@ public interface AssistantTool {
 
     Map<String, Object> parameters();
 
-    AssistantToolResult execute(Long userId, JsonNode args);
+    AssistantToolResult execute(AssistantToolContext context, JsonNode args);
 }

@@ -68,9 +68,9 @@ public class ListMyOrdersTool implements AssistantTool {
     }
 
     @Override
-    public AssistantToolResult execute(Long userId, JsonNode args) {
+    public AssistantToolResult execute(AssistantToolContext context, JsonNode args) {
         OrderStatus status = parseStatus(args.get("status"));
-        PageResponse<OrderView> page = orderService.userPage(userId, 1, SCAN_SIZE);
+        PageResponse<OrderView> page = orderService.userPage(context.userId(), 1, SCAN_SIZE);
         List<OrderView> orders = page.items().stream()
                 .filter(order -> status == null || order.status() == status)
                 .limit(SHOW_SIZE)

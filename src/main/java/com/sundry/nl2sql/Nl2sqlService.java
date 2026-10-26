@@ -11,6 +11,7 @@ import com.sundry.nl2sql.dto.Nl2sqlPlanRequest;
 import com.sundry.nl2sql.dto.Nl2sqlPlanResponse;
 import com.sundry.nl2sql.dto.Nl2sqlQueryRequest;
 import com.sundry.nl2sql.dto.Nl2sqlQueryView;
+import com.sundry.user.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -83,6 +84,9 @@ public class Nl2sqlService {
     }
 
     public Nl2sqlQueryView query(AuthenticatedUser user, Nl2sqlQueryRequest request) {
+        if (user.role() != Role.ADMIN && user.role() != Role.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
         if (!properties.isEnabled()) {
             throw new BusinessException(ErrorCode.NL2SQL_DISABLED);
         }
