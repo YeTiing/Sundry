@@ -25,6 +25,21 @@ public interface OrderMapper {
 
     long countByUser(@Param("userId") Long userId);
 
+    List<Order> findPageByUserFiltered(@Param("userId") Long userId,
+                                       @Param("status") OrderStatus status,
+                                       @Param("start") LocalDateTime start,
+                                       @Param("end") LocalDateTime end,
+                                       @Param("keyword") String keyword,
+                                       @Param("sort") String sort,
+                                       @Param("offset") long offset,
+                                       @Param("size") int size);
+
+    long countByUserFiltered(@Param("userId") Long userId,
+                             @Param("status") OrderStatus status,
+                             @Param("start") LocalDateTime start,
+                             @Param("end") LocalDateTime end,
+                             @Param("keyword") String keyword);
+
     List<Order> findPageAdmin(@Param("status") OrderStatus status,
                               @Param("offset") long offset,
                               @Param("size") int size);

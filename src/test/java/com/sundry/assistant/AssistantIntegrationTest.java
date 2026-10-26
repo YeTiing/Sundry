@@ -18,7 +18,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,6 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AssistantIntegrationTest {
 
     private static final String USER_PHONE = "13800138005";
+    private static final String OTHER_PHONE = "13800138011";
     private static final String ADMIN_PHONE = "13900000000";
     private static final String PASSWORD = "secret123";
 
@@ -305,6 +309,86 @@ class AssistantIntegrationTest {
     }
 
     @Test
+    void orderToolFiltersByTimeKeywordAndUser() throws Exception {
+        Session user = register(USER_PHONE);
+        long old = orderAt(user.id(), "OLD-ORDER-001", "COMPLETED", "300.00",
+                LocalDateTime.now().minusDays(400));
+        orderItem(old, "蓝牙耳机 Pro", 1, "300.00");
+        long recent = orderAt(user.id(), "REC-ORDER-001", "SHIPPED", "50.00",
+                LocalDateTime.now().minusDays(1));
+        orderItem(recent, "耳机保护套", 1, "50.00");
+        long mouse = orderAt(user.id(), "REC-ORDER-002", "PAID", "500.00",
+                LocalDateTime.now().minusDays(2));
+        orderItem(mouse, "无线鼠标", 2, "250.00");
+
+        Session other = register(OTHER_PHONE);
+        long foreign = orderAt(other.id(), "OTHER-ORDER-001", "PAID", "999.00",
+                LocalDateTime.now().minusDays(1));
+        orderItem(foreign, "别人的耳机", 1, "999.00");
+
+        String reply = replyOf(callOrderTool(user,
+                "{\"timeRange\":\"LAST_30D\",\"keyword\":\"耳机\","
+                        + "\"sort\":\"AMOUNT_DESC\",\"limit\":5}"));
+
+        assertThat(reply).contains("耳机保护套").contains("已发货");
+        assertThat(reply)
+                .doesNotContain("蓝牙耳机 Pro")
+                .doesNotContain("无线鼠标")
+                .doesNotContain("别人的耳机")
+                .doesNotContain("OLD-ORDER-001")
+                .doesNotContain("REC-ORDER-001")
+                .doesNotContain("OTHER-ORDER-001");
+
+        String noMatch = replyOf(callOrderTool(user,
+                "{\"keyword\":\"REC-ORDER-002\"}"));
+        assertThat(noMatch).contains("没有找到符合条件的订单").contains("REC-ORDER-002");
+    }
+
+    @Test
+    void orderToolSortsAndReportsTotalWhenLimited() throws Exception {
+        Session user = register(USER_PHONE);
+        long headphone = orderAt(user.id(), "SORT-ORDER-001", "PAID", "50.00",
+                LocalDateTime.now().minusDays(1));
+        orderItem(headphone, "耳机保护套", 1, "50.00");
+        long mouse = orderAt(user.id(), "SORT-ORDER-002", "PAID", "500.00",
+                LocalDateTime.now().minusDays(2));
+        orderItem(mouse, "无线鼠标", 1, "500.00");
+        long cable = orderAt(user.id(), "SORT-ORDER-003", "PAID", "100.00",
+                LocalDateTime.now().minusDays(3));
+        orderItem(cable, "数据线", 1, "100.00");
+
+        String reply = replyOf(callOrderTool(user,
+                "{\"timeRange\":\"LAST_30D\",\"sort\":\"AMOUNT_DESC\",\"limit\":2}"));
+
+        assertThat(reply.indexOf("无线鼠标")).isLessThan(reply.indexOf("数据线"));
+        assertThat(reply).doesNotContain("耳机保护套");
+        assertThat(reply).contains("……共 3 单");
+    }
+
+    @Test
+    void orderToolRejectsInvalidFilters() throws Exception {
+        Session user = register(USER_PHONE);
+
+        String badSort = replyOf(callOrderTool(user, "{\"sort\":\"PRICE_ASC\"}"));
+        assertThat(badSort).contains("不支持这个排序方式");
+
+        String badLimit = replyOf(callOrderTool(user, "{\"limit\":0}"));
+        assertThat(badLimit).contains("展示条数需要在 1~10 之间");
+
+        String longKeyword = "耳".repeat(21);
+        String badKeyword = replyOf(callOrderTool(user,
+                "{\"keyword\":\"" + longKeyword + "\"}"));
+        assertThat(badKeyword).contains("商品关键词不能超过 20 个字");
+
+        String badTime = replyOf(callOrderTool(user, "{\"timeRange\":\"LAST_3Y\"}"));
+        assertThat(badTime).contains("不支持这个时间范围");
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT reject_reason FROM ai_chat_log WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+                String.class, user.id())).isEqualTo("INVALID_ARGS");
+    }
+
+    @Test
     void productStatusToolIsAdminOnly() throws Exception {
         Session user = register(USER_PHONE);
         Session admin = register(ADMIN_PHONE);
@@ -428,10 +512,16 @@ class AssistantIntegrationTest {
     }
 
     private long order(Long userId, String orderNo, String status) {
+        return orderAt(userId, orderNo, status, "123.45", LocalDateTime.now());
+    }
+
+    private long orderAt(Long userId, String orderNo, String status,
+                         String amount, LocalDateTime createdAt) {
         jdbcTemplate.update("""
                 INSERT INTO orders (order_no, user_id, status, total_amount, has_physical, created_at)
-                VALUES (?, ?, ?, 123.45, 1, NOW(3))
-                """, orderNo, userId, status);
+                VALUES (?, ?, ?, ?, 1, ?)
+                """, orderNo, userId, status, new BigDecimal(amount),
+                Timestamp.valueOf(createdAt));
         return jdbcTemplate.queryForObject(
                 "SELECT id FROM orders WHERE order_no = ?", Long.class, orderNo);
     }
@@ -441,7 +531,24 @@ class AssistantIntegrationTest {
                 INSERT INTO order_item
                     (order_id, product_id, product_name, product_type, price, quantity)
                 VALUES (?, 1, ?, 'PHYSICAL', ?, ?)
-                """, orderId, name, new java.math.BigDecimal(price), quantity);
+                """, orderId, name, new BigDecimal(price), quantity);
+    }
+
+    private MvcResult callOrderTool(Session user, String args) throws Exception {
+        when(assistantClient.chat(any(), anyString())).thenReturn(new AssistantLlmResponse(
+                List.of(new AssistantLlmResponse.ToolCall("c1", "list_my_orders", args)),
+                "", "deepseek", "assistant_v1"));
+        return mockMvc.perform(post("/api/assistant/chat")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"我都买过什么\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+    }
+
+    private String replyOf(MvcResult result) throws Exception {
+        return JsonPath.read(
+                result.getResponse().getContentAsString(StandardCharsets.UTF_8), "$.reply");
     }
 
     private long product(String status) {

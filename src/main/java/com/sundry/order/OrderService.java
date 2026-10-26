@@ -589,6 +589,18 @@ public class OrderService {
         return new PageResponse<>(items, orderMapper.countByUser(userId), page, size);
     }
 
+    public PageResponse<OrderView> userPage(Long userId, OrderQueryFilters filters,
+                                            int page, int size) {
+        long offset = (long) (page - 1) * size;
+        String sort = (filters.sort() == null ? OrderSort.NEWEST : filters.sort()).name();
+        List<OrderView> items = orderMapper.findPageByUserFiltered(userId, filters.status(),
+                        filters.start(), filters.end(), filters.keyword(), sort, offset, size)
+                .stream().map(this::toView).toList();
+        long total = orderMapper.countByUserFiltered(userId, filters.status(),
+                filters.start(), filters.end(), filters.keyword());
+        return new PageResponse<>(items, total, page, size);
+    }
+
     public OrderView userDetail(Long userId, String orderNo) {
         return toView(requireUserOrder(userId, orderNo));
     }

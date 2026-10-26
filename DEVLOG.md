@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 335 个 Java 用例 + 29 个 Python 用例 |
+| 测试 | 338 个 Java 用例 + 29 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2365,6 +2365,30 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`fix: 助手订单工具展示商品明细`
+
+## 2026-10-26 · 助手订单工具参数化
+
+**做了什么**
+
+- `list_my_orders` 新增参数：
+  - `timeRange`：LAST_7D / LAST_30D / LAST_90D / THIS_MONTH / LAST_MONTH / LAST_YEAR，按 `created_at` 左闭右开，Java 换算
+  - `keyword`：1~20 字，匹配下单时商品名快照，SQL 用 `LOCATE` 参数化
+  - `sort`：NEWEST（默认）/ OLDEST / AMOUNT_DESC / AMOUNT_ASC，白名单
+  - `limit`：1~10，默认 5
+- `OrderMapper` 增加带条件的用户订单分页与计数；`<choose>` 排序，全部 `#{}` 参数，无 `${}`
+- `OrderService` 增加带 `OrderQueryFilters` 的 `userPage` 重载，原接口保留
+- 回复标题带筛选条件；超过 limit 时补「……共 N 单」；仍不显示订单号
+- 非法枚举、超长 keyword、limit 越界统一 `INVALID_ARGS`
+
+**验证**
+
+- Java：338 个用例全部通过（新增：时间/关键词/排序/用户隔离、limit 与总数、非法参数）
+- Python：29 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: 助手订单工具支持时间、关键词、排序与条数`
 
 ## 待办 / 下一步
 

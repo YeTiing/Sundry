@@ -182,7 +182,7 @@ public interface AssistantTool {
 | name | 角色 | 参数 | 副作用 |
 |---|---|---|---|
 | `navigate` | 全部 | `route`(enum)、`query`(受控 map) | 无 |
-| `list_my_orders` | 全部 | `status`(enum，可选) | 读，本人数据 |
+| `list_my_orders` | 全部 | `status`(enum)、`timeRange`(preset)、`keyword`(≤20 字)、`sort`(白名单)、`limit`(1~10)，均可选 | 读，本人数据；时间在 Java 换算，SQL 全参数化 |
 | `get_product_status` | ADMIN+ | `productId`(long) | 读 |
 | `query_sales` | ADMIN+ | `question`(≤200 字) | 读，走 A5 |
 

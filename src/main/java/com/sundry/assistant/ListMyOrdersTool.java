@@ -1,7 +1,9 @@
 package com.sundry.assistant;
 
 import com.sundry.common.api.PageResponse;
+import com.sundry.order.OrderQueryFilters;
 import com.sundry.order.OrderService;
+import com.sundry.order.OrderSort;
 import com.sundry.order.OrderStatus;
 import com.sundry.order.dto.OrderItemView;
 import com.sundry.order.dto.OrderView;
@@ -10,19 +12,25 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * 只查当前登录用户的订单；userId 来自 JWT，模型无法指定别人。
+ * 时间、排序、条数都在 Java 校验和换算，SQL 只做参数绑定。
  */
 @Component
 public class ListMyOrdersTool implements AssistantTool {
 
-    private static final int SCAN_SIZE = 20;
-    private static final int SHOW_SIZE = 5;
+    private static final int DEFAULT_LIMIT = 5;
+    private static final int MAX_LIMIT = 10;
+    private static final int MAX_KEYWORD_LENGTH = 20;
     private static final int MAX_ITEM_NAMES = 3;
     private static final int MAX_ITEM_NAME_LENGTH = 30;
 
@@ -52,7 +60,8 @@ public class ListMyOrdersTool implements AssistantTool {
 
     @Override
     public String description() {
-        return "查询当前登录用户自己的订单。用户问『我买了什么』『我的订单』『物流』时使用。";
+        return "查询当前登录用户自己的订单和商品明细。可以按状态、时间范围、商品关键词筛选，"
+                + "按时间或金额排序。用户问『我买过什么』『我的订单』『物流』时使用。";
     }
 
     @Override
@@ -63,31 +72,55 @@ public class ListMyOrdersTool implements AssistantTool {
     @Override
     public Map<String, Object> parameters() {
         List<String> statuses = Arrays.stream(OrderStatus.values()).map(Enum::name).toList();
+        List<String> presets = Arrays.stream(TimePreset.values()).map(Enum::name).toList();
+        List<String> sorts = Arrays.stream(OrderSort.values()).map(Enum::name).toList();
+
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("status", Map.of("type", "string", "enum", statuses));
+        properties.put("timeRange", Map.of(
+                "type", "string", "enum", presets,
+                "description", "按订单创建时间筛选；无法确定时不要传"));
+        properties.put("keyword", Map.of(
+                "type", "string", "minLength", 1, "maxLength", MAX_KEYWORD_LENGTH,
+                "description", "商品名称关键词，例如耳机、鼠标"));
+        properties.put("sort", Map.of("type", "string", "enum", sorts));
+        properties.put("limit", Map.of(
+                "type", "integer", "minimum", 1, "maximum", MAX_LIMIT));
         return Map.of(
                 "type", "object",
-                "properties", Map.of(
-                        "status", Map.of("type", "string", "enum", statuses)),
+                "properties", properties,
                 "additionalProperties", false);
     }
 
     @Override
     public AssistantToolResult execute(AssistantToolContext context, JsonNode args) {
         OrderStatus status = parseStatus(args.get("status"));
-        PageResponse<OrderView> page = orderService.userPage(context.userId(), 1, SCAN_SIZE);
-        List<OrderView> orders = page.items().stream()
-                .filter(order -> status == null || order.status() == status)
-                .limit(SHOW_SIZE)
-                .toList();
+        TimePreset preset = parseTimePreset(args.get("timeRange"));
+        String keyword = parseKeyword(args.get("keyword"));
+        OrderSort sort = parseSort(args.get("sort"));
+        int limit = parseLimit(args.get("limit"));
+
+        TimeRange range = preset == null ? null : preset.resolve(LocalDate.now());
+        PageResponse<OrderView> page = orderService.userPage(context.userId(),
+                new OrderQueryFilters(status,
+                        range == null ? null : range.start(),
+                        range == null ? null : range.end(),
+                        keyword, sort),
+                1, limit);
+        List<OrderView> orders = page.items();
+        String criteria = describe(status, preset, keyword);
 
         if (orders.isEmpty()) {
-            return new AssistantToolResult(status == null
+            return new AssistantToolResult(criteria.isEmpty()
                     ? "你还没有订单。"
-                    : "最近 " + SCAN_SIZE + " 个订单里没有「" + label(status) + "」的订单。");
+                    : "没有找到符合条件的订单（" + criteria + "）。");
         }
 
-        StringBuilder reply = new StringBuilder(status == null
-                ? "你最近买过：\n"
-                : "你最近买过（" + label(status) + "）：\n");
+        StringBuilder reply = new StringBuilder("你最近买过");
+        if (!criteria.isEmpty()) {
+            reply.append("（").append(criteria).append("）");
+        }
+        reply.append("：\n");
         for (OrderView order : orders) {
             reply.append("- ").append(summary(order))
                     .append("｜").append(label(order.status()))
@@ -96,6 +129,9 @@ public class ListMyOrdersTool implements AssistantTool {
                 reply.append("｜").append(order.createdAt().toLocalDate());
             }
             reply.append('\n');
+        }
+        if (page.total() > orders.size()) {
+            reply.append("……共 ").append(page.total()).append(" 单");
         }
         return new AssistantToolResult(reply.toString().trim());
     }
@@ -131,18 +167,98 @@ public class ListMyOrdersTool implements AssistantTool {
         return item.quantity() > 1 ? name + " ×" + item.quantity() : name;
     }
 
+    private String describe(OrderStatus status, TimePreset preset, String keyword) {
+        List<String> parts = new ArrayList<>();
+        if (preset != null) {
+            parts.add(preset.label());
+        }
+        if (status != null) {
+            parts.add(label(status));
+        }
+        if (keyword != null) {
+            parts.add("含「" + keyword + "」");
+        }
+        return String.join("，", parts);
+    }
+
     private OrderStatus parseStatus(JsonNode node) {
+        String text = parseEnumText(node, "订单状态");
+        if (text == null) {
+            return null;
+        }
+        try {
+            return OrderStatus.valueOf(text);
+        } catch (IllegalArgumentException ex) {
+            throw new AssistantToolException("INVALID_ARGS", "不支持这个订单状态。");
+        }
+    }
+
+    private TimePreset parseTimePreset(JsonNode node) {
+        String text = parseEnumText(node, "时间范围");
+        if (text == null) {
+            return null;
+        }
+        try {
+            return TimePreset.valueOf(text.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new AssistantToolException("INVALID_ARGS", "不支持这个时间范围。");
+        }
+    }
+
+    private OrderSort parseSort(JsonNode node) {
+        String text = parseEnumText(node, "排序方式");
+        if (text == null) {
+            return OrderSort.NEWEST;
+        }
+        try {
+            return OrderSort.valueOf(text.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new AssistantToolException("INVALID_ARGS", "不支持这个排序方式。");
+        }
+    }
+
+    private String parseKeyword(JsonNode node) {
         if (node == null || node.isNull()) {
             return null;
         }
         if (!node.isTextual()) {
-            throw new AssistantToolException("INVALID_ARGS", "订单状态格式不对。");
+            throw new AssistantToolException("INVALID_ARGS", "商品关键词格式不对。");
         }
-        try {
-            return OrderStatus.valueOf(node.asText());
-        } catch (IllegalArgumentException ex) {
-            throw new AssistantToolException("INVALID_ARGS", "不支持这个订单状态。");
+        String keyword = node.asText().trim();
+        if (keyword.isEmpty()) {
+            return null;
         }
+        if (keyword.length() > MAX_KEYWORD_LENGTH) {
+            throw new AssistantToolException("INVALID_ARGS",
+                    "商品关键词不能超过 " + MAX_KEYWORD_LENGTH + " 个字。");
+        }
+        return keyword;
+    }
+
+    private int parseLimit(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return DEFAULT_LIMIT;
+        }
+        if (!node.isIntegralNumber() || !node.canConvertToInt()) {
+            throw new AssistantToolException("INVALID_ARGS", "展示条数必须是整数。");
+        }
+        int limit = node.asInt();
+        if (limit < 1 || limit > MAX_LIMIT) {
+            throw new AssistantToolException("INVALID_ARGS",
+                    "展示条数需要在 1~" + MAX_LIMIT + " 之间。");
+        }
+        return limit;
+    }
+
+    private String parseEnumText(JsonNode node, String name) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (!node.isTextual()) {
+            throw new AssistantToolException("INVALID_ARGS", name + "格式不对。");
+        }
+        String value = node.asText().trim();
+        return value.isEmpty() ? null : value;
     }
 
     private String label(OrderStatus status) {
@@ -151,5 +267,46 @@ public class ListMyOrdersTool implements AssistantTool {
 
     private String plain(BigDecimal amount) {
         return amount == null ? "0" : amount.stripTrailingZeros().toPlainString();
+    }
+
+    private record TimeRange(LocalDateTime start, LocalDateTime end) {
+    }
+
+    private enum TimePreset {
+        LAST_7D("近 7 天"),
+        LAST_30D("近 30 天"),
+        LAST_90D("近 90 天"),
+        THIS_MONTH("本月"),
+        LAST_MONTH("上月"),
+        LAST_YEAR("去年");
+
+        private final String label;
+
+        TimePreset(String label) {
+            this.label = label;
+        }
+
+        String label() {
+            return label;
+        }
+
+        TimeRange resolve(LocalDate today) {
+            LocalDate firstOfMonth = today.withDayOfMonth(1);
+            return switch (this) {
+                case LAST_7D -> new TimeRange(today.minusDays(6).atStartOfDay(),
+                        today.plusDays(1).atStartOfDay());
+                case LAST_30D -> new TimeRange(today.minusDays(29).atStartOfDay(),
+                        today.plusDays(1).atStartOfDay());
+                case LAST_90D -> new TimeRange(today.minusDays(89).atStartOfDay(),
+                        today.plusDays(1).atStartOfDay());
+                case THIS_MONTH -> new TimeRange(firstOfMonth.atStartOfDay(),
+                        today.plusDays(1).atStartOfDay());
+                case LAST_MONTH -> new TimeRange(firstOfMonth.minusMonths(1).atStartOfDay(),
+                        firstOfMonth.atStartOfDay());
+                case LAST_YEAR -> new TimeRange(
+                        LocalDate.of(today.getYear() - 1, 1, 1).atStartOfDay(),
+                        LocalDate.of(today.getYear(), 1, 1).atStartOfDay());
+            };
+        }
     }
 }

@@ -50,6 +50,46 @@
         SELECT COUNT(*) FROM orders WHERE user_id = #{userId}
     </select>
 
+    <sql id="userOrderConditions">
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+        <if test="start != null">
+            AND created_at &gt;= #{start}
+        </if>
+        <if test="end != null">
+            AND created_at &lt; #{end}
+        </if>
+        <if test="keyword != null">
+            AND EXISTS (
+                SELECT 1 FROM order_item oi
+                WHERE oi.order_id = orders.id
+                  AND LOCATE(#{keyword}, oi.product_name) &gt; 0
+            )
+        </if>
+    </sql>
+
+    <select id="findPageByUserFiltered" resultType="com.sundry.order.Order">
+        SELECT <include refid="orderColumns"/>
+        FROM orders
+        WHERE user_id = #{userId}
+        <include refid="userOrderConditions"/>
+        <choose>
+            <when test="sort == 'OLDEST'">ORDER BY created_at ASC, id ASC</when>
+            <when test="sort == 'AMOUNT_DESC'">ORDER BY total_amount DESC, id DESC</when>
+            <when test="sort == 'AMOUNT_ASC'">ORDER BY total_amount ASC, id ASC</when>
+            <otherwise>ORDER BY created_at DESC, id DESC</otherwise>
+        </choose>
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countByUserFiltered" resultType="long">
+        SELECT COUNT(*)
+        FROM orders
+        WHERE user_id = #{userId}
+        <include refid="userOrderConditions"/>
+    </select>
+
     <select id="findPageAdmin" resultType="com.sundry.order.Order">
         SELECT <include refid="orderColumns"/>
         FROM orders
