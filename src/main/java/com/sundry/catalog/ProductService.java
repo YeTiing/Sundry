@@ -17,6 +17,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.util.Collection;
@@ -110,6 +111,16 @@ public class ProductService {
             Product product = productMapper.findPublicById(id);
             return product == null ? null : toView(product);
         });
+    }
+
+    /**
+     * 在售商品筛选：关键词匹配名称/描述/标签，分类按名称包含，价格闭区间。
+     */
+    public List<ProductView> recommend(String keyword, String category,
+                                       BigDecimal minPrice, BigDecimal maxPrice, int limit) {
+        return productMapper.findRecommended(keyword, category, minPrice, maxPrice,
+                        Math.max(1, limit))
+                .stream().map(this::toView).toList();
     }
 
     public ProductView findPublic(Long id) {

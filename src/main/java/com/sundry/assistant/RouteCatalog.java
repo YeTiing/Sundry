@@ -30,6 +30,8 @@ public class RouteCatalog {
      */
     private static final List<String> DATA_MARKERS = List.of(
             "买过", "买了", "最贵", "最便宜", "多少", "几单", "几次",
+            "有没有", "想买", "求推荐", "推荐个", "推荐一下", "推荐几",
+            "推荐商品", "筛选", "有什么",
             "统计", "排序", "合计", "一共", "总额",
             "销售额", "订单量", "客单价", "退款率", "退款金额", "秒杀单", "GMV", "gmv",
             "去年", "今年", "上个月", "本月", "上周", "本周",
@@ -86,6 +88,10 @@ public class RouteCatalog {
 
     private boolean dataIntent(String text) {
         boolean data = DATA_MARKERS.stream().anyMatch(text::contains);
+        // “首页推荐”是导航，“鼠标推荐”是找商品；只有裸“推荐”仍按导航处理
+        if (text.contains("推荐") && !"推荐".equals(text) && !"首页推荐".equals(text)) {
+            data = true;
+        }
         boolean navigate = NAVIGATION_MARKERS.stream().anyMatch(text::contains);
         return data && !navigate;
     }

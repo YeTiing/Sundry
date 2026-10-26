@@ -132,6 +132,32 @@
         LIMIT #{offset}, #{size}
     </select>
 
+    <select id="findRecommended" resultType="com.sundry.catalog.Product">
+        SELECT <include refid="productColumns"/>
+        <include refid="productFrom"/>
+        WHERE p.status = 'ON_SALE'
+          AND p.deleted_at IS NULL
+          AND (p.type = 'DIGITAL' OR p.stock &gt; 0)
+        <if test="keyword != null">
+            AND (
+                LOCATE(#{keyword}, p.name) &gt; 0
+                OR LOCATE(#{keyword}, p.description) &gt; 0
+                OR LOCATE(#{keyword}, COALESCE(p.tags, '')) &gt; 0
+            )
+        </if>
+        <if test="category != null">
+            AND LOCATE(#{category}, c.name) &gt; 0
+        </if>
+        <if test="minPrice != null">
+            AND p.price &gt;= #{minPrice}
+        </if>
+        <if test="maxPrice != null">
+            AND p.price &lt;= #{maxPrice}
+        </if>
+        ORDER BY p.id DESC
+        LIMIT #{limit}
+    </select>
+
     <select id="findPublicIds" resultType="long">
         SELECT p.id
         FROM product p

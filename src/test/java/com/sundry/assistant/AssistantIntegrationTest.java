@@ -448,6 +448,37 @@ class AssistantIntegrationTest {
     }
 
     @Test
+    void productRecommendationSearchesOnSaleProducts() throws Exception {
+        Session user = register(USER_PHONE);
+        product("无线鼠标 模拟款", "ON_SALE", "49.90");
+        product("无线鼠标 高端", "OFF_SHELF", "199.00");
+        product("机械键盘", "ON_SALE", "299.00");
+        product("鼠标垫", "ON_SALE", "19.90");
+
+        MvcResult result = callTool(user, "recommend_products",
+                "{\"keyword\":\"鼠标\",\"limit\":3}");
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(JsonPath.<String>read(body, "$.data.type")).isEqualTo("products");
+        List<String> names = JsonPath.read(body, "$.data.products[*].name");
+        assertThat(names)
+                .contains("无线鼠标 模拟款", "鼠标垫")
+                .doesNotContain("无线鼠标 高端", "机械键盘");
+        assertThat(JsonPath.<String>read(body, "$.data.products[0].category"))
+                .isEqualTo("实物");
+
+        String cheap = replyOf(callTool(user, "recommend_products",
+                "{\"keyword\":\"鼠标\",\"maxPrice\":20}"));
+        assertThat(cheap).contains("鼠标垫").doesNotContain("无线鼠标 模拟款");
+
+        String fallback = replyOf(callTool(user, "recommend_products", "{}"));
+        assertThat(fallback).doesNotContain("没有找到");
+
+        String invalid = replyOf(callTool(user, "recommend_products",
+                "{\"minPrice\":100,\"maxPrice\":10}"));
+        assertThat(invalid).contains("最低价不能高于最高价");
+    }
+
+    @Test
     void productStatusToolIsAdminOnly() throws Exception {
         Session user = register(USER_PHONE);
         Session admin = register(ADMIN_PHONE);
@@ -632,16 +663,20 @@ class AssistantIntegrationTest {
     }
 
     private long product(String status) {
+        return product("助手测试商品", status, "19.90");
+    }
+
+    private long product(String name, String status, String price) {
         long categoryId = jdbcTemplate.queryForObject(
                 "SELECT id FROM category WHERE name = '实物'", Long.class);
         jdbcTemplate.update("""
                 INSERT INTO product
                     (category_id, name, description, type, price, stock, status,
                      created_at, updated_at)
-                VALUES (?, '助手测试商品', '测试', 'PHYSICAL', 19.90, 10, ?, NOW(3), NOW(3))
-                """, categoryId, status);
+                VALUES (?, ?, '测试', 'PHYSICAL', ?, 10, ?, NOW(3), NOW(3))
+                """, categoryId, name, new BigDecimal(price), status);
         return jdbcTemplate.queryForObject(
-                "SELECT id FROM product WHERE name = '助手测试商品'", Long.class);
+                "SELECT id FROM product WHERE name = ?", Long.class, name);
     }
 
     private String bearer(String token) {

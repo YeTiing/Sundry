@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 356 个 Java 用例 + 29 个 Python 用例 |
+| 测试 | 357 个 Java 用例 + 29 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2506,6 +2506,31 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: 助手回复支持加粗与结构化卡片`
+
+## 2026-10-26 · 助手商品推荐与筛选
+
+**做了什么**
+
+- 新增 `recommend_products` 工具（全部角色）
+  - 参数：`keyword`、`category`、`minPrice`、`maxPrice`、`limit`(1~5)
+  - 有筛选：商品表 `LOCATE` 匹配名称/描述/标签 + 分类名 + 价格闭区间
+  - 无筛选：用 `FeedService.rankIds` 的首页推荐排序，空结果回退最新在售商品
+  - 只返回 `ON_SALE`、未删除、有库存的商品（数字商品不受库存限制）
+- 返回结构化 `data.type=products`；前端商品卡片：封面、名称、价格、分类，点击进入商品详情
+- 规则快路径修复：
+  - 「有没有鼠标推荐」「鼠标推荐」「想买 XX」不再跳首页推荐
+  - 裸「推荐」「首页推荐」仍按导航处理
+- `assistant_v1` prompt 增加推荐工具触发规则
+
+**验证**
+
+- Java：357 个用例全部通过（新增商品搜索/价格筛选/无筛选回退/非法价格）
+- Python：29 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: 助手商品推荐与筛选`
 
 ## 待办 / 下一步
 

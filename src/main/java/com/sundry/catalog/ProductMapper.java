@@ -3,6 +3,7 @@ package com.sundry.catalog;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -67,6 +68,12 @@ public interface ProductMapper {
     long countByDigitalFileId(@Param("fileId") Long fileId);
 
     long countByFileId(@Param("fileId") Long fileId);
+
+    List<Product> findRecommended(@Param("keyword") String keyword,
+                                  @Param("category") String category,
+                                  @Param("minPrice") BigDecimal minPrice,
+                                  @Param("maxPrice") BigDecimal maxPrice,
+                                  @Param("limit") int limit);
 
     int deductStock(@Param("id") Long id, @Param("quantity") int quantity);
 

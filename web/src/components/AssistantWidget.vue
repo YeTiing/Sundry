@@ -77,6 +77,11 @@ function go(entry: ChatEntry): void {
   void router.push({ name: entry.route, query: entry.query ?? {} })
   open.value = false
 }
+
+function goProduct(id: number): void {
+  void router.push({ name: 'product', params: { id } })
+  open.value = false
+}
 </script>
 
 <template>
@@ -117,6 +122,30 @@ function go(entry: ChatEntry): void {
             </ul>
             <p v-else class="assistant-text">没有符合条件的订单。</p>
           </template>
+          <div v-else-if="entry.data?.type === 'products'" class="assistant-products">
+            <p class="assistant-sub">{{ entry.data?.criteria }}</p>
+            <ul v-if="entry.data?.products?.length" class="product-cards">
+              <li v-for="product in entry.data?.products ?? []" :key="product.id">
+                <button type="button" class="product-card" @click="goProduct(product.id)">
+                  <img
+                    v-if="product.coverUrl"
+                    :src="product.coverUrl"
+                    alt=""
+                    class="product-cover"
+                  />
+                  <span v-else class="product-cover product-cover-empty">S</span>
+                  <span class="product-info">
+                    <span class="product-name">{{ product.name }}</span>
+                    <span class="product-meta">
+                      <span>¥{{ product.price }}</span>
+                      <span>{{ product.category }}</span>
+                    </span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <p v-else class="assistant-text">没有找到符合条件的在售商品。</p>
+          </div>
           <div v-else-if="entry.data?.type === 'purchaseSummary'" class="assistant-summary">
             <p class="assistant-sub">{{ entry.data?.criteria }}</p>
             <div class="summary-grid">
@@ -343,6 +372,80 @@ function go(entry: ChatEntry): void {
 .summary-grid span {
   color: var(--muted);
   font-size: 11px;
+}
+
+.product-cards {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.product-card {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.product-card:hover,
+.product-card:focus-visible {
+  border-color: var(--stamp);
+  outline: none;
+}
+
+.product-cover {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  border: 1px solid var(--rule);
+  object-fit: cover;
+}
+
+.product-cover-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.product-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.product-name {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.product-meta {
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.product-meta > span:first-child {
+  color: var(--stamp);
+  font-weight: 600;
 }
 
 .assistant-link {

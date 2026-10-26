@@ -79,11 +79,21 @@ export interface AssistantOrderCard {
   date: string
 }
 
+export interface AssistantProductCard {
+  id: number
+  name: string
+  price: string
+  category: string
+  coverUrl: string | null
+  type: string
+}
+
 export interface AssistantData {
   type: string
   criteria?: string
   total?: number
   orders?: AssistantOrderCard[]
+  products?: AssistantProductCard[]
   orderCount?: number
   itemCount?: number
   totalAmount?: string

@@ -32,6 +32,10 @@ class RouteCatalogTest {
         assertThat(catalog.match("最近30天买过的耳机", Role.USER)).isNull();
         assertThat(catalog.match("订单量是多少", Role.ADMIN)).isNull();
         assertThat(catalog.match("最近30天销售额", Role.ADMIN)).isNull();
+        assertThat(catalog.match("有没有鼠标推荐", Role.USER)).isNull();
+        assertThat(catalog.match("鼠标推荐", Role.USER)).isNull();
+        // 首页推荐仍是导航
+        assertThat(catalog.match("首页推荐", Role.USER).name()).isEqualTo("feed");
         // 明确导航动词仍按导航处理
         assertThat(catalog.match("打开已发货的订单", Role.USER).name()).isEqualTo("orders");
     }

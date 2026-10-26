@@ -184,6 +184,7 @@ public interface AssistantTool {
 | `navigate` | 全部 | `route`(enum)、`query`(受控 map) | 无 |
 | `list_my_orders` | 全部 | `status`(enum)、`timeRange`(preset)、`keyword`(≤20 字)、`sort`(白名单)、`limit`(1~10)，均可选 | 读，本人数据；时间在 Java 换算，SQL 全参数化 |
 | `summarize_my_purchases` | 全部 | `status`(enum)、`timeRange`(preset)、`keyword`(≤20 字)，均可选 | 读，本人已支付订单；返回订单数/件数/累计支付，不返回明细 |
+| `recommend_products` | 全部 | `keyword`、`category`、`minPrice`、`maxPrice`、`limit`(1~5)，均可选 | 读，在售且有库存的商品；无筛选时用首页推荐排序 |
 | `get_product_status` | ADMIN+ | `productId`(long) | 读 |
 | `query_sales` | ADMIN+ | `question`(≤200 字) | 读，走 A5 |
 
