@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminFeedApi } from '@/api/adminFeed'
-import type { FeedMetrics } from '@/api/adminFeed'
+import type { FeedMetrics, FeedReplay } from '@/api/adminFeed'
 import { useAuthStore } from '@/stores/auth'
 
 const WINDOWS = [7, 14, 30]
@@ -12,6 +12,7 @@ const router = useRouter()
 
 const days = ref(7)
 const metrics = ref<FeedMetrics | null>(null)
+const replay = ref<FeedReplay | null>(null)
 const loading = ref(true)
 const error = ref('')
 
@@ -34,10 +35,16 @@ function fixed(value: number, digits = 4): string {
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
+  replay.value = null
   try {
     metrics.value = await adminFeedApi.metrics(days.value)
   } catch (err) {
     error.value = messageOf(err)
+  }
+  try {
+    replay.value = await adminFeedApi.replay(days.value, 10)
+  } catch {
+    replay.value = null
   } finally {
     loading.value = false
   }
@@ -180,6 +187,45 @@ onMounted(load)
                 </tr>
               </tbody>
             </table>
+
+            <template v-if="replay">
+              <h2 class="metric-section">离线回放（规则 vs AI）</h2>
+              <p class="panel-note">
+                同一候选集，K={{ replay.k }}；快照 {{ replay.snapshots }} 个，
+                有点击的样本 {{ replay.samples }} 个，点击覆盖
+                {{ pct(replay.candidateCoverage) }}。最后点击命中按每个变体的最后一次点击计算。
+              </p>
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>策略</th>
+                    <th>样本</th>
+                    <th>Recall@K 规则</th>
+                    <th>Recall@K AI</th>
+                    <th>NDCG@K 规则</th>
+                    <th>NDCG@K AI</th>
+                    <th>最后点击命中 规则 / AI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in replay.byStrategy" :key="row.strategy">
+                    <td>{{ row.strategy }}</td>
+                    <td>{{ number(row.samples) }}</td>
+                    <td>{{ fixed(row.rule.recallAtK) }}</td>
+                    <td>{{ fixed(row.ai.recallAtK) }}</td>
+                    <td>{{ fixed(row.rule.ndcgAtK) }}</td>
+                    <td>{{ fixed(row.ai.ndcgAtK) }}</td>
+                    <td>
+                      {{ fixed(row.rule.lastClickHitRate) }} /
+                      {{ fixed(row.ai.lastClickHitRate) }}
+                    </td>
+                  </tr>
+                  <tr v-if="replay.byStrategy.length === 0">
+                    <td colspan="7">暂无有点击的回放样本</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
           </template>
         </section>
       </main>

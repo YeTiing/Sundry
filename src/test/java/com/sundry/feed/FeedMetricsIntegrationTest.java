@@ -58,6 +58,7 @@ class FeedMetricsIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("DELETE FROM feed_event");
+        jdbcTemplate.update("DELETE FROM ai_feed_log");
         jdbcTemplate.update("DELETE FROM user_behavior");
         jdbcTemplate.update("DELETE FROM seckill_activity");
         jdbcTemplate.update("DELETE FROM order_refund");
@@ -167,6 +168,54 @@ class FeedMetricsIntegrationTest {
                 .andExpect(jsonPath("$.byStrategy[1].exposures").value(3))
                 .andExpect(jsonPath("$.byStrategy[1].clicks").value(1))
                 .andExpect(jsonPath("$.byStrategy[1].ctr").value(0.3333));
+    }
+
+    @Test
+    void replayComparesRuleAndAiOnSameCandidates() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        long p1 = product(catA, "回放商品1", "ON_SALE");
+        long p2 = product(catA, "回放商品2", "ON_SALE");
+        long p3 = product(catB, "回放商品3", "ON_SALE");
+        String buildId = "PREF:replay-1";
+        String snapshot = """
+                {
+                  "candidates": [
+                    {"id": %d, "ruleRank": 1},
+                    {"id": %d, "ruleRank": 2},
+                    {"id": %d, "ruleRank": 3}
+                  ],
+                  "variants": [
+                    {"strategy": "PREF", "buildId": "%s",
+                     "model": "deepseek", "items": [%d, %d, %d]}
+                  ]
+                }
+                """.formatted(p1, p2, p3, buildId, p3, p1, p2);
+        jdbcTemplate.update("""
+                INSERT INTO ai_feed_log
+                    (user_id, trace_id, model, prompt_version, candidate_count,
+                     returned_count, latency_ms, status, candidate_snapshot)
+                VALUES (?, 'replay-trace', 'deepseek', 'feed_rerank_v3', 3,
+                        3, 10, 'SUCCESS', CAST(? AS JSON))
+                """, admin.id(), snapshot);
+
+        eventWithBuild("replay-click-1", "CLICK", "AI", buildId, p1, catA, 2);
+        eventWithBuild("replay-click-2", "CLICK", "AI", buildId, p2, catA, 3);
+
+        mockMvc.perform(get("/api/admin/feed/replay")
+                        .param("days", "7").param("k", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.snapshots").value(1))
+                .andExpect(jsonPath("$.samples").value(1))
+                .andExpect(jsonPath("$.candidateCoverage").value(1.0))
+                .andExpect(jsonPath("$.byStrategy[0].strategy").value("PREF"))
+                .andExpect(jsonPath("$.byStrategy[0].rule.recallAtK").value(1.0))
+                .andExpect(jsonPath("$.byStrategy[0].rule.ndcgAtK").value(1.0))
+                .andExpect(jsonPath("$.byStrategy[0].rule.lastClickHitRate").value(1.0))
+                .andExpect(jsonPath("$.byStrategy[0].ai.recallAtK").value(0.5))
+                .andExpect(jsonPath("$.byStrategy[0].ai.ndcgAtK").value(closeTo(0.3869, 0.0001)))
+                .andExpect(jsonPath("$.byStrategy[0].ai.lastClickHitRate").value(0.0))
+                .andExpect(jsonPath("$.byStrategy[1].strategy").value("ALL"));
     }
 
     @Test

@@ -39,8 +39,34 @@ export interface FeedMetrics {
   }
 }
 
+export interface FeedReplaySide {
+  recallAtK: number
+  ndcgAtK: number
+  lastClickHitRate: number
+}
+
+export interface FeedReplayStrategy {
+  strategy: string
+  samples: number
+  rule: FeedReplaySide
+  ai: FeedReplaySide
+}
+
+export interface FeedReplay {
+  days: number
+  k: number
+  snapshots: number
+  samples: number
+  candidateCoverage: number
+  byStrategy: FeedReplayStrategy[]
+}
+
 export const adminFeedApi = {
   metrics(days: number): Promise<FeedMetrics> {
     return http.get<FeedMetrics>(`/admin/feed/metrics?days=${days}`)
+  },
+
+  replay(days: number, k = 10): Promise<FeedReplay> {
+    return http.get<FeedReplay>(`/admin/feed/replay?days=${days}&k=${k}`)
   },
 }

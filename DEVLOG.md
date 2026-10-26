@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 357 个 Java 用例 + 30 个 Python 用例 |
+| 测试 | 360 个 Java 用例 + 30 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2554,6 +2554,38 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: AI 推流透出规则特征与候选快照`
+
+## 2026-10-26 · AI 推流离线回放：规则 vs AI
+
+**做了什么**
+
+- 新增 `GET /api/admin/feed/replay?days=7&k=10`
+- 读取 `ai_feed_log.candidate_snapshot`：
+  - 只评估非 `rule-fallback` 的变体
+  - 按 `build_id` 批量取构建后的点击，避免 N+1
+- 在同一候选集上比较两种顺序：
+  - 规则：按快照里的 `ruleRank`
+  - AI：按快照变体的最终 `items`
+  - 指标：Recall@K、NDCG@K、最后点击命中率
+  - 按 PREF / EXPLORE / ALL 聚合
+- 点击覆盖不足时单独输出 `candidateCoverage`，不把“候选里没有”当成模型排序失败
+- 管理端「推荐指标」页新增回放表格
+
+**口径**
+
+- 相关性来自构建后的真实点击；最后点击命中单独统计
+- 不在候选快照里的点击保留在 Recall 分母里，体现遗漏
+- 只读，不调用模型，不修改线上快照
+
+**验证**
+
+- Java：360 个用例全部通过（新增回放 service 2、接口集成 1）
+- Python：30 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: AI 推流离线回放评估`
 
 ## 待办 / 下一步
 

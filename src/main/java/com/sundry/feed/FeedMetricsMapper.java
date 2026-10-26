@@ -28,6 +28,12 @@ public interface FeedMetricsMapper {
     List<FeedMetricEvent> findEventsForNdcg(@Param("since") LocalDateTime since,
                                             @Param("k") int k);
 
+    List<ReplaySnapshotRow> findReplaySnapshots(@Param("since") LocalDateTime since,
+                                                @Param("limit") int limit);
+
+    List<ReplayClickRow> findReplayClicks(@Param("buildIds") List<String> buildIds,
+                                          @Param("since") LocalDateTime since);
+
     class Totals {
         private Long exposures;
         private Long clicks;
@@ -106,6 +112,84 @@ public interface FeedMetricsMapper {
 
         public void setClicks(Long clicks) {
             this.clicks = clicks;
+        }
+    }
+
+    class ReplaySnapshotRow {
+        private Long id;
+        private Long userId;
+        private LocalDateTime createdAt;
+        private String candidateSnapshot;
+
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        public Long getUserId() {
+            return userId;
+        }
+
+        public void setUserId(Long userId) {
+            this.userId = userId;
+        }
+
+        public LocalDateTime getCreatedAt() {
+            return createdAt;
+        }
+
+        public void setCreatedAt(LocalDateTime createdAt) {
+            this.createdAt = createdAt;
+        }
+
+        public String getCandidateSnapshot() {
+            return candidateSnapshot;
+        }
+
+        public void setCandidateSnapshot(String candidateSnapshot) {
+            this.candidateSnapshot = candidateSnapshot;
+        }
+    }
+
+    class ReplayClickRow {
+        private Long id;
+        private String buildId;
+        private Long productId;
+        private LocalDateTime createdAt;
+
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        public String getBuildId() {
+            return buildId;
+        }
+
+        public void setBuildId(String buildId) {
+            this.buildId = buildId;
+        }
+
+        public Long getProductId() {
+            return productId;
+        }
+
+        public void setProductId(Long productId) {
+            this.productId = productId;
+        }
+
+        public LocalDateTime getCreatedAt() {
+            return createdAt;
+        }
+
+        public void setCreatedAt(LocalDateTime createdAt) {
+            this.createdAt = createdAt;
         }
     }
 

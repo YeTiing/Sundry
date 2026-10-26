@@ -86,4 +86,27 @@
         ORDER BY trace_id, user_id, item_position
     </select>
 
+    <select id="findReplaySnapshots"
+            resultType="com.sundry.feed.FeedMetricsMapper$ReplaySnapshotRow">
+        SELECT id, user_id, created_at, candidate_snapshot
+        FROM ai_feed_log
+        WHERE created_at &gt;= #{since}
+          AND candidate_snapshot IS NOT NULL
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findReplayClicks"
+            resultType="com.sundry.feed.FeedMetricsMapper$ReplayClickRow">
+        SELECT id, build_id, product_id, created_at
+        FROM feed_event
+        WHERE event_type = 'CLICK'
+          AND created_at &gt;= #{since}
+          AND build_id IN
+        <foreach collection="buildIds" item="buildId" open="(" separator="," close=")">
+            #{buildId}
+        </foreach>
+        ORDER BY id
+    </select>
+
 </mapper>
