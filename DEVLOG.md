@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 341 个 Java 用例 + 29 个 Python 用例 |
+| 测试 | 356 个 Java 用例 + 29 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2456,6 +2456,33 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: 语义层扩展退款单数、均价、秒杀销售额与买家脱敏维度`
+
+## 2026-10-26 · A5 S5：超管自由 SQL 沙箱
+
+**做了什么**
+
+- 引入 JSqlParser 5.3（本轮唯一新依赖，已确认）
+- 新增 `POST /api/admin/nl2sql/free-query`
+  - 仅 SUPER_ADMIN；`NL2SQL_FREE_SQL=true` 才开放，默认关闭
+  - `Nl2sqlFreeSqlGuard`：单条 PlainSelect、禁 WITH/UNION/子查询/SELECT INTO/锁、表白名单、列白名单、禁危险函数、强制 LIMIT
+  - 未写 LIMIT 自动补 1000；数字 LIMIT/OFFSET 越界直接拒绝
+- 独立只读数据源 `NL2SQL_FREE_DB_*`
+  - 本机创建 `sundry_nl2sql_free@127.0.0.1`，只授 5 张业务表的安全列
+  - 未配置时自由 SQL 直接拒绝，不回退主库
+  - 验证：PII 列、`app_user`、`SELECT *` 在数据库层也被拒绝
+- 前端经营分析页增加超管自由 SQL 面板（仅 SUPER_ADMIN 可见）
+- 审计：问题固定为「自由 SQL」，成功记 SQL 原文，拒绝不保存 SQL
+
+**验证**
+
+- Java：356 个用例全部通过（新增 guard 11、集成 3、默认关闭 1）
+- Python：29 个用例通过
+- `npm run build` 通过
+- 真实链路：安全查询 200 并自动补 `LIMIT 1000`；`receiver_phone` / `SELECT *` / `app_user` 均 400；审计 3 REJECTED + 1 SUCCESS
+
+**提交**
+
+- 待提交：`feat: A5 S5 超管自由 SQL 沙箱`
 
 ## 待办 / 下一步
 

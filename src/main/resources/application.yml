@@ -92,6 +92,11 @@ app:
       username: ${NL2SQL_DB_USERNAME:}
       password: ${NL2SQL_DB_PASSWORD:}
       maximum-pool-size: ${NL2SQL_DB_POOL:2}
+    free-datasource:
+      url: ${NL2SQL_FREE_DB_URL:}
+      username: ${NL2SQL_FREE_DB_USERNAME:}
+      password: ${NL2SQL_FREE_DB_PASSWORD:}
+      maximum-pool-size: ${NL2SQL_FREE_DB_POOL:1}
   feed:
     behavior-batch-size: 500
     behavior-flush-interval: 2s

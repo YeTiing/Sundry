@@ -13,6 +13,7 @@ public class Nl2sqlProperties {
     private int maxRows = 1000;
     private int rateLimitPerMinute = 10;
     private Datasource datasource = new Datasource();
+    private Datasource freeDatasource = new Datasource();
 
     public Datasource getDatasource() {
         return datasource;
@@ -20,6 +21,14 @@ public class Nl2sqlProperties {
 
     public void setDatasource(Datasource datasource) {
         this.datasource = datasource;
+    }
+
+    public Datasource getFreeDatasource() {
+        return freeDatasource;
+    }
+
+    public void setFreeDatasource(Datasource freeDatasource) {
+        this.freeDatasource = freeDatasource;
     }
 
     public static class Datasource {

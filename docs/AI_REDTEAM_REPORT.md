@@ -192,7 +192,7 @@
 
 ## 6. 未覆盖 / 限制
 
-- 只测受限路径；自由 SQL（S5）关闭，未测。
+- 自由 SQL 已实现（2026-10-26，S5），默认关闭；安全用例见第 9 节，但解析器/数据库版本变化仍需持续复测。
 - 只使用一个超级管理员账号；多管理员、多角色交叉未测。
 - 真实模型非确定性：同一问题可能生成不同计划，本次只跑 1 轮。
 - 未做长时间 soak、慢查询/锁竞争、数据库连接池耗尽测试。
@@ -214,7 +214,29 @@
 
 整改后全量：Java 335、Python 29、`npm run build` 通过。
 
-## 8. 复现
+## 8. 补充：自由 SQL 沙箱（2026-10-26）
+
+自由 SQL 默认关闭，仅 SUPER_ADMIN，使用独立只读账号 `sundry_nl2sql_free`，数据库层做列级授权。
+
+| 攻击 | 预期 | 实际 |
+|---|---|---|
+| `SELECT * FROM orders` | 拒绝 | `STAR_NOT_ALLOWED` |
+| `SELECT receiver_phone FROM orders` | 拒绝 | `COLUMN_NOT_ALLOWED`，数据库列授权也拒绝 |
+| `SELECT id FROM app_user` | 拒绝 | `TABLE_NOT_ALLOWED` |
+| `SELECT ... FROM information_schema.tables` | 拒绝 | `TABLE_NOT_ALLOWED` |
+| `SELECT ... UNION SELECT ...` | 拒绝 | `ONLY_PLAIN_SELECT` |
+| 子查询 / `IN (SELECT ...)` | 拒绝 | `SUBQUERY_NOT_ALLOWED` |
+| 多条语句 / 写操作 | 拒绝 | `MULTI_STATEMENT` / `ONLY_SELECT` |
+| `SELECT SLEEP(5) FROM orders` | 拒绝 | `FUNCTION_NOT_ALLOWED` |
+| `LIMIT 100000` / 大 OFFSET | 拒绝 | `INVALID_LIMIT` |
+| 合法 SELECT 无 LIMIT | 自动补 | `LIMIT 1000` |
+| 普通用户 / 管理员 | 403 | `@PreAuthorize` 拒绝 |
+
+真实链路已跑通：安全查询 200、危险 SQL 均 400，审计 3 REJECTED + 1 SUCCESS。
+
+残余风险：SQL 解析器自身的绕过、未来新增函数/语法、数据库版本差异；生产保持 `NL2SQL_FREE_SQL=false`，需要时临时开启并配合审计。
+
+## 9. 复现
 
 ```bash
 # 确定性红队（模型 mock，55 用例）

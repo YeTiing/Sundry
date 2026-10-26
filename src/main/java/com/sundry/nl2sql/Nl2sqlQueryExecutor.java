@@ -30,6 +30,8 @@ public class Nl2sqlQueryExecutor {
     private final Nl2sqlProperties properties;
     private volatile JdbcTemplate readOnly;
     private volatile HikariDataSource readOnlyDataSource;
+    private volatile JdbcTemplate freeReadOnly;
+    private volatile HikariDataSource freeReadOnlyDataSource;
     private volatile boolean fallbackLogged;
 
     public Nl2sqlQueryExecutor(JdbcTemplate primary, Nl2sqlProperties properties) {
@@ -38,11 +40,20 @@ public class Nl2sqlQueryExecutor {
     }
 
     public List<Map<String, Object>> execute(QuerySpec spec, int timeoutSeconds, int maxRows) {
+        return run(template(), spec, timeoutSeconds, maxRows).rows();
+    }
+
+    public Result executeFree(QuerySpec spec, int timeoutSeconds, int maxRows) {
+        return run(freeTemplate(), spec, timeoutSeconds, maxRows);
+    }
+
+    private Result run(JdbcTemplate template, QuerySpec spec,
+                       int timeoutSeconds, int maxRows) {
         String sql = spec.sql() == null ? "" : spec.sql().trim();
         if (!sql.toLowerCase(Locale.ROOT).startsWith("select")) {
             throw new Nl2sqlException("ONLY_SELECT");
         }
-        return template().execute((ConnectionCallback<List<Map<String, Object>>>) connection -> {
+        return template.execute((ConnectionCallback<Result>) connection -> {
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setQueryTimeout(Math.max(1, timeoutSeconds));
                 statement.setMaxRows(Math.max(1, maxRows));
@@ -52,15 +63,19 @@ public class Nl2sqlQueryExecutor {
                 try (ResultSet rs = statement.executeQuery()) {
                     ResultSetMetaData meta = rs.getMetaData();
                     int columnCount = meta.getColumnCount();
+                    List<String> columns = new ArrayList<>(columnCount);
+                    for (int i = 1; i <= columnCount; i++) {
+                        columns.add(meta.getColumnLabel(i));
+                    }
                     List<Map<String, Object>> rows = new ArrayList<>();
                     while (rs.next()) {
                         Map<String, Object> row = new LinkedHashMap<>();
                         for (int i = 1; i <= columnCount; i++) {
-                            row.put(meta.getColumnLabel(i), normalize(rs.getObject(i)));
+                            row.put(columns.get(i - 1), normalize(rs.getObject(i)));
                         }
                         rows.add(row);
                     }
-                    return rows;
+                    return new Result(List.copyOf(columns), rows);
                 }
             }
         });
@@ -96,15 +111,36 @@ public class Nl2sqlQueryExecutor {
     }
 
     private JdbcTemplate buildReadOnly(String url) {
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(url);
-        config.setUsername(properties.getDatasource().getUsername());
-        config.setPassword(properties.getDatasource().getPassword());
-        config.setMaximumPoolSize(Math.max(1, properties.getDatasource().getMaximumPoolSize()));
-        config.setReadOnly(true);
-        config.setPoolName("nl2sql-readonly");
-        readOnlyDataSource = new HikariDataSource(config);
+        readOnlyDataSource = buildPool(properties.getDatasource(), "nl2sql-readonly");
         return new JdbcTemplate(readOnlyDataSource);
+    }
+
+    private JdbcTemplate freeTemplate() {
+        String url = properties.getFreeDatasource().getUrl();
+        if (url == null || url.isBlank()) {
+            throw new Nl2sqlException("FREE_SQL_DATASOURCE_MISSING");
+        }
+        if (freeReadOnly == null) {
+            synchronized (this) {
+                if (freeReadOnly == null) {
+                    freeReadOnlyDataSource = buildPool(properties.getFreeDatasource(),
+                            "nl2sql-free-readonly");
+                    freeReadOnly = new JdbcTemplate(freeReadOnlyDataSource);
+                }
+            }
+        }
+        return freeReadOnly;
+    }
+
+    private HikariDataSource buildPool(Nl2sqlProperties.Datasource datasource, String name) {
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(datasource.getUrl());
+        config.setUsername(datasource.getUsername());
+        config.setPassword(datasource.getPassword());
+        config.setMaximumPoolSize(Math.max(1, datasource.getMaximumPoolSize()));
+        config.setReadOnly(true);
+        config.setPoolName(name);
+        return new HikariDataSource(config);
     }
 
     @PreDestroy
@@ -112,5 +148,11 @@ public class Nl2sqlQueryExecutor {
         if (readOnlyDataSource != null) {
             readOnlyDataSource.close();
         }
+        if (freeReadOnlyDataSource != null) {
+            freeReadOnlyDataSource.close();
+        }
+    }
+
+    public record Result(List<String> columns, List<Map<String, Object>> rows) {
     }
 }

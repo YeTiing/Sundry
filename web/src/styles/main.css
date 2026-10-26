@@ -2066,6 +2066,23 @@ a.buy-row__action {
   outline-offset: 1px;
 }
 
+.nl2sql-free {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+}
+
+.nl2sql-sql,
+.nl2sql-free-sql {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.nl2sql-free-sql {
+  word-break: break-all;
+  margin-top: 12px;
+}
+
 .nl2sql-form-actions {
   display: flex;
   gap: 12px;

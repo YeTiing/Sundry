@@ -282,6 +282,17 @@ class Nl2sqlQueryIntegrationTest {
     }
 
     @Test
+    void freeSqlIsDisabledByDefault() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        mockMvc.perform(post("/api/admin/nl2sql/free-query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sql\":\"SELECT status FROM orders\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NL2SQL_FREE_SQL_DISABLED"));
+    }
+
+    @Test
     void invalidSessionIdIsRejected() throws Exception {
         Session admin = register(ADMIN_PHONE);
         mockMvc.perform(post("/api/admin/nl2sql/query")

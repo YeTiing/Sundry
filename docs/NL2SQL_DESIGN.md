@@ -1,6 +1,6 @@
 # NL2SQL 开发方案（A4 / A5 / A7）
 
-> 状态：**S1~S3、S4a（多轮会话）、S6（红队评测）已完成；S4b（一句话总结）待定，S5 延后**
+> 状态：**S1~S3、S4a（多轮会话）、S5（自由 SQL 沙箱）、S6（红队评测）已完成；S4b（一句话总结）待定**
 > 日期：2026-10-25
 > 关联：`docs/FUTURE_DESIGN.md` 第 4、5 节、`docs/BACKLOG.md` A4/A5/A7
 > 用途：开发时按本文执行，避免重新推导
@@ -39,6 +39,8 @@
 | 依赖 | 无新增 | JSqlParser（需批准） |
 
 **第一阶段只做受限路径。**
+
+> 2026-10-26：自由 SQL 沙箱已实现（S5），但**默认关闭**，仅 SUPER_ADMIN，使用独立只读账号与列级授权；不是普通管理员的日常路径。
 
 ---
 
@@ -397,6 +399,12 @@ app:
       username: ${NL2SQL_DB_USERNAME:}
       password: ${NL2SQL_DB_PASSWORD:}
       maximum-pool-size: 2
+    # 自由 SQL 专用只读池；未配置时自由 SQL 直接拒绝，不回退主库
+    free-datasource:
+      url: ${NL2SQL_FREE_DB_URL:}
+      username: ${NL2SQL_FREE_DB_USERNAME:}
+      password: ${NL2SQL_FREE_DB_PASSWORD:}
+      maximum-pool-size: 1
 ```
 
 数据库账号只授 `SELECT`，且只授业务表，不授 `mysql` / `information_schema`（schema 校验用业务库账号或启动时的一次性查询）。
@@ -495,7 +503,7 @@ A4 的固定工具先于 NL2SQL 实现，NL2SQL 作为第二个工具接入。
 | S2 | `/internal/nl2sql/plan` + 计划校验 + QueryBuilder + 只读执行 | 一条问题端到端出结果 |
 | S3 | `nl2sql_log` 审计 + 管理端查询框 + 结果表格 | 审计可查、拒绝有原因 |
 | S4 | 多轮会话 + 自然语言总结 + 模板兜底 | "那去年呢"能正确续问 |
-| S5 | 自由查询路径（JSqlParser，需批准） | 表白名单 + 单条 SELECT 拦截生效 |
+| S5 | 自由查询路径（JSqlParser 5.3） | 已完成：超管、默认关闭、单条 PlainSelect、表/列白名单、独立只读账号、强制 LIMIT |
 | S6 | 红队评测报告 | 覆盖 8 类攻击向量 |
 
 **S1~S3 做完即为可用闭环。**

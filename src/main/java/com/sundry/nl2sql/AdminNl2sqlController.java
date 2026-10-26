@@ -4,6 +4,8 @@ import com.sundry.auth.security.AuthenticatedUser;
 import com.sundry.common.api.PageResponse;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
+import com.sundry.nl2sql.dto.Nl2sqlFreeSqlRequest;
+import com.sundry.nl2sql.dto.Nl2sqlFreeSqlView;
 import com.sundry.nl2sql.dto.Nl2sqlLogView;
 import com.sundry.nl2sql.dto.Nl2sqlQueryRequest;
 import com.sundry.nl2sql.dto.Nl2sqlQueryView;
@@ -52,5 +54,15 @@ public class AdminNl2sqlController {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
         return nl2sqlService.query(user, request);
+    }
+
+    @PostMapping("/free-query")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public Nl2sqlFreeSqlView freeQuery(@Valid @RequestBody Nl2sqlFreeSqlRequest request,
+                                       @AuthenticationPrincipal AuthenticatedUser user) {
+        if (user == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        }
+        return nl2sqlService.freeQuery(user, request);
     }
 }

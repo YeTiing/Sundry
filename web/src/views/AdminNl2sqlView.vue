@@ -2,7 +2,12 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminNl2sqlApi } from '@/api/adminNl2sql'
-import type { Nl2sqlLogView, Nl2sqlQueryResult, Nl2sqlVocabulary } from '@/api/adminNl2sql'
+import type {
+  Nl2sqlFreeSqlResult,
+  Nl2sqlLogView,
+  Nl2sqlQueryResult,
+  Nl2sqlVocabulary,
+} from '@/api/adminNl2sql'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { getOrCreateSessionId } from '@/utils/session'
@@ -41,6 +46,12 @@ const logs = ref<Nl2sqlLogView[]>([])
 const logStatus = ref('')
 const logsLoading = ref(false)
 
+const freeSql = ref('')
+const freeResult = ref<Nl2sqlFreeSqlResult | null>(null)
+const freeLoading = ref(false)
+const freeError = ref('')
+const freeErrorCode = ref('')
+
 function errorMessage(err: unknown): { code: string; message: string } {
   if (!(err instanceof ApiError)) {
     return { code: 'UNKNOWN', message: '请求失败，请稍后再试' }
@@ -58,8 +69,33 @@ function errorMessage(err: unknown): { code: string; message: string } {
       return { code: err.code, message: '查询执行失败，请换个问法或稍后再试' }
     case 'RATE_LIMITED':
       return { code: err.code, message: '问得太快，休息一下再试' }
+    case 'NL2SQL_FREE_SQL_DISABLED':
+      return { code: err.code, message: '自由 SQL 未开放：启动后端时设置 NL2SQL_FREE_SQL=true' }
+    case 'NL2SQL_FREE_SQL_REJECTED':
+      return { code: err.code, message: `SQL 被拒绝：${err.message}` }
+    case 'NL2SQL_FREE_SQL_UNAVAILABLE':
+      return { code: err.code, message: '未配置独立只读数据源，自由 SQL 不可用' }
     default:
       return { code: err.code, message: err.message }
+  }
+}
+
+async function runFreeSql(): Promise<void> {
+  const sql = freeSql.value.trim()
+  if (!sql || freeLoading.value) return
+  freeLoading.value = true
+  freeError.value = ''
+  freeErrorCode.value = ''
+  freeResult.value = null
+  try {
+    freeResult.value = await adminNl2sqlApi.freeQuery(sql)
+  } catch (err) {
+    const info = errorMessage(err)
+    freeError.value = info.message
+    freeErrorCode.value = info.code
+  } finally {
+    freeLoading.value = false
+    await loadLogs()
   }
 }
 
@@ -269,6 +305,64 @@ onMounted(() => {
                 行数 {{ result.rowCount }} · 耗时 {{ result.latencyMs }}ms · trace {{ result.traceId.slice(0, 8) }}
               </p>
             </template>
+
+            <section v-if="auth.isSuperAdmin" class="nl2sql-free">
+              <div class="panel-head">
+                <h2>自由 SQL（超管）</h2>
+                <span class="panel-note">默认关闭 · 单条 SELECT · 白名单表/列</span>
+              </div>
+              <p class="panel-note">
+                只允许 orders / order_item / product / category / order_refund，不含用户表；
+                禁止子查询、UNION、写操作和危险函数，缺少 LIMIT 时自动补 1000。
+              </p>
+              <form class="nl2sql-form" @submit.prevent="runFreeSql">
+                <textarea
+                  v-model="freeSql"
+                  class="nl2sql-input nl2sql-sql"
+                  maxlength="2000"
+                  rows="4"
+                  placeholder="SELECT status, COUNT(*) AS cnt FROM orders GROUP BY status"
+                ></textarea>
+                <div class="nl2sql-form-actions">
+                  <span class="panel-note">{{ freeSql.length }}/2000 · 每次查询 10 次/分钟</span>
+                  <button class="primary-button" type="submit" :disabled="freeLoading || !freeSql.trim()">
+                    {{ freeLoading ? '执行中…' : '执行 SQL' }}
+                  </button>
+                </div>
+              </form>
+
+              <div v-if="freeError" class="nl2sql-error">
+                <span class="nl2sql-code">{{ freeErrorCode }}</span>
+                <span>{{ freeError }}</span>
+              </div>
+
+              <template v-if="freeResult">
+                <p class="panel-note nl2sql-free-sql">{{ freeResult.sql }}</p>
+                <div class="nl2sql-table-wrap">
+                  <table class="nl2sql-table">
+                    <thead>
+                      <tr>
+                        <th v-for="column in freeResult.columns" :key="column.key">
+                          {{ column.label }}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, index) in freeResult.rows" :key="index">
+                        <td v-for="column in freeResult.columns" :key="column.key">
+                          {{ display(row[column.key]) }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p v-if="freeResult.rows.length === 0" class="panel-note">没有返回数据。</p>
+                <p class="panel-note">
+                  行数 {{ freeResult.rowCount }} · 耗时 {{ freeResult.latencyMs }}ms · trace
+                  {{ freeResult.traceId.slice(0, 8) }}
+                </p>
+              </template>
+            </section>
           </section>
 
           <aside class="admin-panel nl2sql-audit">

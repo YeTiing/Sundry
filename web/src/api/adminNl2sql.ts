@@ -31,6 +31,15 @@ export interface Nl2sqlQueryResult {
   latencyMs: number
 }
 
+export interface Nl2sqlFreeSqlResult {
+  sql: string
+  columns: { key: string; label: string }[]
+  rows: Record<string, unknown>[]
+  traceId: string
+  rowCount: number
+  latencyMs: number
+}
+
 export interface Nl2sqlLogView {
   id: number
   userId: number
@@ -52,6 +61,10 @@ export const adminNl2sqlApi = {
 
   query(question: string, sessionId: string | null): Promise<Nl2sqlQueryResult> {
     return http.post<Nl2sqlQueryResult>('/admin/nl2sql/query', { question, sessionId })
+  },
+
+  freeQuery(sql: string): Promise<Nl2sqlFreeSqlResult> {
+    return http.post<Nl2sqlFreeSqlResult>('/admin/nl2sql/free-query', { sql })
   },
 
   logs(page: number, size: number, status: string | null): Promise<PageResponse<Nl2sqlLogView>> {

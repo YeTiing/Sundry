@@ -8,6 +8,8 @@ import com.sundry.common.session.SessionIds;
 import com.sundry.common.text.PiiMasker;
 import com.sundry.nl2sql.ValidatedPlan.Dimension;
 import com.sundry.nl2sql.ValidatedPlan.Metric;
+import com.sundry.nl2sql.dto.Nl2sqlFreeSqlRequest;
+import com.sundry.nl2sql.dto.Nl2sqlFreeSqlView;
 import com.sundry.nl2sql.dto.Nl2sqlLogView;
 import com.sundry.nl2sql.dto.Nl2sqlPlanRequest;
 import com.sundry.nl2sql.dto.Nl2sqlPlanResponse;
@@ -47,13 +49,15 @@ public class Nl2sqlService {
     private final Nl2sqlLogMapper logMapper;
     private final Nl2sqlRateLimiter rateLimiter;
     private final Nl2sqlSessionStore sessionStore;
+    private final Nl2sqlFreeSqlGuard freeSqlGuard;
     private final ObjectMapper objectMapper;
 
     public Nl2sqlService(Nl2sqlProperties properties, SemanticLayerProvider provider,
                          Nl2sqlClient client, Nl2sqlPlanValidator validator,
                          Nl2sqlQueryBuilder builder, Nl2sqlQueryExecutor executor,
                          Nl2sqlLogMapper logMapper, Nl2sqlRateLimiter rateLimiter,
-                         Nl2sqlSessionStore sessionStore, ObjectMapper objectMapper) {
+                         Nl2sqlSessionStore sessionStore, Nl2sqlFreeSqlGuard freeSqlGuard,
+                         ObjectMapper objectMapper) {
         this.properties = properties;
         this.provider = provider;
         this.client = client;
@@ -63,6 +67,7 @@ public class Nl2sqlService {
         this.logMapper = logMapper;
         this.rateLimiter = rateLimiter;
         this.sessionStore = sessionStore;
+        this.freeSqlGuard = freeSqlGuard;
         this.objectMapper = objectMapper;
     }
 
@@ -157,6 +162,79 @@ public class Nl2sqlService {
                 rows.size(), "SUCCESS", null, start, traceId);
         sessionStore.append(user.id(), sessionId, safeQuestion, planJson, rows.size());
         return view(plan, rows, planResponse.plan(), traceId, start);
+    }
+
+    /**
+     * 自由 SQL：超管专用、默认关闭、独立只读数据源；不提供任何写能力。
+     */
+    public Nl2sqlFreeSqlView freeQuery(AuthenticatedUser user, Nl2sqlFreeSqlRequest request) {
+        if (user.role() != Role.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        if (!properties.isEnabled() || !properties.isFreeSqlEnabled()) {
+            throw new BusinessException(ErrorCode.NL2SQL_FREE_SQL_DISABLED);
+        }
+        if (properties.getFreeDatasource().getUrl() == null
+                || properties.getFreeDatasource().getUrl().isBlank()) {
+            throw new BusinessException(ErrorCode.NL2SQL_FREE_SQL_UNAVAILABLE);
+        }
+        rateLimiter.check(user.id());
+        long start = System.currentTimeMillis();
+        String traceId = UUID.randomUUID().toString();
+        String rawSql = request.sql() == null ? "" : request.sql().trim();
+
+        String executedSql;
+        try {
+            executedSql = freeSqlGuard.validate(rawSql, properties.getMaxRows());
+        } catch (Nl2sqlValidationException ex) {
+            auditFree(user, null, 0, "REJECTED",
+                    ex.getCode() + ": " + ex.getMessage(), start, traceId);
+            throw new BusinessException(ErrorCode.NL2SQL_FREE_SQL_REJECTED, ex.getMessage());
+        }
+
+        Nl2sqlQueryExecutor.Result result;
+        try {
+            result = executor.executeFree(new QuerySpec(executedSql, List.of()),
+                    properties.getQueryTimeoutSeconds(), properties.getMaxRows());
+        } catch (QueryTimeoutException ex) {
+            auditFree(user, executedSql, 0, "TIMEOUT", "QUERY_TIMEOUT", start, traceId);
+            throw new BusinessException(ErrorCode.NL2SQL_QUERY_FAILED);
+        } catch (DataAccessException | Nl2sqlException ex) {
+            log.warn("自由 SQL 执行失败 userId={} reason={}", user.id(), ex.getMessage());
+            auditFree(user, executedSql, 0, "DB_ERROR", "DB_ERROR", start, traceId);
+            throw new BusinessException(ErrorCode.NL2SQL_QUERY_FAILED);
+        }
+
+        auditFree(user, executedSql, result.rows().size(), "SUCCESS", null, start, traceId);
+        List<Nl2sqlFreeSqlView.Column> columns = result.columns().stream()
+                .map(name -> new Nl2sqlFreeSqlView.Column(name, name))
+                .toList();
+        long latency = System.currentTimeMillis() - start;
+        return new Nl2sqlFreeSqlView(executedSql, columns, result.rows(),
+                traceId, result.rows().size(), latency);
+    }
+
+    private void auditFree(AuthenticatedUser user, String sql, int rowCount,
+                           String status, String reason, long start, String traceId) {
+        try {
+            Nl2sqlLog entry = new Nl2sqlLog();
+            entry.setUserId(user.id());
+            entry.setRole(user.role().name());
+            entry.setSessionId(null);
+            entry.setQuestion("自由 SQL");
+            entry.setPlanJson(null);
+            entry.setSqlText(sql);
+            entry.setRowCount(rowCount);
+            entry.setLatencyMs((int) Math.min(Integer.MAX_VALUE,
+                    System.currentTimeMillis() - start));
+            entry.setStatus(status);
+            entry.setRejectReason(reason == null ? null
+                    : reason.substring(0, Math.min(200, reason.length())));
+            entry.setTraceId(traceId);
+            logMapper.insert(entry);
+        } catch (RuntimeException ex) {
+            log.warn("自由 SQL 审计写入失败 userId={} status={}", user.id(), status, ex);
+        }
     }
 
     private Nl2sqlQueryView view(ValidatedPlan plan, List<Map<String, Object>> rows,

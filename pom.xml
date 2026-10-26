@@ -23,6 +23,7 @@
         <!-- 8.5.x 用 OkHttp 4（普通 JVM jar）；9.x 依赖 OkHttp 5 的 KMP 包，Maven 下会缺类 -->
         <minio.version>8.5.17</minio.version>
         <awssdk.version>2.57.2</awssdk.version>
+        <jsqlparser.version>5.3</jsqlparser.version>
     </properties>
 
     <dependencies>
@@ -75,6 +76,12 @@
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
             <version>${minio.version}</version>
+        </dependency>
+        <!-- 自由 SQL 沙箱：只允许超管、单条 SELECT、白名单表/列 -->
+        <dependency>
+            <groupId>com.github.jsqlparser</groupId>
+            <artifactId>jsqlparser</artifactId>
+            <version>${jsqlparser.version}</version>
         </dependency>
         <!-- 浏览器分片直传需要 S3 预签名；MinIO SDK 不提供 create/complete multipart -->
         <dependency>
