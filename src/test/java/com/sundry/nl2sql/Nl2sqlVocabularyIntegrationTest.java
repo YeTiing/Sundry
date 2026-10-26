@@ -76,12 +76,15 @@ class Nl2sqlVocabularyIntegrationTest {
     void semanticLayerIsLoadedWithExpectedShape() {
         SemanticLayer layer = provider.layer();
 
-        assertThat(layer.metrics()).hasSize(7);
-        assertThat(layer.dimensions()).hasSize(5);
-        assertThat(layer.filters()).hasSize(4);
+        assertThat(layer.metrics()).hasSize(10);
+        assertThat(layer.dimensions()).hasSize(7);
+        assertThat(layer.filters()).hasSize(5);
         assertThat(layer.metrics().get("gmv").expr()).contains("SUM(");
         assertThat(layer.metrics().get("refund_amount").conditionalJoin())
                 .isEqualTo("refund_summary");
+        assertThat(layer.metrics().get("refund_order_count").conditionalJoin())
+                .isEqualTo("refund_summary");
+        assertThat(layer.dimensions().get("buyer").column()).contains("****");
         assertThat(layer.limits().maxMetrics()).isEqualTo(3);
     }
 
@@ -92,16 +95,21 @@ class Nl2sqlVocabularyIntegrationTest {
         MvcResult result = mockMvc.perform(get("/api/admin/nl2sql/vocabulary")
                         .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.metrics.length()").value(7))
-                .andExpect(jsonPath("$.dimensions.length()").value(5))
-                .andExpect(jsonPath("$.filters.length()").value(4))
+                .andExpect(jsonPath("$.metrics.length()").value(10))
+                .andExpect(jsonPath("$.dimensions.length()").value(7))
+                .andExpect(jsonPath("$.filters.length()").value(5))
                 .andExpect(jsonPath("$.limits.maxMetrics").value(3))
                 .andExpect(jsonPath("$.limits.maxRows").value(1000))
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
         List<String> metricKeys = JsonPath.read(body, "$.metrics[*].key");
-        assertThat(metricKeys).contains("gmv", "refund_rate", "seckill_order_count");
+        assertThat(metricKeys).contains("gmv", "refund_rate", "seckill_order_count",
+                "refund_order_count", "avg_item_price", "seckill_gmv");
+        assertThat(JsonPath.<List<String>>read(body, "$.dimensions[*].key"))
+                .contains("status", "buyer");
+        assertThat(JsonPath.<List<String>>read(body, "$.filters[*].key"))
+                .contains("product_type");
         assertThat(body)
                 .doesNotContain("SUM(")
                 .doesNotContain("orders")

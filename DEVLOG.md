@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 340 个 Java 用例 + 29 个 Python 用例 |
+| 测试 | 341 个 Java 用例 + 29 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2430,6 +2430,32 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: 助手购买汇总工具`
+
+## 2026-10-26 · 语义层扩展：退款单数、均价、秒杀销售额、状态/买家维度
+
+**做了什么**
+
+- 指标 +3：
+  - `refund_order_count` 退款订单数（复用 `refund_summary` 条件 JOIN）
+  - `avg_item_price` 平均商品单价
+  - `seckill_gmv` 秒杀销售额
+- 维度 +2：
+  - `status` 订单状态
+  - `buyer` 买家：SQL 层直接输出 `昵称#userId（139****0000）`，按 userId 分组避免同名合并，不暴露完整手机号
+- 筛选 +1：`product_type`（PHYSICAL / DIGITAL）
+- base 增加 `app_user u ON u.id = o.user_id`
+- 启动校验自动覆盖新指标/维度，词汇表接口仍不返回表名、列名或 SQL
+
+**验证**
+
+- Java：341 个用例全部通过（新增买家维度脱敏、退款单数/均价、状态维度 + 商品类型筛选）
+- Python：29 个用例通过
+- `npm run build` 通过
+- 实际结果：买家列返回 `139****0000`，24 位完整手机号不出现在响应里
+
+**提交**
+
+- 待提交：`feat: 语义层扩展退款单数、均价、秒杀销售额与买家脱敏维度`
 
 ## 待办 / 下一步
 

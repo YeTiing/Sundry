@@ -118,6 +118,44 @@ class Nl2sqlQueryIntegrationTest {
     }
 
     @Test
+    void buyerDimensionIsMaskedAndNewMetricsWork() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        seedOrderData(admin.id());
+        stubPlan(new Nl2sqlPlanResponse.Plan(
+                List.of("gmv", "avg_item_price", "refund_order_count"),
+                List.of("buyer"), List.of(),
+                new Nl2sqlPlanResponse.Plan.Time("LAST_30D"), "day", List.of(), 10));
+
+        MvcResult result = mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"最近30天各买家的销售额、平均单价和退款订单数\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.columns[0].key").value("buyer"))
+                .andExpect(jsonPath("$.columns[1].key").value("gmv"))
+                .andExpect(jsonPath("$.columns[2].key").value("avg_item_price"))
+                .andExpect(jsonPath("$.columns[3].key").value("refund_order_count"))
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).contains("139****0000").doesNotContain("13900000000");
+
+        stubPlan(new Nl2sqlPlanResponse.Plan(
+                List.of("gmv"), List.of("status"),
+                List.of(new Nl2sqlPlanResponse.Plan.Filter("product_type", "PHYSICAL"),
+                        new Nl2sqlPlanResponse.Plan.Filter("status", "PAID")),
+                new Nl2sqlPlanResponse.Plan.Time("LAST_30D"), "day", List.of(), 10));
+
+        mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"最近30天已支付的实物订单销售额\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows[0].status").value("PAID"))
+                .andExpect(jsonPath("$.rows[0].gmv").value(20.0));
+    }
+
+    @Test
     void adminCanReadAuditLogsWithStatusFilter() throws Exception {
         Session admin = register(ADMIN_PHONE);
         jdbcTemplate.update("""

@@ -170,6 +170,9 @@ conditional_joins:
     ) r ON r.order_id = o.id
 ```
 
+> 2026-10-26 扩展：新增 `refund_order_count`、`avg_item_price`、`seckill_gmv` 指标；新增 `status`、`buyer` 维度（`buyer` 在 SQL 层直接脱敏为 `昵称#id（139****0000）`）；新增 `product_type` 枚举筛选；base 增加 `app_user` 关联。
+> 当前词汇表规模：10 指标 / 7 维度 / 5 筛选。
+
 ### 3.3 词汇表（发给模型的部分）
 
 以上 YAML 会裁剪成下面这份 JSON，**不含任何表名、列名、SQL 表达式**：

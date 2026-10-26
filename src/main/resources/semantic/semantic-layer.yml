@@ -14,6 +14,9 @@ base:
     - table: category
       alias: c
       "on": c.id = p.category_id
+    - table: app_user
+      alias: u
+      "on": u.id = o.user_id
   where:
     - "o.paid_at IS NOT NULL"
 
@@ -62,6 +65,25 @@ metrics:
     unit: 单
     expr: "COUNT(DISTINCT CASE WHEN o.order_source = 'SECKILL' THEN o.order_no END)"
 
+  refund_order_count:
+    label: 退款订单数
+    synonyms: [退款单数]
+    unit: 单
+    expr: "COUNT(DISTINCT CASE WHEN r.order_id IS NOT NULL THEN o.id END)"
+    conditional_join: refund_summary
+
+  avg_item_price:
+    label: 平均商品单价
+    synonyms: [均价, 平均单价]
+    unit: 元
+    expr: "AVG(oi.price)"
+
+  seckill_gmv:
+    label: 秒杀销售额
+    synonyms: [秒杀GMV]
+    unit: 元
+    expr: "SUM(CASE WHEN o.order_source = 'SECKILL' THEN oi.price * oi.quantity ELSE 0 END)"
+
 dimensions:
   day:
     label: 日期
@@ -80,6 +102,15 @@ dimensions:
   product_type:
     label: 商品类型
     column: oi.product_type
+  status:
+    label: 订单状态
+    synonyms: [状态]
+    column: o.status
+  buyer:
+    label: 买家
+    synonyms: [用户, 客户]
+    # 展示层直接脱敏，按用户 id 分组避免同名合并
+    column: "CONCAT(COALESCE(NULLIF(u.nickname, ''), '用户'), '#', u.id, '（', LEFT(u.phone, 3), '****', RIGHT(u.phone, 4), '）')"
 
 filters:
   status:
@@ -93,6 +124,11 @@ filters:
     column: o.order_source
     type: enum
     values: [NORMAL, SECKILL]
+  product_type:
+    label: 商品类型
+    column: oi.product_type
+    type: enum
+    values: [PHYSICAL, DIGITAL]
   category_id:
     label: 商品分类
     column: c.id
