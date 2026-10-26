@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -106,6 +107,43 @@ class Nl2sqlQueryIntegrationTest {
                 "SELECT sql_text FROM nl2sql_log WHERE user_id = ? ORDER BY id DESC LIMIT 1",
                 String.class, admin.id());
         assertThat(sql).contains("SELECT").contains("?").doesNotContain("20.00");
+    }
+
+    @Test
+    void adminCanReadAuditLogsWithStatusFilter() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        jdbcTemplate.update("""
+                INSERT INTO nl2sql_log
+                    (user_id, role, question, row_count, latency_ms, status, trace_id)
+                VALUES (?, 'SUPER_ADMIN', '最近30天销售额', 3, 120, 'SUCCESS', 'trace-1')
+                """, admin.id());
+        jdbcTemplate.update("""
+                INSERT INTO nl2sql_log
+                    (user_id, role, question, row_count, latency_ms, status,
+                     reject_reason, trace_id)
+                VALUES (?, 'SUPER_ADMIN', '用户性别分布', 0, 80, 'REJECTED',
+                        'UNSUPPORTED_METRIC: 不支持的指标', 'trace-2')
+                """, admin.id());
+
+        mockMvc.perform(get("/api/admin/nl2sql/logs")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items[0].status").value("REJECTED"))
+                .andExpect(jsonPath("$.items[0].question").value("用户性别分布"))
+                .andExpect(jsonPath("$.items[1].status").value("SUCCESS"));
+
+        mockMvc.perform(get("/api/admin/nl2sql/logs")
+                        .param("status", "SUCCESS")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].question").value("最近30天销售额"));
+
+        Session user = register(USER_PHONE);
+        mockMvc.perform(get("/api/admin/nl2sql/logs")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isForbidden());
     }
 
     @Test

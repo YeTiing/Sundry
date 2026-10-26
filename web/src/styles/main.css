@@ -1998,3 +1998,255 @@ a.buy-row__action {
   text-align: center;
   text-decoration: none;
 }
+
+/* ---------- 经营分析 NL2SQL ---------- */
+
+.nl2sql-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(290px, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.nl2sql-vocab {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 18px;
+  padding: 12px;
+  border: 1px dashed var(--rule);
+  background: var(--sheet);
+}
+
+.nl2sql-vocab-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.nl2sql-vocab-label {
+  min-width: 36px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.nl2sql-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  font-size: 12px;
+}
+
+.nl2sql-chip small {
+  color: var(--muted);
+}
+
+.nl2sql-form {
+  display: grid;
+  gap: 8px;
+}
+
+.nl2sql-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
+  background: var(--sheet);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.nl2sql-input:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.nl2sql-form-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nl2sql-error {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--stamp);
+  background: #f8ecea;
+  color: var(--stamp);
+  font-size: 13px;
+}
+
+.nl2sql-code {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.nl2sql-answer {
+  margin: 16px 0 12px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--blue);
+  background: var(--blue-wash);
+  font-size: 14px;
+}
+
+.nl2sql-table-wrap {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+}
+
+.nl2sql-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.nl2sql-table th,
+.nl2sql-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.nl2sql-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.nl2sql-table th small {
+  color: var(--muted);
+}
+
+.nl2sql-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+.nl2sql-plan {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+  font-size: 12px;
+}
+
+.nl2sql-plan div {
+  display: flex;
+  gap: 10px;
+}
+
+.nl2sql-plan span {
+  min-width: 40px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.nl2sql-audit {
+  position: sticky;
+  top: 24px;
+}
+
+.nl2sql-select {
+  padding: 4px 8px;
+  border: 1px solid var(--rule-strong);
+  background: var(--sheet);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.nl2sql-log-list {
+  display: grid;
+  gap: 10px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.nl2sql-log {
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+}
+
+.nl2sql-log header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nl2sql-log-time {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.nl2sql-status {
+  padding: 1px 6px;
+  border: 1px solid var(--rule-strong);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.nl2sql-status[data-status="SUCCESS"] {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.nl2sql-status[data-status="REJECTED"],
+.nl2sql-status[data-status="UNSUPPORTED"],
+.nl2sql-status[data-status="DB_ERROR"],
+.nl2sql-status[data-status="TIMEOUT"],
+.nl2sql-status[data-status="AI_UNAVAILABLE"] {
+  border-color: var(--stamp);
+  color: var(--stamp);
+}
+
+.nl2sql-log-question {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.nl2sql-log-reason {
+  margin: 4px 0 0;
+  color: var(--stamp);
+  font-size: 12px;
+}
+
+.nl2sql-log-meta {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .nl2sql-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .nl2sql-audit {
+    position: static;
+  }
+}

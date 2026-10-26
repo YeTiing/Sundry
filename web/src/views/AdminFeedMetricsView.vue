@@ -72,6 +72,7 @@ onMounted(load)
           <RouterLink to="/admin/orders">订单管理</RouterLink>
           <RouterLink to="/admin/seckill">秒杀活动</RouterLink>
           <RouterLink to="/admin/feed">推荐指标</RouterLink>
+          <RouterLink to="/admin/nl2sql">经营分析</RouterLink>
           <button class="link-button" type="button" @click="logout">退出登录</button>
         </nav>
       </header>

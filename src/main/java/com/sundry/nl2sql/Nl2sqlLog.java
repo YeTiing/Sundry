@@ -1,5 +1,7 @@
 package com.sundry.nl2sql;
 
+import java.time.LocalDateTime;
+
 public class Nl2sqlLog {
 
     private Long id;
@@ -14,6 +16,15 @@ public class Nl2sqlLog {
     private String status;
     private String rejectReason;
     private String traceId;
+    private LocalDateTime createdAt;
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
 
     public Long getId() {
         return id;

@@ -1,10 +1,12 @@
 package com.sundry.nl2sql;
 
 import com.sundry.auth.security.AuthenticatedUser;
+import com.sundry.common.api.PageResponse;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
 import com.sundry.nl2sql.ValidatedPlan.Dimension;
 import com.sundry.nl2sql.ValidatedPlan.Metric;
+import com.sundry.nl2sql.dto.Nl2sqlLogView;
 import com.sundry.nl2sql.dto.Nl2sqlPlanRequest;
 import com.sundry.nl2sql.dto.Nl2sqlPlanResponse;
 import com.sundry.nl2sql.dto.Nl2sqlQueryRequest;
@@ -20,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -29,6 +32,8 @@ import java.util.UUID;
 public class Nl2sqlService {
 
     private static final Logger log = LoggerFactory.getLogger(Nl2sqlService.class);
+    private static final Set<String> STATUSES = Set.of(
+            "SUCCESS", "REJECTED", "UNSUPPORTED", "DB_ERROR", "TIMEOUT", "AI_UNAVAILABLE");
 
     private final Nl2sqlProperties properties;
     private final SemanticLayerProvider provider;
@@ -54,6 +59,27 @@ public class Nl2sqlService {
         this.logMapper = logMapper;
         this.rateLimiter = rateLimiter;
         this.objectMapper = objectMapper;
+    }
+
+    /**
+     * 审计列表不依赖 enabled 开关：即使查询功能关闭，管理员也能看历史记录。
+     */
+    public PageResponse<Nl2sqlLogView> logs(int page, int size, String status) {
+        int safePage = Math.max(1, page);
+        int safeSize = Math.min(Math.max(1, size), 50);
+        String normalized = status == null || status.isBlank()
+                ? null : status.trim().toUpperCase();
+        if (normalized != null && !STATUSES.contains(normalized)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "状态不合法");
+        }
+        long offset = (long) (safePage - 1) * safeSize;
+        List<Nl2sqlLogView> items = logMapper.findPage(normalized, offset, safeSize).stream()
+                .map(log -> new Nl2sqlLogView(log.getId(), log.getUserId(), log.getRole(),
+                        log.getSessionId(), log.getQuestion(), log.getRowCount(),
+                        log.getLatencyMs(), log.getStatus(), log.getRejectReason(),
+                        log.getTraceId(), log.getCreatedAt()))
+                .toList();
+        return new PageResponse<>(items, logMapper.count(normalized), safePage, safeSize);
     }
 
     public Nl2sqlQueryView query(AuthenticatedUser user, Nl2sqlQueryRequest request) {

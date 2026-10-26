@@ -243,6 +243,7 @@ onMounted(async () => {
           <RouterLink to="/admin/categories">分类管理</RouterLink>
           <RouterLink to="/admin/orders">订单管理</RouterLink>
           <RouterLink to="/admin">图片与用户</RouterLink>
+          <RouterLink to="/admin/nl2sql">经营分析</RouterLink>
           <button class="link-button" type="button" @click="logout">退出登录</button>
         </nav>
       </header>

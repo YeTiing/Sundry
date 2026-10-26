@@ -2200,6 +2200,29 @@ sundry_seckill_compensation_total = 0
 
 - 待提交：`feat: A5 S2 计划校验与只读查询`
 
+## 2026-10-26 · A5 S3：管理端经营分析页与审计
+
+**做了什么**
+
+- 新增 `GET /api/admin/nl2sql/logs`：管理员分页查看 `nl2sql_log`，支持状态筛选
+- 新增 `/admin/nl2sql` 页面
+  - 来自词汇表的指标、维度、时间预设、筛选标签
+  - 问题输入（500 字）、结果表格、计划摘要、耗时与 trace
+  - 按错误码展示拒绝原因（未开放/超出词汇表/计划拒绝/限流等）
+  - 最近 10 条审计，按状态筛选，刷新后更新
+- 6 个现有管理页导航增加「经营分析」
+- 审计列表只返回问题、状态、原因、行数、耗时、trace，不向前端暴露 SQL 和表列名
+
+**验证**
+
+- Java：259 个用例全部通过（新增审计列表分页/状态筛选/权限用例）
+- Python：26 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: A5 S3 管理端经营分析页`
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。

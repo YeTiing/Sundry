@@ -1,8 +1,10 @@
 package com.sundry.nl2sql;
 
 import com.sundry.auth.security.AuthenticatedUser;
+import com.sundry.common.api.PageResponse;
 import com.sundry.common.exception.BusinessException;
 import com.sundry.common.exception.ErrorCode;
+import com.sundry.nl2sql.dto.Nl2sqlLogView;
 import com.sundry.nl2sql.dto.Nl2sqlQueryRequest;
 import com.sundry.nl2sql.dto.Nl2sqlQueryView;
 import com.sundry.nl2sql.dto.SemanticVocabulary;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -31,6 +34,14 @@ public class AdminNl2sqlController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
     public SemanticVocabulary vocabulary() {
         return provider.layer().vocabulary();
+    }
+
+    @GetMapping("/logs")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    public PageResponse<Nl2sqlLogView> logs(@RequestParam(defaultValue = "1") int page,
+                                            @RequestParam(defaultValue = "20") int size,
+                                            @RequestParam(required = false) String status) {
+        return nl2sqlService.logs(page, size, status);
     }
 
     @PostMapping("/query")

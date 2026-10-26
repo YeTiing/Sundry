@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AdminCategoriesView from '@/views/AdminCategoriesView.vue'
 import AdminFeedMetricsView from '@/views/AdminFeedMetricsView.vue'
+import AdminNl2sqlView from '@/views/AdminNl2sqlView.vue'
 import AdminOrdersView from '@/views/AdminOrdersView.vue'
 import AdminProductsView from '@/views/AdminProductsView.vue'
 import AdminSeckillView from '@/views/AdminSeckillView.vue'
@@ -106,6 +107,12 @@ const router = createRouter({
       path: '/admin/feed',
       name: 'admin-feed',
       component: AdminFeedMetricsView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/nl2sql',
+      name: 'admin-nl2sql',
+      component: AdminNl2sqlView,
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
