@@ -40,4 +40,51 @@ public interface FeedQueryMapper {
 
     List<Long> findRecentPurchasedProductIds(@Param("userId") Long userId,
                                              @Param("limit") int limit);
+
+    List<ProductExposureCount> countProductExposures(@Param("productIds") List<Long> productIds,
+                                                     @Param("since") LocalDateTime since);
+
+    List<CategoryExposureCount> countCategoryExposures(@Param("since") LocalDateTime since);
+
+    class ProductExposureCount {
+        private Long productId;
+        private Long exposures;
+
+        public Long getProductId() {
+            return productId;
+        }
+
+        public void setProductId(Long productId) {
+            this.productId = productId;
+        }
+
+        public Long getExposures() {
+            return exposures;
+        }
+
+        public void setExposures(Long exposures) {
+            this.exposures = exposures;
+        }
+    }
+
+    class CategoryExposureCount {
+        private Long categoryId;
+        private Long exposures;
+
+        public Long getCategoryId() {
+            return categoryId;
+        }
+
+        public void setCategoryId(Long categoryId) {
+            this.categoryId = categoryId;
+        }
+
+        public Long getExposures() {
+            return exposures;
+        }
+
+        public void setExposures(Long exposures) {
+            this.exposures = exposures;
+        }
+    }
 }

@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 365 个 Java 用例 + 30 个 Python 用例 |
+| 测试 | 368 个 Java 用例 + 30 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2614,6 +2614,31 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: AI 推流稳定分流与规则对照指标`
+
+## 2026-10-26 · AI 推流 EXPLORE 真探索
+
+**做了什么**
+
+- 新增 `FeedExploreService`
+  - 从候选 + 候选尾部池里挑 **低曝光**（近 7 天曝光 ≤5）、非头部类目、在售有库存的商品
+  - 强制替换 EXPLORE 变体的固定位置（从第 2 个位置起，按步长分散），不再只依赖 prompt
+  - 数字商品不受库存限制；类目曝光作为次级排序
+  - 用 userId + productId + 日期做稳定 hash 打破平局，同一用户当天可复现
+- 在 `dedupHeads` 之后执行探索，避免头图去重把探索位换掉
+- 快照 `variants[].explored` 记录被强制探索的商品 ID
+- 配置：`FEED_EXPLORE_ENABLED`、`FEED_EXPLORE_SLOTS_PERCENT=20`、
+  `FEED_EXPLORE_EXPOSURE_DAYS=7`、`FEED_EXPLORE_EXPOSURE_THRESHOLD=5`
+
+**验证**
+
+- Java：368 个用例全部通过（新增 3 个探索用例：低曝光置换、无冷门不变、缺货跳过）
+- Python：30 个用例通过
+- `npm run build` 通过
+- 快照用例断言 `variants[].explored` 已写入
+
+**提交**
+
+- 待提交：`feat: AI 推流 EXPLORE 真探索置换`
 
 ## 待办 / 下一步
 

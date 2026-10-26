@@ -25,6 +25,12 @@ public class FeedProperties {
     private boolean experimentEnabled = true;
     private int experimentControlPercent = 10;
 
+    private boolean exploreEnabled = true;
+    private int exploreSlotsPercent = 20;
+    private int exploreExposureDays = 7;
+    private int exploreExposureThreshold = 5;
+    private int explorePoolLimit = 200;
+
     private int recallHotLimit = 120;
     private int recallNewLimit = 60;
     private int recallCategoryLimit = 120;
@@ -132,6 +138,46 @@ public class FeedProperties {
 
     public void setExperimentControlPercent(int experimentControlPercent) {
         this.experimentControlPercent = experimentControlPercent;
+    }
+
+    public boolean isExploreEnabled() {
+        return exploreEnabled;
+    }
+
+    public void setExploreEnabled(boolean exploreEnabled) {
+        this.exploreEnabled = exploreEnabled;
+    }
+
+    public int getExploreSlotsPercent() {
+        return Math.min(Math.max(exploreSlotsPercent, 0), 50);
+    }
+
+    public void setExploreSlotsPercent(int exploreSlotsPercent) {
+        this.exploreSlotsPercent = exploreSlotsPercent;
+    }
+
+    public int getExploreExposureDays() {
+        return Math.max(1, exploreExposureDays);
+    }
+
+    public void setExploreExposureDays(int exploreExposureDays) {
+        this.exploreExposureDays = exploreExposureDays;
+    }
+
+    public int getExploreExposureThreshold() {
+        return Math.max(0, exploreExposureThreshold);
+    }
+
+    public void setExploreExposureThreshold(int exploreExposureThreshold) {
+        this.exploreExposureThreshold = exploreExposureThreshold;
+    }
+
+    public int getExplorePoolLimit() {
+        return Math.min(Math.max(explorePoolLimit, 20), 500);
+    }
+
+    public void setExplorePoolLimit(int explorePoolLimit) {
+        this.explorePoolLimit = explorePoolLimit;
     }
 
     public int getRecallHotLimit() {

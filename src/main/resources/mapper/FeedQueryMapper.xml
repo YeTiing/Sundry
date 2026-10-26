@@ -145,4 +145,26 @@
         LIMIT #{limit}
     </select>
 
+    <select id="countProductExposures"
+            resultType="com.sundry.feed.FeedQueryMapper$ProductExposureCount">
+        SELECT product_id, COUNT(*) AS exposures
+        FROM feed_event
+        WHERE event_type = 'EXPOSURE'
+          AND created_at &gt;= #{since}
+          AND product_id IN
+        <foreach collection="productIds" item="productId" open="(" separator="," close=")">
+            #{productId}
+        </foreach>
+        GROUP BY product_id
+    </select>
+
+    <select id="countCategoryExposures"
+            resultType="com.sundry.feed.FeedQueryMapper$CategoryExposureCount">
+        SELECT category_id, COUNT(*) AS exposures
+        FROM feed_event
+        WHERE event_type = 'EXPOSURE'
+          AND created_at &gt;= #{since}
+        GROUP BY category_id
+    </select>
+
 </mapper>

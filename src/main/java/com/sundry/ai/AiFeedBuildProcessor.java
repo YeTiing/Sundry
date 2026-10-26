@@ -2,6 +2,7 @@ package com.sundry.ai;
 
 import com.sundry.ai.FeedSnapshot.SnapshotItem;
 import com.sundry.ai.dto.RerankRequest;
+import com.sundry.feed.FeedExploreService;
 import com.sundry.ai.dto.RerankResponse;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -48,17 +49,20 @@ public class AiFeedBuildProcessor {
     private final AiFeedLogMapper logMapper;
     private final AiProperties properties;
     private final ObjectMapper objectMapper;
+    private final FeedExploreService exploreService;
 
     public AiFeedBuildProcessor(AiFeedStore store, AiFeedClient client,
                                 AiFeedProfileService profileService,
                                 AiFeedLogMapper logMapper, AiProperties properties,
-                                ObjectMapper objectMapper) {
+                                ObjectMapper objectMapper,
+                                FeedExploreService exploreService) {
         this.store = store;
         this.client = client;
         this.profileService = profileService;
         this.logMapper = logMapper;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.exploreService = exploreService;
         int concurrency = Math.max(1, properties.getFeedBuildConcurrency());
         this.buildExecutor = Executors.newFixedThreadPool(concurrency,
                 daemonFactory("ai-feed-builder"));
@@ -246,7 +250,40 @@ public class AiFeedBuildProcessor {
             }
         }
         dedupHeads(variants);
+        applyExploration(userId, bundle, variants);
         return variants;
+    }
+
+    /**
+     * 在去重之后强制替换 EXPLORE 的固定位置，避免探索位被头图去重换掉。
+     */
+    private void applyExploration(Long userId, AiFeedProfileService.CandidateBundle bundle,
+                                  List<VariantBuild> variants) {
+        List<Long> pool = new ArrayList<>();
+        bundle.candidates().forEach(candidate -> pool.add(candidate.id()));
+        pool.addAll(bundle.tail());
+        for (int i = 0; i < variants.size(); i++) {
+            VariantBuild variant = variants.get(i);
+            if (!STRATEGY_EXPLORE.equals(variant.strategy()) || variant.items().isEmpty()) {
+                continue;
+            }
+            List<Long> rankedIds = variant.items().stream().map(SnapshotItem::id).toList();
+            FeedExploreService.ExploreResult explored = exploreService.apply(userId, rankedIds, pool);
+            if (!explored.changed()) {
+                continue;
+            }
+            Map<Long, String> reasons = new LinkedHashMap<>();
+            for (SnapshotItem item : variant.items()) {
+                reasons.put(item.id(), item.reason());
+            }
+            List<SnapshotItem> items = explored.ids().stream()
+                    .map(id -> new SnapshotItem(id,
+                            explored.exploredIds().contains(id) ? "探索" : reasons.get(id)))
+                    .toList();
+            variants.set(i, new VariantBuild(variant.buildId(), variant.strategy(),
+                    variant.model(), variant.promptVersion(), items, variant.llmCount(),
+                    List.copyOf(explored.exploredIds())));
+        }
     }
 
     /**
@@ -256,7 +293,7 @@ public class AiFeedBuildProcessor {
         MergeResult merged = merge(List.of(), bundle);
         return new VariantBuild(strategy + ":" + UUID.randomUUID(), strategy,
                 FeedSnapshot.RULE_FALLBACK_MODEL, "rule_fallback",
-                limit(merged.items()), 0);
+                limit(merged.items()), 0, List.of());
     }
 
     private VariantBuild buildVariant(Long userId, AiFeedProfileService.CandidateBundle bundle,
@@ -270,7 +307,7 @@ public class AiFeedBuildProcessor {
         }
         return new VariantBuild(strategy + ":" + UUID.randomUUID(), strategy,
                 response.model(), response.promptVersion(),
-                limit(merged.items()), merged.llmCount());
+                limit(merged.items()), merged.llmCount(), List.of());
     }
 
     private List<SnapshotItem> limit(List<SnapshotItem> items) {
@@ -367,7 +404,8 @@ public class AiFeedBuildProcessor {
     }
 
     private record VariantBuild(String buildId, String strategy, String model,
-                                String promptVersion, List<SnapshotItem> items, int llmCount) {
+                                String promptVersion, List<SnapshotItem> items, int llmCount,
+                                List<Long> exploredIds) {
     }
 
     private String sanitize(String reason) {
@@ -402,6 +440,7 @@ public class AiFeedBuildProcessor {
                 item.put("promptVersion", variant.promptVersion());
                 item.put("items", variant.items().stream()
                         .map(SnapshotItem::id).toList());
+                item.put("explored", variant.exploredIds());
                 return item;
             }).toList());
             return objectMapper.writeValueAsString(root);

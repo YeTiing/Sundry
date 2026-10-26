@@ -186,7 +186,8 @@ class AiFeedIntegrationTest {
         assertThat(snapshot)
                 .contains("\"candidates\"")
                 .contains("\"ruleScore\"")
-                .contains("\"variants\"");
+                .contains("\"variants\"")
+                .contains("\"explored\"");
     }
 
     @Test

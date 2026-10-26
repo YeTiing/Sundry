@@ -100,6 +100,11 @@ app:
   feed:
     experiment-enabled: ${FEED_EXPERIMENT_ENABLED:true}
     experiment-control-percent: ${FEED_EXPERIMENT_CONTROL_PERCENT:10}
+    explore-enabled: ${FEED_EXPLORE_ENABLED:true}
+    explore-slots-percent: ${FEED_EXPLORE_SLOTS_PERCENT:20}
+    explore-exposure-days: ${FEED_EXPLORE_EXPOSURE_DAYS:7}
+    explore-exposure-threshold: ${FEED_EXPLORE_EXPOSURE_THRESHOLD:5}
+    explore-pool-limit: ${FEED_EXPLORE_POOL_LIMIT:200}
     behavior-batch-size: 500
     behavior-flush-interval: 2s
     behavior-retention-days: 30
