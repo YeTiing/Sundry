@@ -4,6 +4,8 @@ import com.sundry.ai.FeedSnapshot.SnapshotItem;
 import com.sundry.ai.dto.RerankRequest;
 import com.sundry.feed.FeedExploreService;
 import com.sundry.ai.dto.RerankResponse;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +14,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,12 +53,14 @@ public class AiFeedBuildProcessor {
     private final AiProperties properties;
     private final ObjectMapper objectMapper;
     private final FeedExploreService exploreService;
+    private final MeterRegistry meterRegistry;
 
     public AiFeedBuildProcessor(AiFeedStore store, AiFeedClient client,
                                 AiFeedProfileService profileService,
                                 AiFeedLogMapper logMapper, AiProperties properties,
                                 ObjectMapper objectMapper,
-                                FeedExploreService exploreService) {
+                                FeedExploreService exploreService,
+                                MeterRegistry meterRegistry) {
         this.store = store;
         this.client = client;
         this.profileService = profileService;
@@ -63,6 +68,7 @@ public class AiFeedBuildProcessor {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.exploreService = exploreService;
+        this.meterRegistry = meterRegistry;
         int concurrency = Math.max(1, properties.getFeedBuildConcurrency());
         this.buildExecutor = Executors.newFixedThreadPool(concurrency,
                 daemonFactory("ai-feed-builder"));
@@ -250,8 +256,51 @@ public class AiFeedBuildProcessor {
             }
         }
         dedupHeads(variants);
+        applyDiversity(variants, bundle);
         applyExploration(userId, bundle, variants);
         return variants;
+    }
+
+    /**
+     * PREF 的模型顺序做保序纠偏；EXPLORE 已有强制探索，不再二次调整。
+     */
+    private void applyDiversity(List<VariantBuild> variants,
+                                AiFeedProfileService.CandidateBundle bundle) {
+        if (!properties.isFeedDiversityEnabled()) {
+            return;
+        }
+        Map<Long, String> categories = new HashMap<>();
+        for (RerankRequest.Candidate candidate : bundle.candidates()) {
+            if (candidate.id() != null && candidate.category() != null) {
+                categories.put(candidate.id(), candidate.category());
+            }
+        }
+        for (int i = 0; i < variants.size(); i++) {
+            VariantBuild variant = variants.get(i);
+            if (!STRATEGY_PREF.equals(variant.strategy())
+                    || FeedSnapshot.RULE_FALLBACK_MODEL.equals(variant.model())) {
+                continue;
+            }
+            FeedDiversityRanker.Result result = FeedDiversityRanker.reorder(
+                    variant.items(), categories,
+                    properties.getFeedDiversityMaxConsecutive(),
+                    properties.getFeedDiversityMinCategoriesTop(),
+                    properties.getFeedDiversityTopK());
+            if (!result.changed()) {
+                continue;
+            }
+            variants.set(i, new VariantBuild(variant.buildId(), variant.strategy(),
+                    variant.model(), variant.promptVersion(), result.items(),
+                    variant.llmCount(), variant.exploredIds()));
+            Counter.builder("sundry.feed.ai.diversity.adjusted")
+                    .register(meterRegistry).increment();
+            Counter.builder("sundry.feed.ai.diversity.moved")
+                    .register(meterRegistry).increment(result.moved());
+            if (result.relaxed() > 0) {
+                Counter.builder("sundry.feed.ai.diversity.relaxed")
+                        .register(meterRegistry).increment(result.relaxed());
+            }
+        }
     }
 
     /**

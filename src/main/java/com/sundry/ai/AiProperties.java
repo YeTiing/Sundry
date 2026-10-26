@@ -30,6 +30,10 @@ public class AiProperties {
     private Duration feedBuildRejectCooldown = Duration.ofSeconds(2);
     private int feedBuildConcurrency = 2;
     private int feedVariantMaxItems = 120;
+    private boolean feedDiversityEnabled = true;
+    private int feedDiversityMaxConsecutive = 3;
+    private int feedDiversityMinCategoriesTop = 3;
+    private int feedDiversityTopK = 10;
     private int feedLlmMaxConcurrent = 4;
     private int feedLlmGlobalConcurrency = 0;
     private Duration feedLlmLeaseTtl = Duration.ofSeconds(60);
@@ -188,6 +192,38 @@ public class AiProperties {
 
     public void setFeedVariantMaxItems(int feedVariantMaxItems) {
         this.feedVariantMaxItems = feedVariantMaxItems;
+    }
+
+    public boolean isFeedDiversityEnabled() {
+        return feedDiversityEnabled;
+    }
+
+    public void setFeedDiversityEnabled(boolean feedDiversityEnabled) {
+        this.feedDiversityEnabled = feedDiversityEnabled;
+    }
+
+    public int getFeedDiversityMaxConsecutive() {
+        return feedDiversityMaxConsecutive;
+    }
+
+    public void setFeedDiversityMaxConsecutive(int feedDiversityMaxConsecutive) {
+        this.feedDiversityMaxConsecutive = feedDiversityMaxConsecutive;
+    }
+
+    public int getFeedDiversityMinCategoriesTop() {
+        return feedDiversityMinCategoriesTop;
+    }
+
+    public void setFeedDiversityMinCategoriesTop(int feedDiversityMinCategoriesTop) {
+        this.feedDiversityMinCategoriesTop = feedDiversityMinCategoriesTop;
+    }
+
+    public int getFeedDiversityTopK() {
+        return feedDiversityTopK;
+    }
+
+    public void setFeedDiversityTopK(int feedDiversityTopK) {
+        this.feedDiversityTopK = feedDiversityTopK;
     }
 
     public int getFeedLlmMaxConcurrent() {

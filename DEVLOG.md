@@ -30,11 +30,11 @@
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
 | 秒杀 | 活动管理、Redis Lua 抢购、一人一单、取消后可重抢、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
-| 推荐 | 首页 Feed：多路召回（分类/协同/热销/新品/语义）、规则打分（分类/热度/新鲜度/标签）、多样性重排、Redis 快照、无限滑动；登录用户 AI 异步重排；构建额度分层（冷却/每小时/首访保底令牌桶）；曝光/点击 Kafka 异步回流；后台离线评估 |
+| 推荐 | 首页 Feed：多路召回（分类/协同/热销/新品/语义）、规则打分（分类/热度/新鲜度/标签）、多样性重排、Redis 快照、无限滑动；登录用户 AI 异步重排（PREF 多样性校正）；构建额度分层（冷却/每小时/首访保底令牌桶）；曝光/点击 Kafka 异步回流；后台离线评估 |
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 375 个 Java 用例 + 30 个 Python 用例 |
+| 测试 | 380 个 Java 用例 + 30 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2747,6 +2747,42 @@ sundry_seckill_compensation_total = 0
 - 真实链路：4 个用户构建 SUCCESS（`deepseek-chat`，1.7~3.1s），1 个 10% 对照组 RULE；首访桶剩余 6.15/10
 - 真实链路：用户每小时计数设为 6 时不再触发构建（ai_feed_log 3→3），清除计数后恢复（3→4）
 - 全量 Java：375 个用例，0 失败 0 错误
+
+**提交**
+
+- 待提交
+
+## 2026-10-26 · AI PREF 多样性校正
+
+**做了什么**
+
+- 新增 `FeedDiversityRanker`：保序 first-fit，先限制同分类连续数量，再保证 TopK 分类数
+- `AiFeedBuildProcessor` 在 `dedupHeads` 之后对 PREF 变体应用；EXPLORE 和规则降级不变
+- 配置 `feed-diversity-enabled / max-consecutive / min-categories-top / top-k`
+- 指标 `sundry.feed.ai.diversity.adjusted / moved / relaxed`
+- 设计文档：`docs/FEED_DIVERSITY_DESIGN.md`
+
+**遇到问题**
+
+- AI PREF 的偏好命中很高，但 Top10 几乎只剩一个分类（多样性 1.08）
+- prompt 里“同一分类不要连续超过 3 个”模型没有可靠执行，`merge` 也没有后置约束
+
+**解决**
+
+- 后置保序纠偏：连续超限时向后找第一个可放的商品；TopK 分类不足时从尾部换入
+- 只动 PREF，不动 EXPLORE 和规则降级
+- 参数可调，`relaxed` 指标用于发现候选分类不足
+
+**验证**
+
+- `FeedDiversityRankerTest` 5 个用例通过
+- 13 个用户的离线质量对比：
+  - 规则：NDCG@10 0.612 / P@10 0.500 / 分类多样性 4.15
+  - AI PREF 校正前：0.995 / 0.992 / 1.08
+  - AI PREF 校正后：0.815 / 0.769 / 3.08
+  - 13/13 用户 AI PREF NDCG 仍高于规则
+- `AiFeedIntegrationTest` 26 个、`FeedIntegrationTest` 8 个通过
+- 全量 Java：380 个用例，0 失败 0 错误
 
 **提交**
 

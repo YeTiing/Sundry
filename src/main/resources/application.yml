@@ -161,6 +161,10 @@ app:
     feed-build-reject-cooldown: ${AI_FEED_BUILD_REJECT_COOLDOWN:2s}
     feed-build-concurrency: ${AI_FEED_BUILD_CONCURRENCY:2}
     feed-variant-max-items: ${AI_FEED_VARIANT_MAX_ITEMS:120}
+    feed-diversity-enabled: ${AI_FEED_DIVERSITY_ENABLED:true}
+    feed-diversity-max-consecutive: ${AI_FEED_DIVERSITY_MAX_CONSECUTIVE:3}
+    feed-diversity-min-categories-top: ${AI_FEED_DIVERSITY_MIN_CATEGORIES_TOP:3}
+    feed-diversity-top-k: ${AI_FEED_DIVERSITY_TOP_K:10}
     feed-llm-max-concurrent: ${AI_FEED_LLM_MAX_CONCURRENT:4}
     feed-llm-global-concurrency: ${AI_FEED_LLM_GLOBAL_CONCURRENCY:0}
     feed-llm-lease-ttl: ${AI_FEED_LLM_LEASE_TTL:60s}
