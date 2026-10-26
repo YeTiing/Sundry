@@ -103,6 +103,7 @@ public class SemanticLayerProvider {
         return new SemanticLayer.Base(
                 required(map, "from_table"),
                 required(map, "from_alias"),
+                required(map, "time_column"),
                 joins,
                 strings(map.get("where")));
     }

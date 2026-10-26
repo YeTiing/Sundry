@@ -10,9 +10,12 @@ from app.embeddings import EmbeddingClient, get_embedding_client
 from app.llm import LlmClient, get_llm
 from app.prompt import (
     ASSISTANT_PROMPT_VERSION,
+    NL2SQL_PLAN_PROMPT_VERSION,
     PROMPT_VERSION,
     assistant_prompt,
+    build_nl2sql_user_prompt,
     build_user_prompt,
+    nl2sql_plan_prompt,
     system_prompt,
 )
 from app.schemas import (
@@ -22,6 +25,9 @@ from app.schemas import (
     EmbeddingRequest,
     EmbeddingResponse,
     LlmOutput,
+    Nl2SqlPlan,
+    Nl2SqlPlanRequest,
+    Nl2SqlPlanResponse,
     RerankItem,
     RerankRequest,
     RerankResponse,
@@ -159,6 +165,70 @@ def _assistant_user_prompt(request: AssistantChatRequest) -> str:
             content = str(item.get("content", ""))[:300]
             lines.append(f"- {role}: {content}")
     return "\n".join(lines)
+
+
+@app.post(
+    "/internal/nl2sql/plan",
+    response_model=Nl2SqlPlanResponse,
+    dependencies=[Depends(require_token)],
+)
+async def nl2sql_plan(
+    request: Nl2SqlPlanRequest,
+    llm: LlmClient = Depends(get_llm),
+    settings: Settings = Depends(get_settings),
+) -> Nl2SqlPlanResponse:
+    try:
+        raw = await llm.complete(
+            nl2sql_plan_prompt(),
+            build_nl2sql_user_prompt(
+                request.vocabulary, request.question, request.role, request.history
+            ),
+        )
+    except Exception as exc:
+        logger.warning("nl2sql plan llm failed", exc_info=exc)
+        raise HTTPException(status_code=503, detail="nl2sql planner unavailable") from exc
+
+    if not raw.strip():
+        raise HTTPException(status_code=503, detail="model returned empty output")
+
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return Nl2SqlPlanResponse(
+            plan=None,
+            unsupported=True,
+            reason="模型输出不是 JSON",
+            model=settings.deepseek_model,
+            prompt_version=NL2SQL_PLAN_PROMPT_VERSION,
+        )
+
+    if isinstance(payload, dict) and payload.get("unsupported"):
+        reason = str(payload.get("reason", ""))[:200]
+        return Nl2SqlPlanResponse(
+            plan=None,
+            unsupported=True,
+            reason=reason or "词汇表无法表达该问题",
+            model=settings.deepseek_model,
+            prompt_version=NL2SQL_PLAN_PROMPT_VERSION,
+        )
+
+    try:
+        plan: Nl2SqlPlan = Nl2SqlPlan.model_validate(payload)
+    except (ValidationError, TypeError):
+        logger.warning("invalid nl2sql plan: %s", raw[:1000])
+        return Nl2SqlPlanResponse(
+            plan=None,
+            unsupported=True,
+            reason="模型输出不符合计划结构",
+            model=settings.deepseek_model,
+            prompt_version=NL2SQL_PLAN_PROMPT_VERSION,
+        )
+
+    return Nl2SqlPlanResponse(
+        plan=plan,
+        model=settings.deepseek_model,
+        prompt_version=NL2SQL_PLAN_PROMPT_VERSION,
+    )
 
 
 def _clean_reason(reason: str) -> str:

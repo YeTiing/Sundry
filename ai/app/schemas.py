@@ -93,3 +93,44 @@ class EmbeddingResponse(BaseModel):
     vectors: list[list[float]]
     model: str
     dim: int
+
+
+class Nl2SqlFilter(BaseModel):
+    key: str = Field(min_length=1, max_length=32)
+    value: str | int
+
+
+class Nl2SqlSort(BaseModel):
+    metric: str = Field(min_length=1, max_length=32)
+    order: str = Field(default="desc", pattern="^(asc|desc)$")
+
+
+class Nl2SqlTime(BaseModel):
+    preset: str | None = Field(default=None, max_length=32)
+
+
+class Nl2SqlPlan(BaseModel):
+    metrics: list[str] = Field(min_length=1, max_length=3)
+    dimensions: list[str] = Field(default_factory=list, max_length=3)
+    filters: list[Nl2SqlFilter] = Field(default_factory=list, max_length=6)
+    time: Nl2SqlTime = Field(default_factory=Nl2SqlTime)
+    granularity: str = Field(default="day", pattern="^(day|week|month)$")
+    sort: list[Nl2SqlSort] = Field(default_factory=list, max_length=3)
+    limit: int = Field(default=10, ge=1, le=1000)
+
+
+class Nl2SqlPlanRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    role: str = Field(min_length=1, max_length=16)
+    vocabulary: dict
+    history: list[dict] = Field(default_factory=list, max_length=6)
+
+
+class Nl2SqlPlanResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    plan: Nl2SqlPlan | None = None
+    unsupported: bool = False
+    reason: str | None = None
+    model: str
+    prompt_version: str = Field(serialization_alias="promptVersion")

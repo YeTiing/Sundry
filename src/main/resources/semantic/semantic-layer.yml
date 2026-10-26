@@ -3,6 +3,7 @@ version: 1
 base:
   from_table: orders
   from_alias: o
+  time_column: o.paid_at
   joins:
     - table: order_item
       alias: oi

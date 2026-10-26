@@ -32,6 +32,16 @@ public class AiConfig {
     @Bean
     public RestClient assistantRestClient(AiProperties properties,
                                           @Value("${app.assistant.timeout:8s}") Duration timeout) {
+        return shortClient(properties, timeout);
+    }
+
+    @Bean
+    public RestClient nl2sqlRestClient(AiProperties properties,
+                                       @Value("${app.nl2sql.plan-timeout:8s}") Duration timeout) {
+        return shortClient(properties, timeout);
+    }
+
+    private RestClient shortClient(AiProperties properties, Duration timeout) {
         int millis = (int) Math.min(Integer.MAX_VALUE, timeout.toMillis());
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(millis);

@@ -2178,6 +2178,28 @@ sundry_seckill_compensation_total = 0
 
 - 待提交：`feat: A4 L2 订单与商品状态工具`
 
+## 2026-10-25 · A5 S2：计划校验、QueryBuilder、只读执行
+
+**做了什么**
+
+- Python `/internal/nl2sql/plan`：词汇表 + 问题 → 结构化计划；不支持时返回 `unsupported`
+- Java 计划校验：指标/维度/筛选白名单、数量上限、枚举值、时间 preset、limit、退款指标与商品维度不兼容
+- 时间只在 Java 换算：模型只给 `LAST_30D` 这类 preset，绝对区间由服务端生成
+- 参数化 SQL：指标、维度、筛选全部来自语义层，值只用 `?` 绑定；条件 JOIN 去重
+- 只读执行器：配置了 `NL2SQL_DB_*` 用独立只读池，否则开发环境回退主数据源；查询 3 秒超时 + 最大行数
+- `POST /api/admin/nl2sql/query`：管理员权限、10 次/分钟、`enabled` 开关
+- `nl2sql_log` 审计（V25）：计划、SQL、行数、耗时、拒绝原因
+
+**验证**
+
+- Java：258 个用例全部通过（新增 6 个校验/SQL 单测 + 3 个端到端用例）
+- Python：26 个用例通过（新增 4 个计划接口用例）
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: A5 S2 计划校验与只读查询`
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。

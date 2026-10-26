@@ -82,6 +82,12 @@ app:
     query-timeout-seconds: ${NL2SQL_QUERY_TIMEOUT:3}
     max-rows: ${NL2SQL_MAX_ROWS:1000}
     rate-limit-per-minute: ${NL2SQL_RATE_LIMIT:10}
+    plan-timeout: ${NL2SQL_PLAN_TIMEOUT:8s}
+    datasource:
+      url: ${NL2SQL_DB_URL:}
+      username: ${NL2SQL_DB_USERNAME:}
+      password: ${NL2SQL_DB_PASSWORD:}
+      maximum-pool-size: ${NL2SQL_DB_POOL:2}
   feed:
     behavior-batch-size: 500
     behavior-flush-interval: 2s

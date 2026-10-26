@@ -13,7 +13,8 @@ public record SemanticLayer(int version, Base base,
                             List<String> timePresets,
                             Limits limits) {
 
-    public record Base(String fromTable, String fromAlias, List<Join> joins, List<String> where) {
+    public record Base(String fromTable, String fromAlias, String timeColumn,
+                       List<Join> joins, List<String> where) {
     }
 
     public record Join(String table, String alias, String on) {

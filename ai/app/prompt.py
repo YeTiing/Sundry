@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from app.schemas import Candidate, Profile
@@ -7,6 +8,10 @@ _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "feed_rerank
 ASSISTANT_PROMPT_VERSION = "assistant_v1"
 _ASSISTANT_PROMPT_PATH = (
     Path(__file__).resolve().parent.parent / "prompts" / "assistant_v1.txt"
+)
+NL2SQL_PLAN_PROMPT_VERSION = "nl2sql_plan_v1"
+_NL2SQL_PLAN_PATH = (
+    Path(__file__).resolve().parent.parent / "prompts" / "nl2sql_plan_v1.txt"
 )
 
 STRATEGY_INSTRUCTIONS = {
@@ -25,6 +30,10 @@ def system_prompt(strategy: str | None = None) -> str:
 
 def assistant_prompt() -> str:
     return _ASSISTANT_PROMPT_PATH.read_text(encoding="utf-8").strip()
+
+
+def nl2sql_plan_prompt() -> str:
+    return _NL2SQL_PLAN_PATH.read_text(encoding="utf-8").strip()
 
 
 def build_user_prompt(profile: Profile, candidates: list[Candidate], limit: int) -> str:
@@ -58,4 +67,19 @@ def build_user_prompt(profile: Profile, candidates: list[Candidate], limit: int)
         lines.append(
             f"{item.id} | {item.name} | {item.category} | {item.price}"
         )
+    return "\n".join(lines)
+
+
+def build_nl2sql_user_prompt(vocabulary: dict, question: str, role: str,
+                             history: list[dict] | None = None) -> str:
+    lines = [
+        f"用户角色：{role}",
+        f"用户问题：{question}",
+        "词汇表：",
+        json.dumps(vocabulary, ensure_ascii=False),
+    ]
+    if history:
+        lines.append("最近对话：")
+        for item in history[-6:]:
+            lines.append(f"- 问：{item.get('question', '')}")
     return "\n".join(lines)
