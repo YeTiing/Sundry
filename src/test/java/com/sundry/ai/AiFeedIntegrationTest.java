@@ -152,14 +152,19 @@ class AiFeedIntegrationTest {
         Session user = register(USER_PHONE);
         seedProducts(6);
         Long[] validId = new Long[1];
+        Double[] ruleScore = new Double[1];
+        Integer[] ruleRank = new Integer[1];
         when(aiFeedClient.rerank(any(RerankRequest.class), anyString()))
                 .thenAnswer(invocation -> {
                     RerankRequest request = invocation.getArgument(0);
-                    validId[0] = request.candidates().get(0).id();
+                    RerankRequest.Candidate first = request.candidates().get(0);
+                    validId[0] = first.id();
+                    ruleScore[0] = first.ruleScore();
+                    ruleRank[0] = first.ruleRank();
                     return new RerankResponse(List.of(
                             new RerankResponse.RerankItem(999999L, "编造"),
                             new RerankResponse.RerankItem(validId[0], "有效")),
-                            "deepseek-chat", "feed_rerank_v2");
+                            "deepseek-chat", "feed_rerank_v3");
                 });
 
         refreshAndBuild(user.token(), 5);
@@ -171,6 +176,17 @@ class AiFeedIntegrationTest {
                 .andReturn();
         assertThat(ids(result)).doesNotContain(999999L);
         assertThat(ids(result).get(0)).isEqualTo(validId[0]);
+
+        assertThat(ruleScore[0]).isNotNull();
+        assertThat(ruleRank[0]).isEqualTo(1);
+        String snapshot = jdbcTemplate.queryForObject(
+                "SELECT candidate_snapshot FROM ai_feed_log WHERE user_id = ? "
+                        + "ORDER BY id DESC LIMIT 1",
+                String.class, user.id());
+        assertThat(snapshot)
+                .contains("\"candidates\"")
+                .contains("\"ruleScore\"")
+                .contains("\"variants\"");
     }
 
     @Test

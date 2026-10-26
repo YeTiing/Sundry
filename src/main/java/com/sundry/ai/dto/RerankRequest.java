@@ -26,6 +26,10 @@ public record RerankRequest(Long userId, Profile profile, List<Candidate> candid
     public record PriceBand(BigDecimal min, BigDecimal max) {
     }
 
-    public record Candidate(Long id, String name, String category, BigDecimal price) {
+    public record Candidate(Long id, String name, String category, BigDecimal price,
+                            Double affinityScore, Double hotness, Double freshness,
+                            Double tagScore, Double exploreBonus, Double ruleScore,
+                            Integer ruleRank, Boolean preferredCategory,
+                            Long salesCount, List<String> tags, Double priceDistance) {
     }
 }

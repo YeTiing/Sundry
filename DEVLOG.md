@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 357 个 Java 用例 + 29 个 Python 用例 |
+| 测试 | 357 个 Java 用例 + 30 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2531,6 +2531,29 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: 助手商品推荐与筛选`
+
+## 2026-10-26 · AI 推流：规则特征透出与候选快照
+
+**做了什么**
+
+- `FeedService` 保留规则打分的各分量：类目偏好、热度、新鲜度、标签匹配、随机分、探索加成、是否偏好类目、销量
+- 新增 `rankDetails(userId)`，返回带特征和规则排名的候选；`rankIds` 行为不变
+- `RerankRequest.Candidate` 增加上述特征、`ruleScore`、`ruleRank`、`priceDistance`
+- `AiFeedProfileService` 从 `rankDetails` 构造候选，价距按用户价位带归一化
+- Python `Candidate` 接收特征；新增 `feed_rerank_v3` prompt，把特征渲染给模型
+- `ai_feed_log` 新增 `candidate_snapshot JSON`（V26）：候选集、特征、PREF/EXPLORE 的最终顺序，供离线回放
+- 快照只记商品与特征，不记用户身份或地址
+
+**验证**
+
+- Java：357 个用例全部通过（AI Feed 用例断言 `ruleScore/ruleRank` 与快照内容）
+- Python：30 个用例通过（新增特征渲染断言，prompt 版本升到 v3）
+- `npm run build` 通过
+- 测试库自动应用 V26；快照包含 `candidates / ruleScore / variants`
+
+**提交**
+
+- 待提交：`feat: AI 推流透出规则特征与候选快照`
 
 ## 待办 / 下一步
 

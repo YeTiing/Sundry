@@ -22,10 +22,24 @@ class Profile(BaseModel):
 
 
 class Candidate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int = Field(gt=0)
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=40)
     price: Decimal
+    # 规则特征：只做参考，模型不能修改商品本身
+    affinity_score: float | None = Field(default=None, alias="affinityScore")
+    hotness: float | None = None
+    freshness: float | None = None
+    tag_score: float | None = Field(default=None, alias="tagScore")
+    explore_bonus: float | None = Field(default=None, alias="exploreBonus")
+    rule_score: float | None = Field(default=None, alias="ruleScore")
+    rule_rank: int | None = Field(default=None, alias="ruleRank")
+    preferred_category: bool | None = Field(default=None, alias="preferredCategory")
+    sales_count: int | None = Field(default=None, alias="salesCount")
+    tags: list[str] = Field(default_factory=list)
+    price_distance: float | None = Field(default=None, alias="priceDistance")
 
 
 class RerankRequest(BaseModel):

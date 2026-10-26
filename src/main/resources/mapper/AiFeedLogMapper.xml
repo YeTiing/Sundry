@@ -7,10 +7,11 @@
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO ai_feed_log
             (user_id, trace_id, model, prompt_version, candidate_count,
-             returned_count, latency_ms, status, fallback_reason)
+             returned_count, latency_ms, status, fallback_reason, candidate_snapshot)
         VALUES
             (#{userId}, #{traceId}, #{model}, #{promptVersion}, #{candidateCount},
-             #{returnedCount}, #{latencyMs}, #{status}, #{fallbackReason})
+             #{returnedCount}, #{latencyMs}, #{status}, #{fallbackReason},
+             CAST(#{candidateSnapshot} AS JSON))
     </insert>
 
 </mapper>

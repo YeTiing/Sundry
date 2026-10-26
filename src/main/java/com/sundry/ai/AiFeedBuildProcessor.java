@@ -7,6 +7,7 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -46,15 +47,18 @@ public class AiFeedBuildProcessor {
     private final AiFeedProfileService profileService;
     private final AiFeedLogMapper logMapper;
     private final AiProperties properties;
+    private final ObjectMapper objectMapper;
 
     public AiFeedBuildProcessor(AiFeedStore store, AiFeedClient client,
                                 AiFeedProfileService profileService,
-                                AiFeedLogMapper logMapper, AiProperties properties) {
+                                AiFeedLogMapper logMapper, AiProperties properties,
+                                ObjectMapper objectMapper) {
         this.store = store;
         this.client = client;
         this.profileService = profileService;
         this.logMapper = logMapper;
         this.properties = properties;
+        this.objectMapper = objectMapper;
         int concurrency = Math.max(1, properties.getFeedBuildConcurrency());
         this.buildExecutor = Executors.newFixedThreadPool(concurrency,
                 daemonFactory("ai-feed-builder"));
@@ -132,6 +136,7 @@ public class AiFeedBuildProcessor {
         String traceId = UUID.randomUUID().toString();
         long start = System.currentTimeMillis();
         int candidateCount = 0;
+        String candidateSnapshot = null;
 
         try {
             AiFeedProfileService.CandidateBundle bundle = profileService.build(userId);
@@ -144,10 +149,12 @@ public class AiFeedBuildProcessor {
             if (variants.isEmpty()) {
                 throw new AiFeedException("NO_VALID_ITEMS");
             }
+            candidateSnapshot = snapshotJson(userId, bundle, variants);
 
             if (!pending.equals(store.pending(userId))) {
                 audit(userId, traceId, variants.get(0).model(), variants.get(0).promptVersion(),
-                        candidateCount, variants.get(0).llmCount(), start, "STALE", "superseded");
+                        candidateCount, variants.get(0).llmCount(), start, "STALE", "superseded",
+                        candidateSnapshot);
                 return true;
             }
 
@@ -169,7 +176,7 @@ public class AiFeedBuildProcessor {
             audit(userId, traceId, first.model(), first.promptVersion(),
                     candidateCount, first.llmCount(), start,
                     anyLlm ? "SUCCESS" : "FALLBACK",
-                    anyLlm ? null : "model unavailable");
+                    anyLlm ? null : "model unavailable", candidateSnapshot);
             if (!anyLlm) {
                 log.warn("AI 模型不可用，已写入规则降级榜单 userId={}", userId);
             }
@@ -181,12 +188,13 @@ public class AiFeedBuildProcessor {
                 // 保留失败计数作为熔断标记，5 分钟内不再自动重试；成功时清除。
                 store.clearPending(userId);
                 audit(userId, traceId, null, null, candidateCount, 0,
-                        start, "FALLBACK", reason);
+                        start, "FALLBACK", reason, candidateSnapshot);
                 log.warn("AI 推流失败，已降级 userId={} attempt={} reason={}",
                         userId, attempt, reason);
                 return true;
             }
-            audit(userId, traceId, null, null, candidateCount, 0, start, "ERROR", reason);
+            audit(userId, traceId, null, null, candidateCount, 0, start, "ERROR", reason,
+                    candidateSnapshot);
             log.warn("AI 推流失败，稍后重试 userId={} attempt={}", userId, attempt, ex);
             return false;
         } finally {
@@ -377,9 +385,35 @@ public class AiFeedBuildProcessor {
         return clean.substring(0, clean.offsetByCodePoints(0, 40));
     }
 
+    /**
+     * 候选集、规则特征和两个变体的最终顺序，供后续离线回放。
+     */
+    private String snapshotJson(Long userId, AiFeedProfileService.CandidateBundle bundle,
+                                List<VariantBuild> variants) {
+        try {
+            Map<String, Object> root = new LinkedHashMap<>();
+            root.put("snapshotVersion", 1);
+            root.put("candidates", bundle.candidates());
+            root.put("variants", variants.stream().map(variant -> {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("strategy", variant.strategy());
+                item.put("buildId", variant.buildId());
+                item.put("model", variant.model());
+                item.put("promptVersion", variant.promptVersion());
+                item.put("items", variant.items().stream()
+                        .map(SnapshotItem::id).toList());
+                return item;
+            }).toList());
+            return objectMapper.writeValueAsString(root);
+        } catch (RuntimeException ex) {
+            log.warn("候选快照序列化失败 userId={}", userId, ex);
+            return null;
+        }
+    }
+
     private void audit(Long userId, String traceId, String model, String promptVersion,
                        int candidateCount, int returnedCount, long start,
-                       String status, String reason) {
+                       String status, String reason, String candidateSnapshot) {
         try {
             AiFeedLog entry = new AiFeedLog();
             entry.setUserId(userId);
@@ -391,6 +425,7 @@ public class AiFeedBuildProcessor {
             entry.setLatencyMs((int) Math.min(Integer.MAX_VALUE, System.currentTimeMillis() - start));
             entry.setStatus(status);
             entry.setFallbackReason(reason == null ? null : reason.substring(0, Math.min(200, reason.length())));
+            entry.setCandidateSnapshot(candidateSnapshot);
             logMapper.insert(entry);
         } catch (RuntimeException ex) {
             log.warn("AI 审计写入失败 userId={} status={}", userId, status, ex);

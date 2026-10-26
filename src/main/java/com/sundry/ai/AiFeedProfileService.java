@@ -10,9 +10,10 @@ import com.sundry.feed.FeedService;
 import com.sundry.feed.PriceRange;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,25 +74,51 @@ public class AiFeedProfileService {
         RerankRequest.Profile profile = new RerankRequest.Profile(
                 preferences, priceBand, recentViews);
 
-        List<Long> ranked = feedService.rankIds(userId);
+        List<FeedService.RankedCandidate> ranked = feedService.rankDetails(userId);
         int limit = Math.max(1, properties.getFeedCandidateLimit());
         int end = Math.min(limit, ranked.size());
 
         List<RerankRequest.Candidate> candidates = new ArrayList<>();
-        for (Long id : ranked.subList(0, end)) {
-            ProductView view = feedService.viewOrNull(id);
+        for (int i = 0; i < end; i++) {
+            FeedService.RankedCandidate detail = ranked.get(i);
+            ProductView view = feedService.viewOrNull(detail.productId());
             if (view == null) {
                 continue;
             }
             candidates.add(new RerankRequest.Candidate(view.id(), view.name(),
-                    view.categoryName() == null ? "" : view.categoryName(), view.price()));
+                    view.categoryName() == null ? "" : view.categoryName(), view.price(),
+                    round(detail.affinityScore()), round(detail.hotness()),
+                    round(detail.freshness()), round(detail.tagScore()),
+                    round(detail.exploreBonus()), round(detail.score()), detail.rank(),
+                    detail.preferredCategory(), detail.salesCount(),
+                    view.tags() == null ? List.of() : view.tags(),
+                    priceDistance(view.price(), priceBand)));
         }
 
         List<Long> tail = end < ranked.size()
-                ? new ArrayList<>(ranked.subList(end, ranked.size()))
+                ? ranked.subList(end, ranked.size()).stream()
+                        .map(FeedService.RankedCandidate::productId).toList()
                 : List.of();
 
         return new CandidateBundle(profile, candidates, tail);
+    }
+
+    private double round(double value) {
+        return Math.round(value * 10_000.0) / 10_000.0;
+    }
+
+    private Double priceDistance(BigDecimal price, RerankRequest.PriceBand band) {
+        if (price == null || band == null || band.min() == null || band.max() == null) {
+            return null;
+        }
+        if (price.compareTo(band.min()) >= 0 && price.compareTo(band.max()) <= 0) {
+            return 0.0;
+        }
+        BigDecimal diff = price.compareTo(band.min()) < 0
+                ? band.min().subtract(price)
+                : price.subtract(band.max());
+        BigDecimal reference = band.max().max(band.min()).max(BigDecimal.ONE);
+        return Math.min(1.0, diff.divide(reference, 4, RoundingMode.HALF_UP).doubleValue());
     }
 
     public record CandidateBundle(RerankRequest.Profile profile,

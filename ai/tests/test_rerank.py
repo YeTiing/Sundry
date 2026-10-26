@@ -52,7 +52,7 @@ def test_health_needs_no_token():
     client = TestClient(app)
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["promptVersion"] == "feed_rerank_v2"
+    assert response.json()["promptVersion"] == "feed_rerank_v3"
 
 
 def test_missing_token_rejected():
@@ -90,7 +90,7 @@ def test_returns_only_candidate_ids_and_reasons():
     data = response.json()
     assert [item["id"] for item in data["items"]] == [362, 74]
     assert data["items"][0]["reason"] == "符合数码配件偏好"
-    assert data["promptVersion"] == "feed_rerank_v2"
+    assert data["promptVersion"] == "feed_rerank_v3"
 
 
 def test_out_of_candidate_ids_are_dropped():
@@ -183,6 +183,33 @@ def test_unknown_strategy_is_accepted_and_ids_still_validated():
     )
     assert response.status_code == 200
     assert [item["id"] for item in response.json()["items"]] == [74]
+
+
+def test_prompt_includes_rule_features():
+    profile = Profile(categories=[], price_band=None, recent_views=[])
+    candidates = [
+        Candidate(
+            id=1,
+            name="测试商品",
+            category="测试",
+            price=10,
+            affinity_score=0.8,
+            hotness=0.5,
+            freshness=0.9,
+            tag_score=0.3,
+            explore_bonus=0.05,
+            rule_score=0.7,
+            rule_rank=2,
+            preferred_category=True,
+            sales_count=12,
+            tags=["a", "b"],
+            price_distance=0.1,
+        )
+    ]
+    prompt = build_user_prompt(profile, candidates, 20)
+    assert "规则分 0.700 排名 2" in prompt
+    assert "类目偏好 0.800" in prompt
+    assert "销量 12 标签 a,b" in prompt
 
 
 def test_prompt_keeps_product_text_as_data():

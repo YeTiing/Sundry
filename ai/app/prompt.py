@@ -3,8 +3,8 @@ from pathlib import Path
 
 from app.schemas import Candidate, Profile
 
-PROMPT_VERSION = "feed_rerank_v2"
-_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "feed_rerank_v2.txt"
+PROMPT_VERSION = "feed_rerank_v3"
+_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "feed_rerank_v3.txt"
 ASSISTANT_PROMPT_VERSION = "assistant_v1"
 _ASSISTANT_PROMPT_PATH = (
     Path(__file__).resolve().parent.parent / "prompts" / "assistant_v1.txt"
@@ -64,10 +64,22 @@ def build_user_prompt(profile: Profile, candidates: list[Candidate], limit: int)
         f"候选商品（只能从这里选，请按优先级返回 {limit} 个；候选不足时返回全部）："
     )
     for item in candidates:
+        tags = ",".join(item.tags) if item.tags else "-"
         lines.append(
-            f"{item.id} | {item.name} | {item.category} | {item.price}"
+            f"{item.id} | {item.name} | {item.category} | {item.price} | "
+            f"规则分 {_fmt(item.rule_score)} 排名 {_fmt(item.rule_rank, 0)} | "
+            f"类目偏好 {_fmt(item.affinity_score)} 热度 {_fmt(item.hotness)} "
+            f"新鲜度 {_fmt(item.freshness)} 标签匹配 {_fmt(item.tag_score)} "
+            f"探索 {_fmt(item.explore_bonus)} 价距 {_fmt(item.price_distance)} | "
+            f"销量 {_fmt(item.sales_count, 0)} 标签 {tags}"
         )
     return "\n".join(lines)
+
+
+def _fmt(value: float | int | None, digits: int = 3) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.{digits}f}"
 
 
 def build_nl2sql_user_prompt(vocabulary: dict, question: str, role: str,

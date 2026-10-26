@@ -164,7 +164,7 @@ public class FeedService {
         if (cached != null) {
             return cached;
         }
-        List<Long> ranked = userId == null ? rank(null) : rankCache.get(userId, this::rank);
+        List<Long> ranked = userId == null ? rankIds(null) : rankCache.get(userId, this::rankIds);
         ScrollPage<ProductView> page = paginate(ranked, offset, size);
         FeedPage result = new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
                 STATUS_FALLBACK, null, null);
@@ -259,7 +259,7 @@ public class FeedService {
             if (hasUsableVariants(userId)) {
                 return aiFeedStore.switchVariant(userId);
             }
-            List<Long> ranked = rank(userId);
+            List<Long> ranked = rankIds(userId);
             if (ranked.isEmpty()) {
                 return null;
             }
@@ -411,7 +411,7 @@ public class FeedService {
                 redis.delete(key);
             }
             if (!Boolean.TRUE.equals(redis.hasKey(key))) {
-                List<Long> ranked = rank(userId);
+                List<Long> ranked = rankIds(userId);
                 redis.delete(key);
                 if (!ranked.isEmpty()) {
                     redis.opsForList().rightPushAll(key,
@@ -424,7 +424,7 @@ public class FeedService {
             return paginateFromRedis(key, offset, size, length);
         } catch (RuntimeException ex) {
             log.warn("Feed 缓存不可用，降级实时计算 userId={}", userId, ex);
-            return paginate(rank(userId), offset, size);
+            return paginate(rankIds(userId), offset, size);
         }
     }
 
@@ -487,7 +487,23 @@ public class FeedService {
      * 规则排序后的商品 ID。AI worker 用它在同一份候选上做重排。
      */
     public List<Long> rankIds(Long userId) {
-        return rank(userId);
+        return rankScored(userId).stream().map(Scored::productId).toList();
+    }
+
+    /**
+     * 规则排序的完整特征，供 AI 候选和离线回放使用。
+     */
+    public List<RankedCandidate> rankDetails(Long userId) {
+        List<Scored> ranked = rankScored(userId);
+        List<RankedCandidate> result = new ArrayList<>(ranked.size());
+        for (int i = 0; i < ranked.size(); i++) {
+            Scored scored = ranked.get(i);
+            result.add(new RankedCandidate(scored.productId(), scored.categoryId(),
+                    scored.affinityScore(), scored.hotness(), scored.freshness(),
+                    scored.tagScore(), scored.random(), scored.exploreBonus(),
+                    scored.preferredCategory(), scored.salesCount(), scored.score(), i + 1));
+        }
+        return result;
     }
 
     /**
@@ -497,7 +513,7 @@ public class FeedService {
         return hydrate(productId);
     }
 
-    private List<Long> rank(Long userId) {
+    private List<Scored> rankScored(Long userId) {
         FeedRecallService.RecallResult recall = feedRecallService.recall(userId);
         List<Long> recallIds = recall.ids();
         if (recallIds.isEmpty()) {
@@ -552,9 +568,9 @@ public class FeedService {
                     : (product.getSalesCount() == null ? 0 : product.getSalesCount()) / (double) maxSales;
             double freshness = freshness(product.getCreatedAt());
             double random = deterministicRandom(userId, product.getId(), today);
-            double explore = maxAffinity > 0 && !topCategories.contains(product.getCategoryId())
-                    ? 0.05
-                    : 0;
+            boolean preferredCategory = topCategories.contains(product.getCategoryId());
+            double explore = maxAffinity > 0 && !preferredCategory ? 0.05 : 0;
+            long salesCount = product.getSalesCount() == null ? 0 : product.getSalesCount();
 
             double tagScore = 0;
             if (maxTagWeight > 0 && product.getTags() != null && !product.getTags().isBlank()) {
@@ -571,7 +587,9 @@ public class FeedService {
                     + 0.10 * tagScore
                     + 0.05 * random
                     + explore;
-            scored.add(new Scored(product.getId(), product.getCategoryId(), score));
+            scored.add(new Scored(product.getId(), product.getCategoryId(), affinityScore,
+                    hotness, freshness, tagScore, random, explore, preferredCategory,
+                    salesCount, score));
         }
 
         scored.sort(Comparator.comparingDouble(Scored::score).reversed()
@@ -598,9 +616,9 @@ public class FeedService {
     /**
      * 每 12 个为一块：同一分类最多 5 个，且最多连续 2 个。
      */
-    private List<Long> diversify(List<Scored> sorted) {
+    private List<Scored> diversify(List<Scored> sorted) {
         List<Scored> remaining = new ArrayList<>(sorted);
-        List<Long> result = new ArrayList<>();
+        List<Scored> result = new ArrayList<>();
         Map<Long, Integer> categoryCounts = new HashMap<>();
         Long lastCategory = null;
         Long previousCategory = null;
@@ -629,7 +647,7 @@ public class FeedService {
                 pick = 0;
             }
             Scored chosen = remaining.remove(pick);
-            result.add(chosen.productId());
+            result.add(chosen);
             categoryCounts.merge(chosen.categoryId(), 1, Integer::sum);
             previousCategory = lastCategory;
             lastCategory = chosen.categoryId();
@@ -638,6 +656,16 @@ public class FeedService {
         return result;
     }
 
-    private record Scored(Long productId, Long categoryId, double score) {
+    private record Scored(Long productId, Long categoryId, double affinityScore,
+                          double hotness, double freshness, double tagScore,
+                          double random, double exploreBonus, boolean preferredCategory,
+                          long salesCount, double score) {
+    }
+
+    public record RankedCandidate(Long productId, Long categoryId,
+                                  double affinityScore, double hotness, double freshness,
+                                  double tagScore, double random, double exploreBonus,
+                                  boolean preferredCategory, long salesCount,
+                                  double score, int rank) {
     }
 }

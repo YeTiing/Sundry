@@ -15,6 +15,7 @@ public class AiFeedLog {
     private Integer latencyMs;
     private String status;
     private String fallbackReason;
+    private String candidateSnapshot;
 
     public Long getId() {
         return id;
@@ -94,5 +95,13 @@ public class AiFeedLog {
 
     public void setFallbackReason(String fallbackReason) {
         this.fallbackReason = fallbackReason;
+    }
+
+    public String getCandidateSnapshot() {
+        return candidateSnapshot;
+    }
+
+    public void setCandidateSnapshot(String candidateSnapshot) {
+        this.candidateSnapshot = candidateSnapshot;
     }
 }
