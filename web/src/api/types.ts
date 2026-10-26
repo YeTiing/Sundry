@@ -71,6 +71,24 @@ export interface FeedStatus {
 
 export type AssistantAction = 'navigate' | 'tool' | 'answer' | 'clarify'
 
+export interface AssistantOrderCard {
+  products: string
+  status: string
+  statusCode: string
+  amount: string
+  date: string
+}
+
+export interface AssistantData {
+  type: string
+  criteria?: string
+  total?: number
+  orders?: AssistantOrderCard[]
+  orderCount?: number
+  itemCount?: number
+  totalAmount?: string
+}
+
 export interface AssistantReply {
   action: AssistantAction
   reply: string
@@ -78,6 +96,7 @@ export interface AssistantReply {
   routeLabel: string | null
   query: Record<string, string>
   traceId: string
+  data: AssistantData | null
 }
 
 export interface FeaturedSeckill {

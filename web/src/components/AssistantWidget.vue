@@ -3,6 +3,7 @@ import { nextTick, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { assistantApi } from '@/api/assistant'
 import { ApiError } from '@/api/http'
+import type { AssistantData } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { getOrCreateSessionId } from '@/utils/session'
 
@@ -12,6 +13,18 @@ interface ChatEntry {
   route?: string | null
   routeLabel?: string | null
   query?: Record<string, string>
+  data?: AssistantData | null
+}
+
+function formatText(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>')
 }
 
 const auth = useAuthStore()
@@ -45,6 +58,7 @@ async function send(): Promise<void> {
       route: reply.route,
       routeLabel: reply.routeLabel,
       query: reply.query,
+      data: reply.data,
     })
   } catch (err) {
     const status = err instanceof ApiError ? err.status : 0
@@ -88,7 +102,30 @@ function go(entry: ChatEntry): void {
           class="assistant-entry"
           :data-role="entry.role"
         >
-          <p class="assistant-text">{{ entry.text }}</p>
+          <p v-if="entry.role === 'user'" class="assistant-text">{{ entry.text }}</p>
+          <template v-else-if="entry.data?.type === 'orders'">
+            <p class="assistant-sub">{{ entry.data?.criteria }} · 共 {{ entry.data?.total }} 单</p>
+            <ul v-if="entry.data?.orders?.length" class="order-cards">
+              <li v-for="(order, orderIndex) in entry.data?.orders ?? []" :key="orderIndex" class="order-card">
+                <p class="order-products">{{ order.products }}</p>
+                <div class="order-meta">
+                  <span class="order-status" :data-status="order.statusCode">{{ order.status }}</span>
+                  <span class="order-amount">¥{{ order.amount }}</span>
+                  <span class="order-date">{{ order.date }}</span>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="assistant-text">没有符合条件的订单。</p>
+          </template>
+          <div v-else-if="entry.data?.type === 'purchaseSummary'" class="assistant-summary">
+            <p class="assistant-sub">{{ entry.data?.criteria }}</p>
+            <div class="summary-grid">
+              <div><strong>{{ entry.data?.orderCount }}</strong><span>单</span></div>
+              <div><strong>{{ entry.data?.itemCount }}</strong><span>件</span></div>
+              <div><strong>¥{{ entry.data?.totalAmount }}</strong><span>累计支付</span></div>
+            </div>
+          </div>
+          <p v-else class="assistant-text" v-html="formatText(entry.text)"></p>
           <button v-if="entry.route" class="assistant-link" type="button" @click="go(entry)">
             打开{{ entry.routeLabel ?? '页面' }}
           </button>
@@ -231,6 +268,81 @@ function go(entry: ChatEntry): void {
   border-color: var(--ink-soft);
   background: var(--ink);
   color: var(--sheet);
+}
+
+.assistant-sub {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.order-cards {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.order-card {
+  padding: 9px 11px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.order-products {
+  margin: 0 0 5px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.order-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.order-amount {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.order-status {
+  padding: 1px 6px;
+  border: 1px solid var(--rule-strong);
+  color: var(--ink);
+}
+
+.order-status[data-status='CANCELLED'],
+.order-status[data-status='REFUNDED'] {
+  color: var(--muted);
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.summary-grid > div {
+  padding: 10px 8px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  text-align: center;
+}
+
+.summary-grid strong {
+  display: block;
+  font-size: 16px;
+}
+
+.summary-grid span {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .assistant-link {

@@ -179,7 +179,8 @@ public class AssistantService {
             audit(user, request, safeMessage, "LLM", "tool", call.name(),
                     call.arguments(), null, "OK", null, start, traceId);
             return remember(user.id(), request.sessionId(), safeMessage,
-                    new AssistantReply("tool", result.reply(), null, null, Map.of(), traceId));
+                    new AssistantReply("tool", result.reply(), null, null, Map.of(),
+                            traceId, result.data()));
         } catch (AssistantToolException ex) {
             audit(user, request, safeMessage, "LLM", "clarify", call.name(),
                     call.arguments(), null, "REJECTED", ex.getCode(), start, traceId);

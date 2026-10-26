@@ -95,9 +95,11 @@ public class ListMyOrdersTool implements AssistantTool {
         String criteria = AssistantOrderArgs.describe(status, preset, keyword);
 
         if (orders.isEmpty()) {
-            return new AssistantToolResult(criteria.isEmpty()
+            String reply = criteria.isEmpty()
                     ? "你还没有订单。"
-                    : "没有找到符合条件的订单（" + criteria + "）。");
+                    : "没有找到符合条件的订单（" + criteria + "）。";
+            return new AssistantToolResult(reply,
+                    orderData(criteria, List.of(), 0));
         }
 
         StringBuilder reply = new StringBuilder("你最近买过");
@@ -117,7 +119,28 @@ public class ListMyOrdersTool implements AssistantTool {
         if (page.total() > orders.size()) {
             reply.append("……共 ").append(page.total()).append(" 单");
         }
-        return new AssistantToolResult(reply.toString().trim());
+        return new AssistantToolResult(reply.toString().trim(),
+                orderData(criteria, orders, page.total()));
+    }
+
+    private Map<String, Object> orderData(String criteria, List<OrderView> orders, long total) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("type", "orders");
+        data.put("criteria", criteria == null || criteria.isEmpty() ? "全部订单" : criteria);
+        data.put("total", total);
+        data.put("orders", orders.stream().map(this::orderCard).toList());
+        return data;
+    }
+
+    private Map<String, Object> orderCard(OrderView order) {
+        Map<String, Object> card = new LinkedHashMap<>();
+        card.put("products", summary(order));
+        card.put("status", AssistantOrderArgs.statusLabel(order.status()));
+        card.put("statusCode", order.status().name());
+        card.put("amount", plain(order.totalAmount()));
+        card.put("date", order.createdAt() == null
+                ? "" : order.createdAt().toLocalDate().toString());
+        return card;
     }
 
     /**

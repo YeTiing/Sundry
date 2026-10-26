@@ -2484,6 +2484,29 @@ sundry_seckill_compensation_total = 0
 
 - 待提交：`feat: A5 S5 超管自由 SQL 沙箱`
 
+## 2026-10-26 · 助手回复渲染：加粗与结构化卡片
+
+**做了什么**
+
+- `AssistantReply` / `AssistantToolResult` 增加可选 `data`，文本 `reply` 保留作兜底
+- 订单工具返回结构化数据：`type=orders`、筛选条件、总数、每单的商品摘要/状态/金额/日期
+- 购买汇总返回结构化数据：`type=purchaseSummary`、订单数/件数/累计支付
+- 前端助手面板
+  - 安全渲染 `**加粗**` 与换行（先转义 HTML，再替换 `<strong>`）
+  - 订单改为卡片列表：商品名加粗，状态/金额/日期第二行
+  - 购买汇总改为三格统计卡片
+- `assistant_v1` prompt 增加：不要输出 Markdown 表格、标题、代码块
+
+**验证**
+
+- Java：356 个用例全部通过（订单/汇总用例增加 `data` 断言）
+- Python：29 个用例通过
+- `npm run build` 通过
+
+**提交**
+
+- 待提交：`feat: 助手回复支持加粗与结构化卡片`
+
 ## 待办 / 下一步
 
 完整清单见 [docs/BACKLOG.md](docs/BACKLOG.md)，设计细节见 [docs/FUTURE_DESIGN.md](docs/FUTURE_DESIGN.md)。

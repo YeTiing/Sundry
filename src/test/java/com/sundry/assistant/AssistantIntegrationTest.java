@@ -294,6 +294,14 @@ class AssistantIntegrationTest {
                         org.hamcrest.Matchers.containsString("第二件商品")))
                 .andExpect(jsonPath("$.reply",
                         org.hamcrest.Matchers.containsString("已发货")))
+                .andExpect(jsonPath("$.data.type").value("orders"))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.orders[0].products",
+                        org.hamcrest.Matchers.containsString("助手测试商品 ×2")))
+                .andExpect(jsonPath("$.data.orders[0].status").value("已发货"))
+                .andExpect(jsonPath("$.data.orders[0].statusCode").value("SHIPPED"))
+                .andExpect(jsonPath("$.data.orders[0].amount").value("123.45"))
+                .andExpect(jsonPath("$.data.orders[0].date").isNotEmpty())
                 .andReturn();
 
         String reply = JsonPath.read(
@@ -407,14 +415,24 @@ class AssistantIntegrationTest {
                 now.minusDays(1), now.minusDays(1));
         orderItem(foreign, "别人的耳机", 1, "999.00");
 
-        String filtered = replyOf(callPurchaseTool(user,
-                "{\"timeRange\":\"LAST_30D\",\"keyword\":\"耳机\"}"));
+        MvcResult filteredResult = callPurchaseTool(user,
+                "{\"timeRange\":\"LAST_30D\",\"keyword\":\"耳机\"}");
+        String filtered = replyOf(filteredResult);
         assertThat(filtered)
                 .contains("买过 1 单")
                 .contains("共 2 件商品")
                 .contains("¥100")
                 .contains("未扣退款");
         assertThat(filtered).doesNotContain("900").doesNotContain("999");
+
+        String filteredBody = filteredResult.getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+        assertThat(JsonPath.<String>read(filteredBody, "$.data.type"))
+                .isEqualTo("purchaseSummary");
+        assertThat(JsonPath.<Integer>read(filteredBody, "$.data.orderCount")).isEqualTo(1);
+        assertThat(JsonPath.<Integer>read(filteredBody, "$.data.itemCount")).isEqualTo(2);
+        assertThat(JsonPath.<String>read(filteredBody, "$.data.totalAmount"))
+                .isEqualTo("100");
 
         String all = replyOf(callPurchaseTool(user, "{}"));
         assertThat(all)

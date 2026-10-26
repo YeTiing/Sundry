@@ -78,10 +78,11 @@ public class SummarizeMyPurchasesTool implements AssistantTool {
                         keyword, OrderSort.NEWEST));
         String criteria = AssistantOrderArgs.describe(status, preset, keyword);
 
+        Map<String, Object> data = summaryData(criteria, summary);
         if (summary.orderCount() == 0) {
             return new AssistantToolResult(criteria.isEmpty()
                     ? "你还没有已支付的订单。"
-                    : "没有找到符合条件的已支付订单（" + criteria + "）。");
+                    : "没有找到符合条件的已支付订单（" + criteria + "）。", data);
         }
 
         StringBuilder reply = new StringBuilder(criteria.isEmpty()
@@ -91,7 +92,18 @@ public class SummarizeMyPurchasesTool implements AssistantTool {
                 .append("\n- 共 ").append(summary.itemCount()).append(" 件商品")
                 .append("\n- 累计支付 ¥").append(plain(summary.totalAmount()))
                 .append("（未扣退款）");
-        return new AssistantToolResult(reply.toString());
+        return new AssistantToolResult(reply.toString(), data);
+    }
+
+    private Map<String, Object> summaryData(String criteria, PurchaseSummary summary) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("type", "purchaseSummary");
+        data.put("criteria", criteria == null || criteria.isEmpty()
+                ? "全部已支付订单" : criteria);
+        data.put("orderCount", summary.orderCount());
+        data.put("itemCount", summary.itemCount());
+        data.put("totalAmount", plain(summary.totalAmount()));
+        return data;
     }
 
     private String plain(BigDecimal amount) {
