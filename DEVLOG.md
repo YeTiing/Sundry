@@ -28,13 +28,13 @@
 | 订单 | 购物车下单、条件扣库存、模拟支付、打包/发货/确认收货、30 分钟超时取消、数字下载；后台订单带买家手机号/昵称 |
 | 退款 | 用户申请（已支付/打包中且含实物）→ 商家通过/拒绝；审核前可撤销；通过后回补库存 |
 | 退货 | 已发货或确认收货 7 天内申请 → 商家同意 → 用户寄回 → 商家确认收货后退款并回补库存 |
-| 秒杀 | 活动管理、Redis Lua 抢购、一人一单、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
+| 秒杀 | 活动管理、Redis Lua 抢购、一人一单、取消后可重抢、Kafka 异步建单、结果轮询、失败回补、ZSET 超时关单、限流、对账 |
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
-| 推荐 | 首页 Feed：多路召回（分类/协同/热销/新品/语义）、规则打分（分类/热度/新鲜度/标签）、多样性重排、Redis 快照、无限滑动；登录用户 AI 异步重排；曝光/点击 Kafka 异步回流；后台离线评估 |
+| 推荐 | 首页 Feed：多路召回（分类/协同/热销/新品/语义）、规则打分（分类/热度/新鲜度/标签）、多样性重排、Redis 快照、无限滑动；登录用户 AI 异步重排；构建额度分层（冷却/每小时/首访保底令牌桶）；曝光/点击 Kafka 异步回流；后台离线评估 |
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 368 个 Java 用例 + 30 个 Python 用例 |
+| 测试 | 375 个 Java 用例 + 30 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2639,6 +2639,118 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: AI 推流 EXPLORE 真探索置换`
+
+## 2026-10-26 · AI 推流重排稳定性修复
+
+**做了什么**
+
+- Feed 重排改用独立非推理模型：`FEED_RERANK_MODEL=deepseek-chat`；助手/NL2SQL 仍用 `deepseek-v4-flash`
+- `max_tokens` 2500 → 4000（非推理模型足够输出 20 条）
+- 关闭 OpenAI SDK 隐式重试（`max_retries=0`），避免一次超时被放大成 2~3 倍
+- Feed 变体截止时间 12s → 25s；AI HTTP 超时保持 30s；本地 `AI_REQUEST_TIMEOUT_SECONDS=25`
+- 重排响应的 `model` 改为实际使用的 rerank 模型，审计不再误记
+
+**遇到问题**
+
+- `deepseek-v4-flash` 是推理模型，reasoning 占用输出额度；`max_tokens=2500` 时 `finish_reason=length`、正文为空
+- 提到 8000 能稳定产出，但单次延迟波动到 40~105s，超过变体截止时间
+- 本地 AI 服务跑的是旧进程（`/health` 显示 v2），重启后才加载 v3
+- 用 Maven 重启后端时丢失了 IDEA 运行配置里的 `NL2SQL_ENABLED`，NL2SQL 短暂 503
+
+**解决**
+
+- 只让 Feed JSON 重排走 `deepseek-chat`，实测单次 1~2s；其他 AI 功能保持原模型
+- 关闭 SDK 隐式重试，超时由业务层和 Java 截止时间控制
+- 启动后端时补回 `NL2SQL_ENABLED=true NL2SQL_FREE_SQL=true`
+
+**验证**
+
+- 直接重排 10 次：10/10 成功，0.9~1.8s，均返回 20 条
+- 真实 Feed：4 个 AI 用户 SUCCESS（`deepseek-chat`，1.5~3.7s），1 个 10% 对照组按设计走 RULE
+- v3 快照：PREF/EXPLORE 各 120 条，EXPLORE 强制探索 24 个
+- Python：30 个用例通过
+- Java Feed/AI 相关 41 个用例通过；改动前全量 369 个用例已通过
+- NL2SQL 冒烟：`最近7天订单数` 200；提示注入返回 400 `NL2SQL_UNSUPPORTED`
+
+**提交**
+
+- 待提交
+
+## 2026-10-26 · 秒杀取消后允许重新抢购
+
+**做了什么**
+
+- 规则调整：`CANCELLED` 释放购买资格，可重新抢；退款/退货仍保留资格
+- `V27__seckill_rebuy.sql`：`orders` 增加生成列 `active_activity_user`，唯一索引只约束非取消订单
+- `findSeckillOrder` / `findSeckillBuyerIds` 排除 `CANCELLED`
+- `SeckillStockService.releaseCancelledReservation`：Lua 原子归还库存 + 删除购买标记
+- `OrderService.restoreStock(order, releaseSeckillBuyer)`：用户取消、ZSET 超时、DB 兜底超时释放；退款/退货不释放
+- 设计细节：`docs/SECKILL_REBUY_DESIGN.md`
+
+**遇到问题**
+
+- 旧唯一索引 `(activity_id, user_id)` 会让取消后的第二单直接撞键
+- 取消时 Redis 购买标记被故意保留，Lua 仍会判限购
+- Redis 丢失后 `findSeckillBuyerIds` 会把取消用户重新写回
+- MySQL 不支持部分唯一索引，不能只给“非取消订单”加唯一约束
+
+**解决**
+
+- 用生成列 + 唯一索引：非取消订单有值，取消订单为 `NULL`（唯一索引允许多个 NULL）
+- 取消路径改用独立 Lua，和建单失败补偿的“只还库存”分开
+- 预热查询过滤取消单
+- 退款/退货继续保留标记，避免绕过规则
+
+**验证**
+
+- `SeckillOrderIntegrationTest` 23 个用例通过（新增取消重抢、预热重建、超时重抢）
+- 全量 Java：370 个用例，0 失败 0 错误
+- 真实链路：抢到 `373044383752130560` → 取消 → 重新抢到 `373044388227452928`；旧单 CANCELLED、新单 PENDING_PAYMENT；sold=1、剩余=1、对账一致；第三次提交返回已有订单
+
+**提交**
+
+- 待提交
+
+## 2026-10-26 · AI 推流构建额度分层
+
+**做了什么**
+
+- 新增 `BuildReason`：`COLD_START`（首访/池空）/ `REFILL`（切满一轮补算）
+- `AiFeedStore.tryBuildPermit(userId, reason)` 改为四层：
+  - 每用户 10 秒冷却（`SETNX` 同时做用户级互斥）
+  - 每用户每小时配额（默认 6 次，只统计授予）
+  - 全局令牌桶：首访桶 + 共享桶，默认 50% 保底；按毫秒连续补充
+  - 只有真正授予才扣令牌/加小时计数；拒绝只缩短冷却到 2 秒
+- 指标 `sundry.feed.ai.build.permit{result,reason,buildReason}`
+- `AiLlmGate` 429 冷却改为 Redis 全局 key；新增可选全局 LLM 并发租约（ZSET + TTL，默认关闭）
+- 设计文档：`docs/FEED_BUILD_QUOTA_DESIGN.md`
+
+**遇到问题**
+
+- 原固定分钟计数“先 INCR 再判断”，被拒绝的请求也会消耗额度
+- 固定窗口在分钟边界会短时放行约 2 倍
+- 每用户 10 秒冷却可被单人用来吃掉大部分全局额度
+- 429 冷却只在单实例 JVM 内，多实例不共享
+
+**解决**
+
+- 令牌桶 Lua 原子扣减，只有拿到令牌才写回 `tokens-1`
+- 首访桶与共享桶分开，`REFILL` 不能借用首访保底
+- 每小时配额只在授予后 `INCR`，拒绝不计数
+- 429 冷却写 Redis；全局并发作为可选配置，默认仍用单实例 Semaphore
+
+**验证**
+
+- `AiFeedStorePoolTest` 14 个用例通过（新增拒绝不扣额度、首访保底、每小时配额）
+- `AiLlmGateTest` 2 个、`AiLlmGateIntegrationTest` 2 个通过
+- `AiFeedIntegrationTest` 26 个、`FeedIntegrationTest` 8 个通过
+- 真实链路：4 个用户构建 SUCCESS（`deepseek-chat`，1.7~3.1s），1 个 10% 对照组 RULE；首访桶剩余 6.15/10
+- 真实链路：用户每小时计数设为 6 时不再触发构建（ai_feed_log 3→3），清除计数后恢复（3→4）
+- 全量 Java：375 个用例，0 失败 0 错误
+
+**提交**
+
+- 待提交
 
 ## 待办 / 下一步
 

@@ -336,6 +336,9 @@ GET  /api/admin/announcements/{id}/readers
 
 ## 4. AI 助手
 
+> 细化方案（路由目录、工具注册表、tool calling 协议、校验顺序、审计表、L0~L4 切片）见 `docs/ASSISTANT_DESIGN.md`。
+> 本节保留原则性结论；两者冲突时以 `ASSISTANT_DESIGN.md` 为准。
+
 ### 4.1 架构
 
 ```
@@ -418,6 +421,9 @@ X-User-Id / X-User-Role: Java 校验后传入
 ---
 
 ## 5. NL2SQL 安全
+
+> 细化方案（语义层 YAML、词汇表、完整链路、接口契约、审计表、切片）见 `docs/NL2SQL_DESIGN.md`。
+> 本节保留原则性结论；两者冲突时以 `NL2SQL_DESIGN.md` 为准。
 
 ### 5.1 范围
 
