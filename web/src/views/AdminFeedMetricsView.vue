@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminFeedApi } from '@/api/adminFeed'
-import type { FeedMetrics, FeedReplay } from '@/api/adminFeed'
+import type { FeedExperiment, FeedMetrics, FeedReplay } from '@/api/adminFeed'
 import { useAuthStore } from '@/stores/auth'
 
 const WINDOWS = [7, 14, 30]
@@ -13,6 +13,7 @@ const router = useRouter()
 const days = ref(7)
 const metrics = ref<FeedMetrics | null>(null)
 const replay = ref<FeedReplay | null>(null)
+const experiment = ref<FeedExperiment | null>(null)
 const loading = ref(true)
 const error = ref('')
 
@@ -36,6 +37,7 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   replay.value = null
+  experiment.value = null
   try {
     metrics.value = await adminFeedApi.metrics(days.value)
   } catch (err) {
@@ -45,6 +47,11 @@ async function load(): Promise<void> {
     replay.value = await adminFeedApi.replay(days.value, 10)
   } catch {
     replay.value = null
+  }
+  try {
+    experiment.value = await adminFeedApi.experiment(days.value)
+  } catch {
+    experiment.value = null
   } finally {
     loading.value = false
   }
@@ -225,6 +232,46 @@ onMounted(load)
                   </tr>
                 </tbody>
               </table>
+            </template>
+
+            <template v-if="experiment">
+              <h2 class="metric-section">实验：规则对照 vs AI</h2>
+              <p class="panel-note">
+                按 userId 稳定 hash 分流，对照组 {{ experiment.controlPercent }}%；
+                CTR 为 95% Wilson 区间，样本不足时区间会很宽。
+              </p>
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>组</th>
+                    <th>曝光</th>
+                    <th>点击</th>
+                    <th>CTR</th>
+                    <th>95% 区间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>规则对照</td>
+                    <td>{{ number(experiment.control.exposures) }}</td>
+                    <td>{{ number(experiment.control.clicks) }}</td>
+                    <td>{{ pct(experiment.control.ctr) }}</td>
+                    <td>{{ pct(experiment.control.lower) }} ~ {{ pct(experiment.control.upper) }}</td>
+                  </tr>
+                  <tr>
+                    <td>AI</td>
+                    <td>{{ number(experiment.ai.exposures) }}</td>
+                    <td>{{ number(experiment.ai.clicks) }}</td>
+                    <td>{{ pct(experiment.ai.ctr) }}</td>
+                    <td>{{ pct(experiment.ai.lower) }} ~ {{ pct(experiment.ai.upper) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="panel-note">
+                提升：{{ experiment.lift === null
+                  ? '对照组点击为 0，暂不能计算'
+                  : pct(experiment.lift) }}
+              </p>
             </template>
           </template>
         </section>

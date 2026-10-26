@@ -61,6 +61,22 @@ export interface FeedReplay {
   byStrategy: FeedReplayStrategy[]
 }
 
+export interface FeedExperimentSide {
+  exposures: number
+  clicks: number
+  ctr: number
+  lower: number
+  upper: number
+}
+
+export interface FeedExperiment {
+  days: number
+  controlPercent: number
+  control: FeedExperimentSide
+  ai: FeedExperimentSide
+  lift: number | null
+}
+
 export const adminFeedApi = {
   metrics(days: number): Promise<FeedMetrics> {
     return http.get<FeedMetrics>(`/admin/feed/metrics?days=${days}`)
@@ -68,5 +84,9 @@ export const adminFeedApi = {
 
   replay(days: number, k = 10): Promise<FeedReplay> {
     return http.get<FeedReplay>(`/admin/feed/replay?days=${days}&k=${k}`)
+  },
+
+  experiment(days: number): Promise<FeedExperiment> {
+    return http.get<FeedExperiment>(`/admin/feed/experiment?days=${days}`)
   },
 }

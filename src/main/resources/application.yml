@@ -98,6 +98,8 @@ app:
       password: ${NL2SQL_FREE_DB_PASSWORD:}
       maximum-pool-size: ${NL2SQL_FREE_DB_POOL:1}
   feed:
+    experiment-enabled: ${FEED_EXPERIMENT_ENABLED:true}
+    experiment-control-percent: ${FEED_EXPERIMENT_CONTROL_PERCENT:10}
     behavior-batch-size: 500
     behavior-flush-interval: 2s
     behavior-retention-days: 30

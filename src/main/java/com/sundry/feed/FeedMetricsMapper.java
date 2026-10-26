@@ -34,6 +34,8 @@ public interface FeedMetricsMapper {
     List<ReplayClickRow> findReplayClicks(@Param("buildIds") List<String> buildIds,
                                           @Param("since") LocalDateTime since);
 
+    List<ExperimentCount> countExperimentEvents(@Param("since") LocalDateTime since);
+
     class Totals {
         private Long exposures;
         private Long clicks;
@@ -96,6 +98,36 @@ public interface FeedMetricsMapper {
 
         public void setStrategy(String strategy) {
             this.strategy = strategy;
+        }
+
+        public Long getExposures() {
+            return exposures;
+        }
+
+        public void setExposures(Long exposures) {
+            this.exposures = exposures;
+        }
+
+        public Long getClicks() {
+            return clicks;
+        }
+
+        public void setClicks(Long clicks) {
+            this.clicks = clicks;
+        }
+    }
+
+    class ExperimentCount {
+        private String grp;
+        private Long exposures;
+        private Long clicks;
+
+        public String getGrp() {
+            return grp;
+        }
+
+        public void setGrp(String grp) {
+            this.grp = grp;
         }
 
         public Long getExposures() {

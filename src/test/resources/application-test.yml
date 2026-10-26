@@ -14,6 +14,9 @@ spring:
       database: 15
 
 app:
+  feed:
+    # 实验分流会改变既有 Feed 用例的用户路径，测试默认关闭
+    experiment-enabled: false
   ai:
     # 默认关闭；AI 推流用例单独开启并替换 AiFeedClient
     enabled: false

@@ -62,6 +62,7 @@ public class FeedService {
     private final AiProperties aiProperties;
     private final AiFeedStore aiFeedStore;
     private final FeedCircuitBreaker breaker;
+    private final FeedExperimentService experiment;
 
     private final Cache<Long, List<Long>> rankCache = Caffeine.newBuilder()
             .maximumSize(5_000)
@@ -76,7 +77,7 @@ public class FeedService {
                        FeedRecallService feedRecallService,
                        ProductService productService, StringRedisTemplate redis,
                        AiProperties aiProperties, AiFeedStore aiFeedStore,
-                       FeedCircuitBreaker breaker) {
+                       FeedCircuitBreaker breaker, FeedExperimentService experiment) {
         this.productMapper = productMapper;
         this.feedQueryMapper = feedQueryMapper;
         this.feedRecallService = feedRecallService;
@@ -85,6 +86,7 @@ public class FeedService {
         this.aiProperties = aiProperties;
         this.aiFeedStore = aiFeedStore;
         this.breaker = breaker;
+        this.experiment = experiment;
     }
 
     public FeedPage feed(Long userId, Long cursor, int size, boolean refresh, String buildId) {
@@ -99,6 +101,11 @@ public class FeedService {
             return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
                     STATUS_FALLBACK, null, null);
         }
+        if (experiment.isControl(userId)) {
+            ScrollPage<ProductView> page = rulePage(userId, offset, size, refresh);
+            return new FeedPage(page.items(), page.nextCursor(), page.hasMore(),
+                    STATUS_FALLBACK, null, experiment.controlBuildId(userId));
+        }
         return aiPage(userId, offset, size, refresh, buildId);
     }
 
@@ -108,6 +115,9 @@ public class FeedService {
     public FeedStatusView status(Long userId) {
         if (userId == null) {
             return new FeedStatusView(STATUS_DISABLED, null, null);
+        }
+        if (experiment.isControl(userId)) {
+            return new FeedStatusView(STATUS_FALLBACK, null, null);
         }
         if (!aiProperties.isEnabled()
                 || aiProperties.getInternalToken() == null

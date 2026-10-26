@@ -171,6 +171,45 @@ class FeedMetricsIntegrationTest {
     }
 
     @Test
+    void experimentComparesControlAndAiWithConfidenceIntervals() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        long p1 = product(catA, "实验商品", "ON_SALE");
+        String controlBuild = "RULE:1:20000";
+        String aiBuild = "PREF:experiment-ai";
+        for (int i = 0; i < 10; i++) {
+            eventWithBuild("exp-control-" + i, "EXPOSURE", "RULE",
+                    controlBuild, p1, catA, i + 1);
+            eventWithBuild("exp-ai-" + i, "EXPOSURE", "AI",
+                    aiBuild, p1, catA, i + 1);
+        }
+        eventWithBuild("exp-control-click", "CLICK", "RULE",
+                controlBuild, p1, catA, 1);
+        eventWithBuild("exp-ai-click-1", "CLICK", "AI", aiBuild, p1, catA, 1);
+        eventWithBuild("exp-ai-click-2", "CLICK", "AI", aiBuild, p1, catA, 2);
+
+        // 不属于实验：AI 降级带来的 RULE 事件、旧格式 buildId
+        eventWithBuild("exp-fallback", "EXPOSURE", "RULE",
+                "PREF:fallback", p1, catA, 1);
+        eventWithBuild("exp-legacy", "EXPOSURE", "AI",
+                "550e8400-e29b-41d4-a716-446655440000", p1, catA, 1);
+
+        mockMvc.perform(get("/api/admin/feed/experiment").param("days", "7")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days").value(7))
+                .andExpect(jsonPath("$.controlPercent").value(10))
+                .andExpect(jsonPath("$.control.exposures").value(10))
+                .andExpect(jsonPath("$.control.clicks").value(1))
+                .andExpect(jsonPath("$.control.ctr").value(0.1))
+                .andExpect(jsonPath("$.control.lower").value(closeTo(0.0179, 0.001)))
+                .andExpect(jsonPath("$.control.upper").value(closeTo(0.4042, 0.001)))
+                .andExpect(jsonPath("$.ai.exposures").value(10))
+                .andExpect(jsonPath("$.ai.clicks").value(2))
+                .andExpect(jsonPath("$.ai.ctr").value(0.2))
+                .andExpect(jsonPath("$.lift").value(1.0));
+    }
+
+    @Test
     void replayComparesRuleAndAiOnSameCandidates() throws Exception {
         Session admin = register(ADMIN_PHONE);
         long p1 = product(catA, "回放商品1", "ON_SALE");

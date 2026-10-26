@@ -34,7 +34,7 @@
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 360 个 Java 用例 + 30 个 Python 用例 |
+| 测试 | 365 个 Java 用例 + 30 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2586,6 +2586,34 @@ sundry_seckill_compensation_total = 0
 **提交**
 
 - 待提交：`feat: AI 推流离线回放评估`
+
+## 2026-10-26 · AI 推流实验分流：规则对照 + Wilson 区间
+
+**做了什么**
+
+- 新增 `FeedExperimentService`
+  - `userId` 稳定 hash 到 0..99，同一用户分组不随日期变化
+  - 默认 10% 规则对照组，可通过 `FEED_EXPERIMENT_CONTROL_PERCENT` 调整
+  - 对照组直接走规则排序，不触发 AI 构建；`feedBuildId = RULE:{userId}:{epochDay}`，前端曝光/点击会带上
+  - `status` 对对照组返回 FALLBACK，前端算法标记为 RULE
+- 新增 `GET /api/admin/feed/experiment?days=7`
+  - 对照组：`algorithm=RULE` 且 `build_id LIKE 'RULE:%'`
+  - AI 组：`algorithm=AI` 且 `build_id` 为 PREF/EXPLORE
+  - 排除 AI 降级产生的 RULE 事件和旧格式 buildId
+  - 输出曝光、点击、CTR、95% Wilson 区间、提升比例
+- 管理端「推荐指标」页新增实验表格
+- 测试环境默认关闭实验，避免改变既有 Feed 用例路径
+
+**验证**
+
+- Java：365 个用例全部通过（分流稳定性/比例、buildId、Wilson、接口对照）
+- Python：30 个用例通过
+- `npm run build` 通过
+- 10/100 的 Wilson 区间实测为 `0.0552 ~ 0.1744`；10 次曝光 1 次点击为 `0.0179 ~ 0.4042`
+
+**提交**
+
+- 待提交：`feat: AI 推流稳定分流与规则对照指标`
 
 ## 待办 / 下一步
 

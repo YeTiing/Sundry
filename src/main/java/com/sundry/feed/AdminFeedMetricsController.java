@@ -1,5 +1,6 @@
 package com.sundry.feed;
 
+import com.sundry.feed.dto.FeedExperimentView;
 import com.sundry.feed.dto.FeedMetricsView;
 import com.sundry.feed.dto.FeedReplayView;
 import jakarta.validation.constraints.Max;
@@ -21,11 +22,14 @@ public class AdminFeedMetricsController {
 
     private final FeedMetricsService feedMetricsService;
     private final FeedReplayService feedReplayService;
+    private final FeedExperimentService feedExperimentService;
 
     public AdminFeedMetricsController(FeedMetricsService feedMetricsService,
-                                      FeedReplayService feedReplayService) {
+                                      FeedReplayService feedReplayService,
+                                      FeedExperimentService feedExperimentService) {
         this.feedMetricsService = feedMetricsService;
         this.feedReplayService = feedReplayService;
+        this.feedExperimentService = feedExperimentService;
     }
 
     @GetMapping("/metrics")
@@ -41,5 +45,12 @@ public class AdminFeedMetricsController {
             @RequestParam(defaultValue = "7") @Min(1) @Max(90) int days,
             @RequestParam(defaultValue = "10") @Min(1) @Max(50) int k) {
         return feedReplayService.replay(days, k);
+    }
+
+    @GetMapping("/experiment")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    public FeedExperimentView experiment(
+            @RequestParam(defaultValue = "7") @Min(1) @Max(90) int days) {
+        return feedExperimentService.report(days);
     }
 }

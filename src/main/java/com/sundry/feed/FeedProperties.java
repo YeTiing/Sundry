@@ -22,6 +22,9 @@ public class FeedProperties {
     private int eventCleanupBatchSize = 5000;
     private int eventCleanupMaxBatches = 10;
 
+    private boolean experimentEnabled = true;
+    private int experimentControlPercent = 10;
+
     private int recallHotLimit = 120;
     private int recallNewLimit = 60;
     private int recallCategoryLimit = 120;
@@ -113,6 +116,22 @@ public class FeedProperties {
 
     public void setEventCleanupMaxBatches(int eventCleanupMaxBatches) {
         this.eventCleanupMaxBatches = eventCleanupMaxBatches;
+    }
+
+    public boolean isExperimentEnabled() {
+        return experimentEnabled;
+    }
+
+    public void setExperimentEnabled(boolean experimentEnabled) {
+        this.experimentEnabled = experimentEnabled;
+    }
+
+    public int getExperimentControlPercent() {
+        return Math.min(Math.max(experimentControlPercent, 0), 50);
+    }
+
+    public void setExperimentControlPercent(int experimentControlPercent) {
+        this.experimentControlPercent = experimentControlPercent;
     }
 
     public int getRecallHotLimit() {

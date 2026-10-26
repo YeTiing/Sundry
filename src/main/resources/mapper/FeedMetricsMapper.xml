@@ -86,6 +86,24 @@
         ORDER BY trace_id, user_id, item_position
     </select>
 
+    <select id="countExperimentEvents"
+            resultType="com.sundry.feed.FeedMetricsMapper$ExperimentCount">
+        SELECT CASE
+                   WHEN algorithm = 'RULE' AND build_id LIKE 'RULE:%' THEN 'CONTROL'
+                   ELSE 'AI'
+               END AS grp,
+               SUM(event_type = 'EXPOSURE') AS exposures,
+               SUM(event_type = 'CLICK') AS clicks
+        FROM feed_event
+        WHERE created_at &gt;= #{since}
+          AND (
+              (algorithm = 'RULE' AND build_id LIKE 'RULE:%')
+              OR (algorithm = 'AI' AND build_id IS NOT NULL
+                  AND (build_id LIKE 'PREF:%' OR build_id LIKE 'EXPLORE:%'))
+          )
+        GROUP BY grp
+    </select>
+
     <select id="findReplaySnapshots"
             resultType="com.sundry.feed.FeedMetricsMapper$ReplaySnapshotRow">
         SELECT id, user_id, created_at, candidate_snapshot
