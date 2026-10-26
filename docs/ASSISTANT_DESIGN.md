@@ -1,6 +1,6 @@
 # AI 助手框架（A4）设计文档
 
-> 状态：**设计定稿；L0~L4 已完成（L4 多轮会话已接 Redis），A7 红队评测待做**
+> 状态：**设计定稿；L0~L4 已完成（L4 多轮会话已接 Redis）；A7 红队评测已完成**
 > 日期：2026-10-25
 > 关联：`docs/NL2SQL_DESIGN.md`（A5）、`docs/BACKLOG.md` A4/A7、`docs/FUTURE_DESIGN.md` 第 4 节
 > 用途：开发时按本文执行，避免重新推导
