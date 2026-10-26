@@ -271,21 +271,30 @@ class AssistantIntegrationTest {
     @Test
     void orderToolReturnsOnlyOwnOrders() throws Exception {
         Session user = register(USER_PHONE);
-        order(user.id(), "TEST-ORDER-001", "SHIPPED");
+        long orderId = order(user.id(), "TEST-ORDER-001", "SHIPPED");
+        orderItem(orderId, "助手测试商品", 2, "10.00");
+        orderItem(orderId, "第二件商品", 1, "5.00");
         when(assistantClient.chat(any(), anyString())).thenReturn(new AssistantLlmResponse(
                 List.of(new AssistantLlmResponse.ToolCall("c1", "list_my_orders", "{}")),
                 "", "deepseek", "assistant_v1"));
 
-        mockMvc.perform(post("/api/assistant/chat")
+        MvcResult result = mockMvc.perform(post("/api/assistant/chat")
                         .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的包裹到哪了\"}"))
+                        .content("{\"message\":\"我都买过什么\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.action").value("tool"))
                 .andExpect(jsonPath("$.reply",
-                        org.hamcrest.Matchers.containsString("TEST-ORDER-001")))
+                        org.hamcrest.Matchers.containsString("助手测试商品 ×2")))
                 .andExpect(jsonPath("$.reply",
-                        org.hamcrest.Matchers.containsString("已发货")));
+                        org.hamcrest.Matchers.containsString("第二件商品")))
+                .andExpect(jsonPath("$.reply",
+                        org.hamcrest.Matchers.containsString("已发货")))
+                .andReturn();
+
+        String reply = JsonPath.read(
+                result.getResponse().getContentAsString(StandardCharsets.UTF_8), "$.reply");
+        assertThat(reply).doesNotContain("TEST-ORDER-001");
 
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT action FROM ai_chat_log WHERE user_id = ?", String.class, user.id()))
@@ -418,11 +427,21 @@ class AssistantIntegrationTest {
                 .andExpect(status().isOk());
     }
 
-    private void order(Long userId, String orderNo, String status) {
+    private long order(Long userId, String orderNo, String status) {
         jdbcTemplate.update("""
                 INSERT INTO orders (order_no, user_id, status, total_amount, has_physical, created_at)
                 VALUES (?, ?, ?, 123.45, 1, NOW(3))
                 """, orderNo, userId, status);
+        return jdbcTemplate.queryForObject(
+                "SELECT id FROM orders WHERE order_no = ?", Long.class, orderNo);
+    }
+
+    private void orderItem(long orderId, String name, int quantity, String price) {
+        jdbcTemplate.update("""
+                INSERT INTO order_item
+                    (order_id, product_id, product_name, product_type, price, quantity)
+                VALUES (?, 1, ?, 'PHYSICAL', ?, ?)
+                """, orderId, name, new java.math.BigDecimal(price), quantity);
     }
 
     private long product(String status) {

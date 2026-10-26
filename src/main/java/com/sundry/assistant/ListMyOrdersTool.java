@@ -3,6 +3,7 @@ package com.sundry.assistant;
 import com.sundry.common.api.PageResponse;
 import com.sundry.order.OrderService;
 import com.sundry.order.OrderStatus;
+import com.sundry.order.dto.OrderItemView;
 import com.sundry.order.dto.OrderView;
 import com.sundry.user.Role;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,8 @@ public class ListMyOrdersTool implements AssistantTool {
 
     private static final int SCAN_SIZE = 20;
     private static final int SHOW_SIZE = 5;
+    private static final int MAX_ITEM_NAMES = 3;
+    private static final int MAX_ITEM_NAME_LENGTH = 30;
 
     private static final Map<OrderStatus, String> LABELS = Map.ofEntries(
             Map.entry(OrderStatus.PENDING_PAYMENT, "待支付"),
@@ -82,9 +85,11 @@ public class ListMyOrdersTool implements AssistantTool {
                     : "最近 " + SCAN_SIZE + " 个订单里没有「" + label(status) + "」的订单。");
         }
 
-        StringBuilder reply = new StringBuilder("你最近的订单：\n");
+        StringBuilder reply = new StringBuilder(status == null
+                ? "你最近买过：\n"
+                : "你最近买过（" + label(status) + "）：\n");
         for (OrderView order : orders) {
-            reply.append("- ").append(order.orderNo())
+            reply.append("- ").append(summary(order))
                     .append("｜").append(label(order.status()))
                     .append("｜¥").append(plain(order.totalAmount()));
             if (order.createdAt() != null) {
@@ -93,6 +98,37 @@ public class ListMyOrdersTool implements AssistantTool {
             reply.append('\n');
         }
         return new AssistantToolResult(reply.toString().trim());
+    }
+
+    /**
+     * 用户问“买了什么”时优先给商品名，订单号留在订单页看。
+     */
+    private String summary(OrderView order) {
+        List<OrderItemView> items = order.items();
+        if (items == null || items.isEmpty()) {
+            return "商品明细缺失";
+        }
+        int shown = Math.min(MAX_ITEM_NAMES, items.size());
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < shown; i++) {
+            if (i > 0) {
+                text.append('、');
+            }
+            text.append(itemLabel(items.get(i)));
+        }
+        if (items.size() > shown) {
+            text.append(" 等 ").append(items.size()).append(" 种商品");
+        }
+        return text.toString();
+    }
+
+    private String itemLabel(OrderItemView item) {
+        String name = item.productName() == null || item.productName().isBlank()
+                ? "商品" : item.productName().trim();
+        if (name.length() > MAX_ITEM_NAME_LENGTH) {
+            name = name.substring(0, MAX_ITEM_NAME_LENGTH) + "…";
+        }
+        return item.quantity() > 1 ? name + " ×" + item.quantity() : name;
     }
 
     private OrderStatus parseStatus(JsonNode node) {
