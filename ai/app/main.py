@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from app.config import Settings, get_settings
 from app.embeddings import EmbeddingClient, get_embedding_client
-from app.llm import LlmClient, get_llm
+from app.llm import LlmClient, LlmRateLimited, get_llm
 from app.prompt import (
     ASSISTANT_PROMPT_VERSION,
     NL2SQL_PLAN_PROMPT_VERSION,
@@ -131,13 +131,18 @@ async def rerank(
 async def assistant_chat(
     request: AssistantChatRequest,
     llm: LlmClient = Depends(get_llm),
+    settings: Settings = Depends(get_settings),
 ) -> AssistantChatResponse:
     try:
         result = await llm.complete_with_tools(
             assistant_prompt(),
             _assistant_user_prompt(request),
             request.tools,
+            timeout=settings.assistant_timeout,
         )
+    except LlmRateLimited as exc:
+        logger.warning("assistant llm rate limited", exc_info=exc)
+        raise HTTPException(status_code=429, detail="assistant rate limited") from exc
     except Exception as exc:
         logger.warning("assistant llm failed", exc_info=exc)
         raise HTTPException(status_code=503, detail="assistant unavailable") from exc

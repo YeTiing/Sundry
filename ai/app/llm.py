@@ -1,11 +1,15 @@
 import logging
 from typing import Protocol
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 
 from app.config import Settings, get_settings
 
 logger = logging.getLogger("sundry.ai")
+
+
+class LlmRateLimited(Exception):
+    """上游 429；HTTP 层映射成 429，让 Java 进入冷却。"""
 
 
 class LlmClient(Protocol):
@@ -14,7 +18,8 @@ class LlmClient(Protocol):
     ) -> str: ...
 
     async def complete_with_tools(
-        self, system: str, user: str, tools: list[dict]
+        self, system: str, user: str, tools: list[dict],
+        timeout: float | None = None,
     ) -> dict: ...
 
 
@@ -65,20 +70,24 @@ class DeepSeekClient:
         return last
 
     async def complete_with_tools(
-        self, system: str, user: str, tools: list[dict]
+        self, system: str, user: str, tools: list[dict],
+        timeout: float | None = None,
     ) -> dict:
-        response = await self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            tools=tools,
-            tool_choice="auto",
-            temperature=0,
-            max_tokens=800,
-            timeout=self._timeout,
-        )
+        try:
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                tools=tools,
+                tool_choice="auto",
+                temperature=0,
+                max_tokens=800,
+                timeout=timeout or self._timeout,
+            )
+        except RateLimitError as exc:
+            raise LlmRateLimited("upstream rate limited") from exc
         message = response.choices[0].message
         calls = [
             {

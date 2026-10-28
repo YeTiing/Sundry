@@ -10,6 +10,7 @@ class Settings:
     deepseek_model: str
     feed_rerank_model: str
     request_timeout: float
+    assistant_timeout: float
     embed_api_key: str
     embed_base_url: str
     embed_model: str
@@ -30,6 +31,8 @@ def get_settings() -> Settings:
             or os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
         ),
         request_timeout=float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "5")),
+        # 助手是交互式请求，超时必须小于 Java 的 wait-timeout
+        assistant_timeout=float(os.getenv("AI_ASSISTANT_TIMEOUT_SECONDS", "3")),
         embed_api_key=os.getenv("EMBED_API_KEY", ""),
         embed_base_url=os.getenv(
             "EMBED_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"

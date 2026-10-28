@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.llm import get_llm
+from app.llm import LlmRateLimited, get_llm
 from app.main import app
 from app.prompt import ASSISTANT_PROMPT_VERSION
 
@@ -13,7 +13,10 @@ class FakeLlm:
     async def complete(self, system: str, user: str, model: str | None = None) -> str:
         return ""
 
-    async def complete_with_tools(self, system: str, user: str, tools: list[dict]) -> dict:
+    async def complete_with_tools(
+        self, system: str, user: str, tools: list[dict],
+        timeout: float | None = None,
+    ) -> dict:
         return self.result
 
 
@@ -89,10 +92,15 @@ class CapturingLlm(FakeLlm):
     def __init__(self, result: dict) -> None:
         super().__init__(result)
         self.calls: list[tuple[str, str]] = []
+        self.timeouts: list[float | None] = []
 
-    async def complete_with_tools(self, system: str, user: str, tools: list[dict]) -> dict:
+    async def complete_with_tools(
+        self, system: str, user: str, tools: list[dict],
+        timeout: float | None = None,
+    ) -> dict:
         self.calls.append((system, user))
-        return await super().complete_with_tools(system, user, tools)
+        self.timeouts.append(timeout)
+        return await super().complete_with_tools(system, user, tools, timeout=timeout)
 
 
 def test_history_is_rendered_into_prompt():
@@ -116,6 +124,39 @@ def test_history_is_rendered_into_prompt():
     user_prompt = llm.calls[0][1]
     assert "我的订单在哪" in user_prompt
     assert "已为你找到我的订单入口" in user_prompt
+
+
+class RateLimitedLlm(FakeLlm):
+    async def complete_with_tools(
+        self, system: str, user: str, tools: list[dict],
+        timeout: float | None = None,
+    ) -> dict:
+        raise LlmRateLimited("upstream rate limited")
+
+
+def test_rate_limit_returns_429():
+    app.dependency_overrides[get_llm] = lambda: RateLimitedLlm({})
+
+    response = TestClient(app).post(
+        "/internal/assistant/chat", json=body(), headers={"X-Internal-Token": "test-token"}
+    )
+
+    assert response.status_code == 429
+
+
+def test_assistant_uses_configured_timeout(monkeypatch):
+    monkeypatch.setenv("AI_ASSISTANT_TIMEOUT_SECONDS", "2.5")
+    llm = CapturingLlm(
+        {"tool_calls": [], "content": "好的", "model": "deepseek-v4-flash"}
+    )
+    app.dependency_overrides[get_llm] = lambda: llm
+
+    response = TestClient(app).post(
+        "/internal/assistant/chat", json=body(), headers={"X-Internal-Token": "test-token"}
+    )
+
+    assert response.status_code == 200
+    assert llm.timeouts == [2.5]
 
 
 def test_requires_internal_token():
