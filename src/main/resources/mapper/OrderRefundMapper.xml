@@ -23,6 +23,23 @@
         LIMIT 1
     </select>
 
+    <!-- 每个订单只取最新一条退款单；派生表避免窗口函数在旧版本上的兼容问题 -->
+    <select id="findLatestByOrderIds" resultType="com.sundry.order.OrderRefund">
+        SELECT r.id, r.order_id, r.user_id, r.amount, r.reason, r.kind, r.status,
+               r.prev_status, r.applied_at, r.reviewed_at, r.reviewer_id, r.review_remark,
+               r.return_tracking_no, r.return_shipped_at, r.received_at
+        FROM order_refund r
+        JOIN (
+            SELECT order_id, MAX(id) AS max_id
+            FROM order_refund
+            WHERE order_id IN
+            <foreach collection="orderIds" item="orderId" open="(" separator="," close=")">
+                #{orderId}
+            </foreach>
+            GROUP BY order_id
+        ) latest ON latest.max_id = r.id
+    </select>
+
     <update id="approve">
         UPDATE order_refund
         SET status = 'APPROVED', reviewed_at = NOW(3),

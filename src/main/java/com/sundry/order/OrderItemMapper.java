@@ -12,6 +12,9 @@ public interface OrderItemMapper {
 
     List<OrderItem> findByOrderId(@Param("orderId") Long orderId);
 
+    // 列表页批量加载，避免逐单查询
+    List<OrderItem> findByOrderIds(@Param("orderIds") List<Long> orderIds);
+
     OrderItem findByIdAndOrder(@Param("id") Long id, @Param("orderId") Long orderId);
 
     long countByDigitalFileId(@Param("fileId") Long fileId);

@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -161,6 +162,43 @@ class OrderFlowIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].buyerPhone").value(USER_PHONE));
+    }
+
+    @Test
+    void userOrderPageLoadsItemsForMultipleOrders() throws Exception {
+        Session user = register(USER_PHONE);
+        Long userId = jdbcTemplate.queryForObject(
+                "SELECT id FROM app_user WHERE phone = ?", Long.class, USER_PHONE);
+
+        long first = insertOrder(userId, "batch-order-1");
+        long second = insertOrder(userId, "batch-order-2");
+        insertOrderItem(first, "批量商品A");
+        insertOrderItem(second, "批量商品B");
+
+        // 批量组装：两单各自带明细，且买家信息正常
+        mockMvc.perform(get("/api/orders")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items[0].items.length()").value(1))
+                .andExpect(jsonPath("$.items[1].items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].buyerPhone").value(USER_PHONE));
+    }
+
+    private long insertOrder(Long userId, String orderNo) {
+        jdbcTemplate.update("""
+                INSERT INTO orders (order_no, user_id, status, total_amount, has_physical, created_at)
+                VALUES (?, ?, 'PAID', ?, 1, ?)
+                """, orderNo, userId, new BigDecimal("10.00"), Timestamp.valueOf(LocalDateTime.now()));
+        return jdbcTemplate.queryForObject(
+                "SELECT id FROM orders WHERE order_no = ?", Long.class, orderNo);
+    }
+
+    private void insertOrderItem(long orderId, String name) {
+        jdbcTemplate.update("""
+                INSERT INTO order_item (order_id, product_id, product_name, product_type, price, quantity)
+                VALUES (?, 1, ?, 'PHYSICAL', ?, 1)
+                """, orderId, name, new BigDecimal("10.00"));
     }
 
     @Test

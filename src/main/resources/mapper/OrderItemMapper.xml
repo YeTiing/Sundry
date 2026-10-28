@@ -21,6 +21,17 @@
         ORDER BY id
     </select>
 
+    <select id="findByOrderIds" resultType="com.sundry.order.OrderItem">
+        SELECT id, order_id, product_id, product_name, product_type,
+               price, quantity, cover_url, digital_file_id
+        FROM order_item
+        WHERE order_id IN
+        <foreach collection="orderIds" item="orderId" open="(" separator="," close=")">
+            #{orderId}
+        </foreach>
+        ORDER BY order_id, id
+    </select>
+
     <select id="findByIdAndOrder" resultType="com.sundry.order.OrderItem">
         SELECT id, order_id, product_id, product_name, product_type,
                price, quantity, cover_url, digital_file_id

@@ -16,6 +16,9 @@ public interface UserMapper {
 
     User findById(@Param("id") Long id);
 
+    // 订单列表批量取买家，避免逐单查询
+    List<User> findByIds(@Param("ids") List<Long> ids);
+
     int insert(User user);
 
     List<User> findPage(@Param("offset") int offset, @Param("size") int size);

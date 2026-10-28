@@ -34,7 +34,10 @@ import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 一套订单流程：
@@ -585,8 +588,7 @@ public class OrderService {
 
     public PageResponse<OrderView> userPage(Long userId, int page, int size) {
         long offset = (long) (page - 1) * size;
-        List<OrderView> items = orderMapper.findPageByUser(userId, offset, size)
-                .stream().map(this::toView).toList();
+        List<OrderView> items = toViews(orderMapper.findPageByUser(userId, offset, size));
         return new PageResponse<>(items, orderMapper.countByUser(userId), page, size);
     }
 
@@ -594,9 +596,8 @@ public class OrderService {
                                             int page, int size) {
         long offset = (long) (page - 1) * size;
         String sort = (filters.sort() == null ? OrderSort.NEWEST : filters.sort()).name();
-        List<OrderView> items = orderMapper.findPageByUserFiltered(userId, filters.status(),
-                        filters.start(), filters.end(), filters.keyword(), sort, offset, size)
-                .stream().map(this::toView).toList();
+        List<OrderView> items = toViews(orderMapper.findPageByUserFiltered(userId, filters.status(),
+                filters.start(), filters.end(), filters.keyword(), sort, offset, size));
         long total = orderMapper.countByUserFiltered(userId, filters.status(),
                 filters.start(), filters.end(), filters.keyword());
         return new PageResponse<>(items, total, page, size);
@@ -628,8 +629,7 @@ public class OrderService {
 
     public PageResponse<OrderView> adminPage(OrderStatus status, int page, int size) {
         long offset = (long) (page - 1) * size;
-        List<OrderView> items = orderMapper.findPageAdmin(status, offset, size)
-                .stream().map(this::toView).toList();
+        List<OrderView> items = toViews(orderMapper.findPageAdmin(status, offset, size));
         return new PageResponse<>(items, orderMapper.countAdmin(status), page, size);
     }
 
@@ -788,16 +788,53 @@ public class OrderService {
     }
 
     private OrderView toView(Order order) {
-        List<OrderItemView> items = orderItemMapper.findByOrderId(order.getId()).stream()
+        return toView(order,
+                orderItemMapper.findByOrderId(order.getId()),
+                refundMapper.findLatestByOrderId(order.getId()),
+                userMapper.findById(order.getUserId()));
+    }
+
+    /**
+     * 列表页批量组装：一次查明细、一次查最新退款、一次查买家。
+     * 避免每单 3 次查询的 N+1。
+     */
+    private List<OrderView> toViews(List<Order> orders) {
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        List<Long> orderIds = orders.stream().map(Order::getId).toList();
+        List<Long> userIds = orders.stream().map(Order::getUserId)
+                .filter(Objects::nonNull).distinct().toList();
+
+        Map<Long, List<OrderItem>> itemsByOrder = orderItemMapper.findByOrderIds(orderIds)
+                .stream().collect(Collectors.groupingBy(OrderItem::getOrderId));
+        Map<Long, OrderRefund> refundByOrder = refundMapper.findLatestByOrderIds(orderIds)
+                .stream().collect(Collectors.toMap(OrderRefund::getOrderId, Function.identity(),
+                        (first, second) -> first));
+        Map<Long, User> buyers = userIds.isEmpty()
+                ? Map.of()
+                : userMapper.findByIds(userIds).stream()
+                        .collect(Collectors.toMap(User::getId, Function.identity(),
+                                (first, second) -> first));
+
+        return orders.stream()
+                .map(order -> toView(order,
+                        itemsByOrder.getOrDefault(order.getId(), List.of()),
+                        refundByOrder.get(order.getId()),
+                        buyers.get(order.getUserId())))
+                .toList();
+    }
+
+    private OrderView toView(Order order, List<OrderItem> items,
+                             OrderRefund refund, User buyer) {
+        List<OrderItemView> itemViews = items.stream()
                 .map(item -> new OrderItemView(item.getId(), item.getProductId(), item.getProductName(),
                         item.getProductType(), item.getPrice(), item.getQuantity(),
                         item.getCoverUrl(), item.getDigitalFileId()))
                 .toList();
-        OrderRefund refund = refundMapper.findLatestByOrderId(order.getId());
         BigDecimal refundAmount = order.getRefundAmount() != null
                 ? order.getRefundAmount()
                 : (refund == null ? null : refund.getAmount());
-        User buyer = userMapper.findById(order.getUserId());
         return new OrderView(order.getOrderNo(), order.getStatus(), order.getOrderSource(),
                 order.getActivityId(), order.getTotalAmount(),
                 order.getHasPhysical() != null && order.getHasPhysical() == 1,
@@ -816,6 +853,6 @@ public class OrderService {
                 refund == null ? null : refund.getReturnTrackingNo(),
                 refund == null ? null : refund.getReturnShippedAt(),
                 refund == null ? null : refund.getReceivedAt(),
-                items);
+                itemViews);
     }
 }
