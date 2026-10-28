@@ -1,5 +1,7 @@
 package com.sundry.seckill;
 
+import com.sundry.order.Order;
+import com.sundry.order.OrderMapper;
 import com.sundry.seckill.dto.SeckillResultView;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -23,10 +25,13 @@ public class SeckillResultService {
 
     private final StringRedisTemplate redis;
     private final SeckillProperties properties;
+    private final OrderMapper orderMapper;
 
-    public SeckillResultService(StringRedisTemplate redis, SeckillProperties properties) {
+    public SeckillResultService(StringRedisTemplate redis, SeckillProperties properties,
+                                OrderMapper orderMapper) {
         this.redis = redis;
         this.properties = properties;
+        this.orderMapper = orderMapper;
     }
 
     public void start(String requestId, Long userId, Long activityId) {
@@ -86,11 +91,35 @@ public class SeckillResultService {
         if (entries.isEmpty()) {
             return null;
         }
-        return new SeckillResultView(requestId,
+        SeckillResultView view = new SeckillResultView(requestId,
                 string(entries.get(FIELD_STATUS)),
                 string(entries.get(FIELD_ORDER_NO)),
                 string(entries.get(FIELD_ERROR_CODE)),
                 string(entries.get(FIELD_ERROR_MESSAGE)));
+        if ("SUCCESS".equals(view.status())) {
+            return view;
+        }
+        // 结果缓存可能写失败；DB 订单已存在时以 DB 为准，避免用户一直看到 PROCESSING
+        return fromDb(requestId, entries, view);
+    }
+
+    private SeckillResultView fromDb(String requestId, Map<Object, Object> entries,
+                                     SeckillResultView fallback) {
+        Object userId = entries.get(FIELD_USER_ID);
+        Object activityId = entries.get(FIELD_ACTIVITY_ID);
+        if (userId == null || activityId == null) {
+            return fallback;
+        }
+        try {
+            Order order = orderMapper.findSeckillOrder(
+                    Long.valueOf(userId.toString()), Long.valueOf(activityId.toString()));
+            if (order != null) {
+                return new SeckillResultView(requestId, "SUCCESS", order.getOrderNo(), null, null);
+            }
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+        return fallback;
     }
 
     private String string(Object value) {

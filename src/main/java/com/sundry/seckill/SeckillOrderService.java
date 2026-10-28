@@ -163,9 +163,8 @@ public class SeckillOrderService {
 
             String orderNo = transactionTemplate.execute(status ->
                     doCreate(userId, activity, product, address));
-            // 放入延迟队列，支付截止后由 worker 取消；DB 扫描任务仍然兜底
-            timeoutService.add(orderNo, LocalDateTime.now().plus(orderProperties.getPayTimeout()));
-            resultService.success(message.requestId(), orderNo);
+            // DB 已经提交：Redis 侧失败只能记日志/重试，绝不能回补库存
+            recordPostCommit(message, orderNo);
             metrics.orderSuccess();
         } catch (DuplicateKeyException ex) {
             Order duplicate = orderMapper.findSeckillOrder(userId, activityId);
@@ -198,6 +197,26 @@ public class SeckillOrderService {
         metrics.compensation();
         metrics.orderFailed(errorCode.name());
         resultService.fail(message.requestId(), errorCode.name(), errorCode.message());
+    }
+
+    /**
+     * 订单已提交后的 Redis 副作用：失败只降级，不回补库存、不标记失败。
+     * 否则会出现「DB 有订单、用户看到失败、库存被还回去」的超卖窗口。
+     */
+    private void recordPostCommit(SeckillOrderMessage message, String orderNo) {
+        try {
+            // 放入延迟队列，支付截止后由 worker 取消；DB 扫描任务仍然兜底
+            timeoutService.add(orderNo, LocalDateTime.now().plus(orderProperties.getPayTimeout()));
+        } catch (RuntimeException ex) {
+            log.warn("秒杀订单已创建，但超时队列写入失败 orderNo={} requestId={}",
+                    orderNo, message.requestId(), ex);
+        }
+        try {
+            resultService.success(message.requestId(), orderNo);
+        } catch (RuntimeException ex) {
+            log.warn("秒杀订单已创建，但结果写入失败 orderNo={} requestId={}",
+                    orderNo, message.requestId(), ex);
+        }
     }
 
     private String doCreate(Long userId, SeckillActivity activity, Product product,
