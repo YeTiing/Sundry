@@ -32,9 +32,10 @@
 | 缓存 | 分类/商品详情三级缓存；商品列表只缓存 ID，卡片按商品独立缓存；互斥重建、空值缓存、随机 TTL |
 | 推荐 | 首页 Feed：多路召回（分类/协同/热销/新品/语义）、规则打分（分类/热度/新鲜度/标签）、多样性重排、Redis 快照、无限滑动；登录用户 AI 异步重排（PREF 多样性校正）；构建额度分层（冷却/每小时/首访保底令牌桶）；曝光/点击 Kafka 异步回流；后台离线评估 |
 | AI | `ai/` FastAPI 服务 + DeepSeek 重排 + 百炼 embedding；Milvus 语义召回；变体池（PREF/EXPLORE/PRICE 预生成，换一批 0 等待）；异步队列、失败降级、审计 |
+| 助手 | 规则快路径 + 原生 tool calling + 角色裁剪；Redis 滑动窗口限流；Bulkhead（默认 32 并发 / 200 队列）+ DeferredResult 异步返回；审计默认异步写；429 Redis 冷却 |
 | 指标 | Micrometer + Prometheus，抢购结果、建单、补偿、提交耗时 |
 | 压测 | k6 脚本：商品浏览与秒杀抢购，附结果校验步骤 |
-| 测试 | 380 个 Java 用例 + 30 个 Python 用例 |
+| 测试 | 380+ 个 Java 用例（新增助手并发/审计/订单批量）+ 30 个 Python 用例 |
 | 分支 | `develop`、`main` 与远端保持同步（以提交记录为准） |
 | 未完成 | 真实支付、退款真实资金流、通知公告、经营分析一句话总结（待定） |
 
@@ -2783,6 +2784,193 @@ sundry_seckill_compensation_total = 0
   - 13/13 用户 AI PREF NDCG 仍高于规则
 - `AiFeedIntegrationTest` 26 个、`FeedIntegrationTest` 8 个通过
 - 全量 Java：380 个用例，0 失败 0 错误
+
+**提交**
+
+- 待提交
+
+## 2026-10-27 · 助手并发闸门与分布式限流
+
+**做了什么**
+
+- 新增 `AssistantBulkhead`：`core=max=32`、`ArrayBlockingQueue(200)`、`AbortPolicy`；`submit` 返回 `CompletableFuture`
+- 队列满抛 `AssistantBusyException(QUEUE_FULL)`；Controller 转成 200 + 降级文案
+- `AssistantRateLimiter` 从本机 Caffeine 固定窗口改为 Redis ZSET + Lua 滑动窗口
+- 指标 `sundry.assistant.bulkhead{result=ok|busy|error|cancelled}` + active/queued Gauge
+
+**遇到问题**
+
+- 同步调用模型会占满 Tomcat 线程；多实例上限流各算各的；固定窗口在分钟边界会双倍放行
+
+**解决**
+
+- 固定并发 + 有界短队列 + 早降级；限流改 Redis；被拒绝的请求不占并发额度
+
+**验证**
+
+- `AssistantBulkheadTest` 2、`AssistantIntegrationTest` 20、`AssistantQuerySalesIntegrationTest` 2、`RouteCatalogTest` 5 通过
+
+**提交**
+
+- 待提交
+
+## 2026-10-27 · 订单列表批量组装与审计异步化
+
+**做了什么**
+
+- 新增 `OrderItemMapper.findByOrderIds`、`OrderRefundMapper.findLatestByOrderIds`、`UserMapper.findByIds`
+- `OrderService.toViews` 一次组装列表；`userPage` / `adminPage` 改用
+- 新增 `AssistantAuditWriter`：单线程 + 有界队列 1000，队列满 `CallerRunsPolicy`；测试 profile 同步写
+
+**遇到问题**
+
+- 订单列表每单 3 次查询，N+1；审计同步写库与业务查询抢 Hikari 连接
+
+**解决**
+
+- 一页固定 5 条 SQL（列表、count、items、refund、buyers）；审计默认异步，关闭时等待 5 秒刷完
+
+**验证**
+
+- `OrderFlowIntegrationTest` 26（新增多订单列表用例）、`AssistantIntegrationTest` 20、`AssistantAuditWriterTest` 2 通过
+
+**提交**
+
+- 待提交
+
+## 2026-10-27 · 助手 DeferredResult 异步返回
+
+**做了什么**
+
+- `AssistantController.chat` 返回 `DeferredResult<AssistantReply>`；`AssistantBulkhead.submit` 返回 `CompletableFuture`
+- 排队超时/队列满返回 200 + 降级文案；业务异常交给全局异常处理
+- `SecurityConfig` 放行 `DispatcherType.ASYNC`；初始请求仍走 JWT
+- 测试新增 `AsyncAssistantCalls`，统一处理 async dispatch
+
+**遇到问题**
+
+- MockMvc 二次派发被 Security 再次拦截，返回 401
+
+**解决**
+
+- `dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()`；只放行内部延续派发
+
+**验证**
+
+- `AssistantIntegrationTest` 20、`AssistantQuerySalesIntegrationTest` 2、`AuthFlowIntegrationTest` 10 通过
+
+**提交**
+
+- 待提交
+
+## 2026-10-28 · 助手超时对齐与取消检查
+
+**做了什么**
+
+- `AssistantService.chat` 增加 `BooleanSupplier cancelled`：入口、调用模型前、执行工具前各检查一次
+- `AssistantController` 用 `AtomicBoolean` 标记取消；`DeferredResult` 超时或完成时置位并 `future.cancel(true)`
+- 配置对齐：`app.assistant.timeout` 8s → 3s，`wait-timeout` 3s → 4s
+- 新增 `AssistantServiceCancellationTest`
+
+**遇到问题**
+
+- 用户已经收到降级，排队中的任务仍会继续调模型、执行工具，浪费上游和 DB
+
+**解决**
+
+- 取消标记 + 入口/模型前/工具前三处检查；HTTP 超时小于总等待上限，避免上游比用户等得还久
+
+**验证**
+
+- `AssistantServiceCancellationTest` 1、`AssistantBulkheadTest` 2、`AssistantIntegrationTest` 20、`AssistantQuerySalesIntegrationTest` 2 通过
+
+**提交**
+
+- 待提交
+
+## 2026-10-28 · 助手 Python 超时与 429 冷却
+
+**做了什么**
+
+- Python 新增 `AI_ASSISTANT_TIMEOUT_SECONDS`（默认 3s），`complete_with_tools` 支持按调用传超时
+- 上游 `RateLimitError` 转 `LlmRateLimited`，助手接口返回 429
+- Java 新增 `AssistantLlmGate`：Redis `assistant:llm:cooldown`，429 后冷却 30s，多实例共享
+- `AssistantClient` 调用前检查冷却，收到 429 时写入冷却
+- README 启动命令加 `--workers 4`；`.env.example` 补助手超时
+
+**遇到问题**
+
+- Python 全局超时 5s/20s，助手已经降级后上游还在跑
+- 429 没有冷却，故障时每个请求都会继续打上游
+
+**解决**
+
+- 助手单独 3s 超时，小于 Java 4s 等待上限
+- 429 写 Redis 冷却，冷却期内直接降级，不再请求 Python
+
+**验证**
+
+- Python：32 个用例通过（新增 429、超时透传用例）
+- Java：`AssistantLlmGateTest` 3、`AssistantIntegrationTest` 20、`AssistantQuerySalesIntegrationTest` 2 通过
+
+**提交**
+
+- 待提交
+
+## 2026-10-28 · AI HTTP 连接池与助手压测脚本
+
+**做了什么**
+
+- `AiConfig` 从 `SimpleClientHttpRequestFactory` 换成共享 JDK `HttpClient` + `JdkClientHttpRequestFactory`
+- 连接超时 2s（`app.ai.connect-timeout`），读超时按调用方设置：助手 3s、NL2SQL 8s、Feed 30s
+- HTTP/1.1，复用连接，不引入新依赖
+- 新增 `loadtest/assistant.js`：70% 规则路径、30% 模型路径，统计 ok/busy/degraded/rate_limited/error
+- `loadtest/README.md` 补助手压测步骤与通过标准
+
+**遇到问题**
+
+- `SimpleClientHttpRequestFactory` 基于 `HttpURLConnection`，没有显式连接池上限，高并发下连接建立/回收开销不可控
+
+**解决**
+
+- 共享 JDK HttpClient；连接池由 JDK 管理，读超时按 RestClient 区分
+
+**验证**
+
+- `AssistantIntegrationTest` 20 个用例通过（Spring 上下文正常加载新客户端）
+- `loadtest/assistant.js` 通过 Node 语法检查；本机未安装 k6，未实际跑压测
+
+**提交**
+
+- 待提交
+
+## 2026-10-28 · 助手压测实测与超时取消 500 修复
+
+**做了什么**
+
+- 用 k6 v1.8.2 实测助手接口，新增 `loadtest/assistant.js` 已完成首次压测
+- 规则路径 100 VU：19,751 次请求，p95 7.04ms、p99 13.44ms、0 error
+- 模型路径（2s 桩）20 VU：131 次请求，p95 2.02s、p99 2.16s、0 error
+- 模型路径（2s 桩）100 VU：595 次请求，498 busy、90 ok、7 degraded、0 error，p95 4.81s（饱和，Bulkhead 按预期介入）
+- 修复：DeferredResult 超时后 `CancellationException` 被全局异常处理成 500；Controller 现在统一转成 busy，并在 `isSetOrExpired()` 后不再写结果
+- 新增 `AssistantControllerTest` 回归用例
+
+**遇到问题**
+
+- 100 VU 模型路径压测出现 502 个 5xx；日志是 `CancellationException` 被当成未处理异常
+- k6 在饱和时 p95 贴着 4s 等待上限，阈值 p95<4.5s 未通过
+
+**解决**
+
+- `CancellationException` / `AssistantBusyException` 都返回 200 + 降级文案
+- 饱和是预期结果：32 并发 × 2s ≈ 16 req/s，100 VU 需求约 50 req/s，队列必然打满
+- 需要更高吞吐时调 `ASSISTANT_CONCURRENCY`，同时确认上游容量
+
+**验证**
+
+- `AssistantControllerTest` 1 个用例通过
+- k6 两轮规则路径 + 两轮模型路径结果见上
+- 压测期间 `assistant_error = 0`，说明保护链路没有把超时变成 5xx
 
 **提交**
 

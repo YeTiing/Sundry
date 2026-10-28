@@ -59,6 +59,57 @@ k6 run \
 409 售罄和 429 限流是**预期结果**，脚本用 `seckill_unexpected_status == 0` 作为通过条件，不把 409 计为失败。
 默认限流是每用户每秒 5 次，压测时尽量让 token 数量接近 VUS。
 
+## 4.1 助手压测
+
+助手默认每用户 10 次/分钟；要压 Bulkhead 而不是限流，启动后端时把限流调高：
+
+```bash
+ASSISTANT_RATE_LIMIT=100000 \
+AI_BASE_URL=http://127.0.0.1:8000 \
+java -jar target/sundry-0.0.1-SNAPSHOT.jar
+```
+
+```bash
+k6 run \
+  -e BASE_URL=http://127.0.0.1:8080 \
+  -e VUS=100 \
+  -e START_VUS=10 \
+  -e HOLD=30s \
+  -e MODEL_PERCENT=30 \
+  loadtest/assistant.js
+```
+
+脚本从 `tokens.txt` 取 token，按 VU 轮换；70% 走规则快路径，30% 走模型路径。
+
+关注：
+
+- `http_req_duration` 的 p95 / p99
+- `assistant_ok` / `assistant_busy` / `assistant_degraded` / `assistant_rate_limited` / `assistant_error`
+- `sundry_assistant_bulkhead{result="ok|busy|error|cancelled"}`
+- `sundry_assistant_bulkhead_active`、`sundry_assistant_bulkhead_queued`
+
+通过标准：
+
+- `assistant_error == 0`
+- p95 < 4s，p99 < 4.5s（用户等待上限 4s）
+- `busy` / `degraded` 有明确原因（队列满、模型不可用、429 冷却）
+- 压测结束后 Tomcat 活跃线程回落到正常水平，说明异步返回没有占住线程
+
+AI 服务未启动时，助手会快速降级，只能验证保护链路，不能验证真实模型吞吐。
+
+### 本机实测（2026-10-28）
+
+k6 v1.8.2，单机后端，助手 Bulkhead 默认 32 并发 / 200 队列 / 4s 等待上限：
+
+| 场景 | 请求数 | p95 | p99 | 结果 |
+|---|---:|---:|---:|---|
+| 规则路径，100 VU | 19,751 | 7.04ms | 13.44ms | 0 error |
+| 模型路径（2s 桩），20 VU | 131 | 2.02s | 2.16s | 0 error |
+| 模型路径（2s 桩），100 VU | 595 | 4.81s | 4.87s | 498 busy、0 error |
+
+100 VU + 2s 模型延迟时，32 并发只能提供约 16 req/s，而 100 VU 需求约 50 req/s，队列必然打满。
+这是 Bulkhead 按预期保护系统，不是 5xx；要提高吞吐先调 `ASSISTANT_CONCURRENCY`，并确认上游模型容量。
+
 ## 5. 结果校验
 
 活动库存为 `stock`，预期：
