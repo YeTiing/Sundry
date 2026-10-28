@@ -11,7 +11,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -91,6 +93,24 @@ class ProductEmbeddingServiceTest {
         assertThat(processed).isEqualTo(1);
         verify(embeddingMapper).upsertBatch(anyList());
         verify(milvusClient).upsert(anyList(), anyList());
+    }
+
+    @Test
+    void milvusFailureDoesNotAdvanceMysqlUpdatedAt() {
+        properties.setEnabled(true);
+        properties.setDim(2);
+        when(productMapper.findAllForEmbedding()).thenReturn(List.of(product(1L, "商品1")));
+        when(embeddingClient.embed(anyList())).thenReturn(
+                new EmbeddingClient.EmbeddingResult(
+                        List.of(List.of(1.0f, 0.0f)), "test-model", 2));
+        doThrow(new MilvusException("MILVUS_UNAVAILABLE"))
+                .when(milvusClient).upsert(anyList(), anyList());
+
+        assertThatThrownBy(() -> service().rebuild())
+                .isInstanceOf(BusinessException.class);
+
+        // 先写 Milvus 失败时，MySQL 不能先刷新 updated_at，否则定时扫描不会再重试
+        verify(embeddingMapper, never()).upsertBatch(anyList());
     }
 
     @Test

@@ -169,12 +169,14 @@ public class ProductEmbeddingService {
                 vectors.add(vector);
             }
 
-            embeddingMapper.upsertBatch(rows);
+            // 先写 Milvus，成功后再更新 MySQL。
+            // 反过来的话，Milvus 失败时 MySQL updated_at 已刷新，定时扫描会误判为已同步。
             try {
                 milvusClient.upsert(ids, vectors);
             } catch (RuntimeException ex) {
                 throw new BusinessException(ErrorCode.VECTOR_STORE_UNAVAILABLE);
             }
+            embeddingMapper.upsertBatch(rows);
             processed += batch.size();
         }
 
