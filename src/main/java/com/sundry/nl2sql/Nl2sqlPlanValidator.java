@@ -39,7 +39,7 @@ public class Nl2sqlPlanValidator {
         SemanticLayer layer = provider.layer();
         List<Metric> metrics = metrics(plan, layer);
         List<Dimension> dimensions = dimensions(plan, layer);
-        checkCompatibility(metrics, dimensions, layer);
+        checkCompatibility(metrics, dimensions, plan, layer);
         List<FilterBinding> filters = filters(plan, layer);
         TimeRange time = time(plan, layer);
         List<SortBinding> sort = sort(plan, metrics);
@@ -75,7 +75,8 @@ public class Nl2sqlPlanValidator {
             if (metric == null) {
                 throw invalid("UNSUPPORTED_METRIC", "不支持的指标: " + key);
             }
-            result.add(new Metric(metric.key(), metric.label(), metric.unit(), metric.expr()));
+            result.add(new Metric(metric.key(), metric.label(), metric.unit(), metric.expr(),
+                    metric.itemLevel()));
         }
         return result;
     }
@@ -101,7 +102,8 @@ public class Nl2sqlPlanValidator {
                 throw invalid("UNSUPPORTED_DIMENSION", "不支持的维度: " + key);
             }
             result.add(new Dimension(key, dimension.label(),
-                    expression(key, dimension, granularity, layer.base().timeColumn())));
+                    expression(key, dimension, granularity, layer.base().timeColumn()),
+                    dimension.itemLevel()));
         }
         return result;
     }
@@ -119,15 +121,21 @@ public class Nl2sqlPlanValidator {
     }
 
     private void checkCompatibility(List<Metric> metrics, List<Dimension> dimensions,
-                                    SemanticLayer layer) {
+                                    Nl2sqlPlanResponse.Plan plan, SemanticLayer layer) {
         boolean refundMetric = metrics.stream()
                 .anyMatch(metric -> layer.metrics().get(metric.key()).conditionalJoin() != null);
-        boolean itemLevelDimension = dimensions.stream()
-                .anyMatch(dimension -> "category".equals(dimension.key())
-                        || "product".equals(dimension.key())
-                        || "product_type".equals(dimension.key()));
+        boolean refundAmount = metrics.stream()
+                .anyMatch(metric -> "refund_amount".equals(metric.key()));
+        boolean itemLevelDimension = dimensions.stream().anyMatch(Dimension::itemLevel);
+        boolean itemLevelMetric = metrics.stream().anyMatch(Metric::itemLevel);
+        boolean itemLevelFilter = plan.filters() != null && plan.filters().stream()
+                .map(filter -> layer.filters().get(filter.key()))
+                .anyMatch(filter -> filter != null && filter.itemLevel());
         if (refundMetric && itemLevelDimension) {
             throw invalid("INCOMPATIBLE_PAIR", "退款指标不能按商品/分类维度拆分");
+        }
+        if (refundAmount && (itemLevelMetric || itemLevelFilter)) {
+            throw invalid("INCOMPATIBLE_PAIR", "退款金额不能和商品明细指标/筛选混算");
         }
     }
 

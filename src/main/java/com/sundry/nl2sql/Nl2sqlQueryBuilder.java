@@ -32,6 +32,13 @@ public class Nl2sqlQueryBuilder {
             selects.add(metric.expr() + " AS " + metric.key());
         }
 
+        boolean needsItems = plan.metrics().stream().anyMatch(Metric::itemLevel)
+                || plan.dimensions().stream().anyMatch(Dimension::itemLevel)
+                || plan.filters().stream().anyMatch(filter -> {
+                    SemanticLayer.Filter definition = layer.filters().get(filter.key());
+                    return definition != null && definition.itemLevel();
+                });
+
         StringBuilder sql = new StringBuilder("SELECT ")
                 .append(String.join(", ", selects))
                 .append(" FROM ")
@@ -39,6 +46,9 @@ public class Nl2sqlQueryBuilder {
                 .append(' ')
                 .append(layer.base().fromAlias());
         for (SemanticLayer.Join join : layer.base().joins()) {
+            if (join.itemLevel() && !needsItems) {
+                continue;
+            }
             sql.append(" JOIN ").append(join.table())
                     .append(' ').append(join.alias())
                     .append(" ON ").append(join.on());

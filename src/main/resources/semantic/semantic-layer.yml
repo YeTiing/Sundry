@@ -8,12 +8,15 @@ base:
     - table: order_item
       alias: oi
       "on": oi.order_id = o.id
+      item: true
     - table: product
       alias: p
       "on": p.id = oi.product_id
+      item: true
     - table: category
       alias: c
       "on": c.id = p.category_id
+      item: true
     - table: app_user
       alias: u
       "on": u.id = o.user_id
@@ -25,6 +28,7 @@ metrics:
     label: 销售额
     synonyms: [GMV, 营收, 成交额, 卖了多少钱]
     unit: 元
+    item: true
     expr: "SUM(oi.price * oi.quantity)"
 
   paid_order_count:
@@ -37,20 +41,22 @@ metrics:
     label: 客单价
     synonyms: [平均每单金额]
     unit: 元
+    item: true
     expr: "SUM(oi.price * oi.quantity) / NULLIF(COUNT(DISTINCT o.order_no), 0)"
 
   product_sold_count:
     label: 商品销量
     synonyms: [卖出多少件]
     unit: 件
+    item: true
     expr: "SUM(oi.quantity)"
 
   refund_amount:
     label: 退款金额
     synonyms: [退了多少钱]
     unit: 元
-    # 退款是订单粒度，order_item 会复制订单行；按明细数量分摊后再汇总，避免多明细重复累计
-    expr: "SUM(r.refund_amount * oi.quantity / NULLIF((SELECT SUM(oi2.quantity) FROM order_item oi2 WHERE oi2.order_id = o.id), 0))"
+    # 退款是订单粒度；只有订单级指标/维度时才 JOIN 明细，直接 SUM 不会重复
+    expr: "SUM(r.refund_amount)"
     conditional_join: refund_summary
 
   refund_rate:
@@ -78,12 +84,14 @@ metrics:
     label: 平均商品单价
     synonyms: [均价, 平均单价]
     unit: 元
+    item: true
     expr: "AVG(oi.price)"
 
   seckill_gmv:
     label: 秒杀销售额
     synonyms: [秒杀GMV]
     unit: 元
+    item: true
     expr: "SUM(CASE WHEN o.order_source = 'SECKILL' THEN oi.price * oi.quantity ELSE 0 END)"
 
 dimensions:
@@ -95,15 +103,18 @@ dimensions:
     label: 商品分类
     synonyms: [类目, 品类]
     column: c.name
+    item: true
   product:
     label: 商品
     column: oi.product_name
+    item: true
   order_source:
     label: 订单来源
     column: o.order_source
   product_type:
     label: 商品类型
     column: oi.product_type
+    item: true
   status:
     label: 订单状态
     synonyms: [状态]
@@ -131,10 +142,12 @@ filters:
     column: oi.product_type
     type: enum
     values: [PHYSICAL, DIGITAL]
+    item: true
   category_id:
     label: 商品分类
     column: c.id
     type: id
+    item: true
   paid_at:
     label: 支付时间
     column: o.paid_at

@@ -108,11 +108,8 @@ metrics:
     synonyms: [退了多少钱]
     unit: 元
     # r 是 conditional_joins.refund_summary 聚合后的派生表，每单一行；
-    # order_item 会把订单行放大，按明细数量分摊后再汇总，避免多明细重复累计
-    expr: >
-      SUM(r.refund_amount * oi.quantity
-          / NULLIF((SELECT SUM(oi2.quantity) FROM order_item oi2
-                    WHERE oi2.order_id = o.id), 0))
+    # 退款是订单粒度：只选退款指标时不 JOIN order_item，直接 SUM 不会重复
+    expr: SUM(r.refund_amount)
 
   refund_rate:
     label: 退款率
@@ -234,7 +231,8 @@ conditional_joins:
 `refund_rate` / `refund_amount` 需要 LEFT JOIN `order_refund`，同样会放大行数：
 
 - `refund_rate` / `refund_order_count` 是计数，使用 `COUNT(DISTINCT ...)` 即可。
-- `refund_amount` 是金额求和，不能简单 `DISTINCT`（两笔同额退款会被合并），也不能直接 `SUM`（多明细会重复）。当前按明细数量分摊后再汇总；退款指标不允许按 `category` / `product` / `product_type` 拆分。
+- `refund_amount` 是订单粒度金额：只选退款指标时不 JOIN `order_item`，直接 `SUM(r.refund_amount)`。
+- 退款金额不能和商品明细指标（`gmv` 等）、明细维度（`category` / `product` / `product_type`）或明细筛选混算，否则会被明细行放大；校验直接返回 `INCOMPATIBLE_PAIR`。
 
 **② 时间边界**
 

@@ -8,10 +8,12 @@ public record ValidatedPlan(List<Metric> metrics, List<Dimension> dimensions,
                             List<SortBinding> sort, int limit,
                             List<String> conditionalJoins) {
 
-    public record Metric(String key, String label, String unit, String expr) {
+    public record Metric(String key, String label, String unit, String expr,
+                         boolean itemLevel) {
     }
 
-    public record Dimension(String key, String label, String expression) {
+    public record Dimension(String key, String label, String expression,
+                            boolean itemLevel) {
     }
 
     public record FilterBinding(String key, String column, Object value) {

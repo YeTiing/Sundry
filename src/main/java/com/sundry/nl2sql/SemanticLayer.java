@@ -17,19 +17,19 @@ public record SemanticLayer(int version, Base base,
                        List<Join> joins, List<String> where) {
     }
 
-    public record Join(String table, String alias, String on) {
+    public record Join(String table, String alias, String on, boolean itemLevel) {
     }
 
     public record Metric(String key, String label, List<String> synonyms, String unit,
-                         String expr, String conditionalJoin) {
+                         String expr, String conditionalJoin, boolean itemLevel) {
     }
 
     public record Dimension(String key, String label, List<String> synonyms,
-                            String column, List<String> granularity) {
+                            String column, List<String> granularity, boolean itemLevel) {
     }
 
     public record Filter(String key, String label, String column, String type,
-                         List<String> values) {
+                         List<String> values, boolean itemLevel) {
     }
 
     public record Limits(int maxMetrics, int maxDimensions, int maxRangeDays, int maxRows) {

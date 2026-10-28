@@ -42,7 +42,8 @@ public class SemanticLayerProvider {
                         strings(map.get("synonyms")),
                         text(map.get("unit")),
                         required(map, "expr"),
-                        optionalText(map.get("conditional_join"))));
+                        optionalText(map.get("conditional_join")),
+                        flag(map, "item")));
             }
 
             Map<String, SemanticLayer.Dimension> dimensions = new LinkedHashMap<>();
@@ -53,7 +54,8 @@ public class SemanticLayerProvider {
                         required(map, "label"),
                         strings(map.get("synonyms")),
                         required(map, "column"),
-                        strings(map.get("granularity"))));
+                        strings(map.get("granularity")),
+                        flag(map, "item")));
             }
 
             Map<String, SemanticLayer.Filter> filters = new LinkedHashMap<>();
@@ -64,7 +66,8 @@ public class SemanticLayerProvider {
                         required(map, "label"),
                         required(map, "column"),
                         required(map, "type"),
-                        strings(map.get("values"))));
+                        strings(map.get("values")),
+                        flag(map, "item")));
             }
 
             Map<String, String> conditionalJoins = new LinkedHashMap<>();
@@ -97,7 +100,8 @@ public class SemanticLayerProvider {
                     return new SemanticLayer.Join(
                             required(join, "table"),
                             required(join, "alias"),
-                            required(join, "on"));
+                            required(join, "on"),
+                            flag(join, "item"));
                 })
                 .toList();
         return new SemanticLayer.Base(
@@ -140,6 +144,14 @@ public class SemanticLayerProvider {
 
     private String text(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private boolean flag(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return value != null && Boolean.parseBoolean(String.valueOf(value).trim());
     }
 
     private int intValue(Object value, int fallback) {

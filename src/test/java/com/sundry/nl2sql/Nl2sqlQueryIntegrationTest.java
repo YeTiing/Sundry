@@ -373,6 +373,17 @@ class Nl2sqlQueryIntegrationTest {
                         .content("{\"question\":\"最近30天各分类退款金额\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("NL2SQL_PLAN_REJECTED"));
+
+        // 退款金额不能和商品明细指标混算
+        stubPlan(new Nl2sqlPlanResponse.Plan(
+                List.of("refund_amount", "gmv"), List.of(), List.of(),
+                new Nl2sqlPlanResponse.Plan.Time("LAST_30D"), "day", List.of(), 10));
+        mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"最近30天退款金额和销售额\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("NL2SQL_PLAN_REJECTED"));
     }
 
     private void seedRefundOrder(Long userId) {
