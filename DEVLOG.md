@@ -2950,6 +2950,11 @@ sundry_seckill_compensation_total = 0
 
 - 用 k6 v1.8.2 实测助手接口，新增 `loadtest/assistant.js` 已完成首次压测
 - 规则路径 100 VU：19,751 次请求，p95 7.04ms、p99 13.44ms、0 error
+- 真实 DeepSeek（`deepseek-v4-flash`，Python 4 worker）：
+  - 5 VU：30 次，p95 1.55s、p99 1.70s、0 error
+  - 20 VU：134 次，p95 1.58s、p99 2.15s、0 error
+  - 50 VU：383 次，p95 1.68s、p99 2.01s、0 error
+  - 50 VU 未饱和，当前 32 并发在真实模型延迟下仍够用
 - 模型路径（2s 桩）20 VU：131 次请求，p95 2.02s、p99 2.16s、0 error
 - 模型路径（2s 桩）100 VU：595 次请求，498 busy、90 ok、7 degraded、0 error，p95 4.81s（饱和，Bulkhead 按预期介入）
 - 修复：DeferredResult 超时后 `CancellationException` 被全局异常处理成 500；Controller 现在统一转成 busy，并在 `isSetOrExpired()` 后不再写结果
@@ -2969,8 +2974,9 @@ sundry_seckill_compensation_total = 0
 **验证**
 
 - `AssistantControllerTest` 1 个用例通过
-- k6 两轮规则路径 + 两轮模型路径结果见上
+- k6 规则路径 + 真实模型 + 本地桩结果见上
 - 压测期间 `assistant_error = 0`，说明保护链路没有把超时变成 5xx
+- 压测结束后后端和 AI 服务已停止，临时桩已删除
 
 **提交**
 

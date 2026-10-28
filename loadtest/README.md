@@ -104,8 +104,13 @@ k6 v1.8.2，单机后端，助手 Bulkhead 默认 32 并发 / 200 队列 / 4s �
 | 场景 | 请求数 | p95 | p99 | 结果 |
 |---|---:|---:|---:|---|
 | 规则路径，100 VU | 19,751 | 7.04ms | 13.44ms | 0 error |
+| 真实 DeepSeek，5 VU | 30 | 1.55s | 1.70s | 0 error |
+| 真实 DeepSeek，20 VU | 134 | 1.58s | 2.15s | 0 error |
+| 真实 DeepSeek，50 VU | 383 | 1.68s | 2.01s | 0 error |
 | 模型路径（2s 桩），20 VU | 131 | 2.02s | 2.16s | 0 error |
 | 模型路径（2s 桩），100 VU | 595 | 4.81s | 4.87s | 498 busy、0 error |
+
+真实模型为 `deepseek-v4-flash`，Python 4 worker，Java 侧 32 并发；50 VU 时仍未饱和。
 
 100 VU + 2s 模型延迟时，32 并发只能提供约 16 req/s，而 100 VU 需求约 50 req/s，队列必然打满。
 这是 Bulkhead 按预期保护系统，不是 5xx；要提高吞吐先调 `ASSISTANT_CONCURRENCY`，并确认上游模型容量。
