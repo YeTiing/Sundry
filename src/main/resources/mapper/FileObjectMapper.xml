@@ -18,6 +18,15 @@
         WHERE id = #{id}
     </select>
 
+    <select id="findByObjectKey" resultType="com.sundry.file.FileObject">
+        SELECT id, bucket, object_key, original_name, content_type,
+               size_bytes, etag, kind, uploader_id, status, deleted_at, created_at
+        FROM file_object
+        WHERE object_key = #{objectKey}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
     <!-- 软删除：保留对象 7 天，期间重复上传可复用 -->
     <update id="softDelete">
         UPDATE file_object

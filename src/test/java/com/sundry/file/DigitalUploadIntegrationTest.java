@@ -449,6 +449,24 @@ class DigitalUploadIntegrationTest {
     }
 
     @Test
+    void completeIsIdempotentWhenDoneCacheExpires() throws Exception {
+        String token = register(SUPER_PHONE);
+        String[] init = initUpload(token, 1024);
+        MvcResult first = completeUpload(token, init[0], init[1]);
+        long firstId = ((Number) JsonPath.read(body(first), "$.id")).longValue();
+
+        // 模拟完成态缓存和上传会话都过期
+        redis.delete("upload:digital:done:" + init[0]);
+        redis.delete("upload:digital:" + init[0]);
+
+        MvcResult second = completeUpload(token, init[0], init[1]);
+        long secondId = ((Number) JsonPath.read(body(second), "$.id")).longValue();
+
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(gateway.exists(init[1])).isTrue();
+    }
+
+    @Test
     void normalUserCannotDeleteDigitalFile() throws Exception {
         String token = register(USER_PHONE);
 

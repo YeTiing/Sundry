@@ -103,6 +103,17 @@ public class DigitalUploadService {
             return cached;
         }
 
+        // 完成态缓存丢失时，用对象 key 找回已经入库的记录；重试必须幂等
+        FileObject existing = fileObjectMapper.findByObjectKey(request.key());
+        if (existing != null && existing.getStatus() != null && existing.getStatus() == 1) {
+            if (!uploaderId.equals(existing.getUploaderId())) {
+                throw new BusinessException(ErrorCode.UPLOAD_SESSION_NOT_FOUND);
+            }
+            cacheDoneQuietly(request.uploadId(), request.key(), existing.getId());
+            redis.delete(stateKey(request.uploadId()));
+            return view(existing);
+        }
+
         UploadState state = loadState(request.uploadId());
         if (state == null || !state.uploaderId().equals(uploaderId) || !state.key().equals(request.key())) {
             throw new BusinessException(ErrorCode.UPLOAD_SESSION_NOT_FOUND);
@@ -163,33 +174,32 @@ public class DigitalUploadService {
                 fileObjectMapper.touch(reusable.getId());
             }
             redis.delete(stateKey(request.uploadId()));
-            cacheDone(request.uploadId(), request.key(), reusable.getId());
-            return new DigitalFileView(reusable.getId(), reusable.getObjectKey(),
-                    reusable.getOriginalName(), reusable.getSizeBytes(), reusable.getContentType());
+            cacheDoneQuietly(request.uploadId(), request.key(), reusable.getId());
+            return view(reusable);
         }
 
+        FileObject record = new FileObject();
+        record.setBucket(properties.getPrivateBucket());
+        record.setObjectKey(request.key());
+        record.setOriginalName(state.originalName());
+        record.setContentType(state.contentType());
+        record.setSizeBytes(actualSize);
+        record.setEtag(stored.etag());
+        record.setKind(FileKind.DIGITAL);
+        record.setUploaderId(uploaderId);
+        record.setStatus(1);
         try {
-            FileObject record = new FileObject();
-            record.setBucket(properties.getPrivateBucket());
-            record.setObjectKey(request.key());
-            record.setOriginalName(state.originalName());
-            record.setContentType(state.contentType());
-            record.setSizeBytes(actualSize);
-            record.setEtag(stored.etag());
-            record.setKind(FileKind.DIGITAL);
-            record.setUploaderId(uploaderId);
-            record.setStatus(1);
             fileObjectMapper.insert(record);
-            redis.delete(stateKey(request.uploadId()));
-            cacheDone(request.uploadId(), request.key(), record.getId());
-            return new DigitalFileView(record.getId(), request.key(), state.originalName(),
-                    actualSize, state.contentType());
         } catch (RuntimeException ex) {
-            // 数据库没记上就把对象删掉，避免孤儿文件
+            // 数据库没记上才删对象；入库成功后不能再因为缓存失败删对象
             deleteQuietly(request.key());
             redis.delete(stateKey(request.uploadId()));
             throw ex;
         }
+        // DB 是事实源；完成态缓存失败只影响重试加速，不回滚文件
+        cacheDoneQuietly(request.uploadId(), request.key(), record.getId());
+        redis.delete(stateKey(request.uploadId()));
+        return view(record);
     }
 
     /**
@@ -296,6 +306,21 @@ public class DigitalUploadService {
 
     private void cacheDone(String uploadId, String key, Long fileId) {
         redis.opsForValue().set(DONE_KEY.formatted(uploadId), key + "|" + fileId, DONE_TTL);
+    }
+
+    private void cacheDoneQuietly(String uploadId, String key, Long fileId) {
+        try {
+            cacheDone(uploadId, key, fileId);
+        } catch (RuntimeException ex) {
+            // 文件记录和对象已经落库/落存储，缓存失败只影响重试加速
+            log.warn("failed to cache digital upload done state, uploadId={}, key={}",
+                    uploadId, key, ex);
+        }
+    }
+
+    private DigitalFileView view(FileObject file) {
+        return new DigitalFileView(file.getId(), file.getObjectKey(), file.getOriginalName(),
+                file.getSizeBytes(), file.getContentType());
     }
 
     private void saveState(String uploadId, UploadState state) {

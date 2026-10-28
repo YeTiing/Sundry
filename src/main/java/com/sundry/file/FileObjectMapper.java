@@ -16,6 +16,9 @@ public interface FileObjectMapper {
 
     FileObject findById(@Param("id") Long id);
 
+    // 完成请求重试时按对象 key 找回已入库记录，不依赖 Redis 完成态缓存
+    FileObject findByObjectKey(@Param("objectKey") String objectKey);
+
     int softDelete(@Param("id") Long id);
 
     int restore(@Param("id") Long id);
