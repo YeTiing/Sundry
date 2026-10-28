@@ -463,7 +463,15 @@ class DigitalUploadIntegrationTest {
         redis.delete("upload:digital:done:" + init[0]);
         redis.delete("upload:digital:" + init[0]);
 
-        MvcResult second = completeUpload(token, init[0], init[1]);
+        // 只带 uploadId，不传 key；由 upload_session 补全
+        MvcResult second = mockMvc.perform(post("/api/admin/uploads/digital/complete")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"uploadId":"%s"}
+                                """.formatted(init[0])))
+                .andExpect(status().isOk())
+                .andReturn();
         long secondId = ((Number) JsonPath.read(body(second), "$.id")).longValue();
 
         assertThat(secondId).isEqualTo(firstId);

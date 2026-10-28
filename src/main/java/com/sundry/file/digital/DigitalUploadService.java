@@ -109,53 +109,61 @@ public class DigitalUploadService {
     }
 
     public DigitalFileView complete(Long uploaderId, CompleteDigitalUploadRequest request) {
-        // 网络超时后客户端重试：直接返回上次成功的结果
-        DigitalFileView cached = loadDone(request.uploadId(), request.key());
-        if (cached != null) {
-            return cached;
-        }
-
-        // Redis 完成态丢失时，先按 uploadId 查持久会话；不依赖客户端重新提供对象 key
+        // Redis 完成态丢失时，先按 uploadId 查持久会话；key 也可以由会话补全
         UploadSession session = uploadSessionMapper.findById(request.uploadId());
+        String requestedKey = request.key() == null ? null : request.key().trim();
+        String key = requestedKey == null || requestedKey.isEmpty()
+                ? (session == null ? null : session.getObjectKey())
+                : requestedKey;
+        if (key == null) {
+            throw new BusinessException(ErrorCode.UPLOAD_SESSION_NOT_FOUND);
+        }
         if (session != null) {
             if (!session.getUploaderId().equals(uploaderId)
-                    || !session.getObjectKey().equals(request.key())) {
+                    || (requestedKey != null && !requestedKey.isEmpty()
+                        && !session.getObjectKey().equals(requestedKey))) {
                 throw new BusinessException(ErrorCode.UPLOAD_SESSION_NOT_FOUND);
             }
             if ("COMPLETED".equals(session.getStatus()) && session.getFileId() != null) {
                 FileObject file = fileObjectMapper.findById(session.getFileId());
                 if (file != null && file.getStatus() != null && file.getStatus() == 1) {
-                    cacheDoneQuietly(request.uploadId(), request.key(), file.getId());
+                    cacheDoneQuietly(request.uploadId(), key, file.getId());
                     return view(file);
                 }
             }
         }
 
+        // 网络超时后客户端重试：直接返回上次成功的结果
+        DigitalFileView cached = loadDone(request.uploadId(), key);
+        if (cached != null) {
+            return cached;
+        }
+
         // 兼容 migration 之前的上传：按对象 key 找回已经入库的记录
-        FileObject existing = fileObjectMapper.findByObjectKey(request.key());
+        FileObject existing = fileObjectMapper.findByObjectKey(key);
         if (existing != null && existing.getStatus() != null && existing.getStatus() == 1) {
             if (!uploaderId.equals(existing.getUploaderId())) {
                 throw new BusinessException(ErrorCode.UPLOAD_SESSION_NOT_FOUND);
             }
             markCompletedQuietly(request.uploadId(), uploaderId,
-                    request.key(), existing.getId());
-            cacheDoneQuietly(request.uploadId(), request.key(), existing.getId());
+                    key, existing.getId());
+            cacheDoneQuietly(request.uploadId(), key, existing.getId());
             redis.delete(stateKey(request.uploadId()));
             return view(existing);
         }
 
         UploadState state = loadState(request.uploadId());
-        if (state == null || !state.uploaderId().equals(uploaderId) || !state.key().equals(request.key())) {
+        if (state == null || !state.uploaderId().equals(uploaderId) || !state.key().equals(key)) {
             throw new BusinessException(ErrorCode.UPLOAD_SESSION_NOT_FOUND);
         }
 
         List<UploadedPart> parts;
         try {
-            parts = gateway.listParts(request.key(), request.uploadId()).stream()
+            parts = gateway.listParts(key, request.uploadId()).stream()
                     .sorted(Comparator.comparingInt(UploadedPart::partNumber))
                     .toList();
         } catch (RuntimeException ex) {
-            log.error("failed to list uploaded parts, key={}", request.key(), ex);
+            log.error("failed to list uploaded parts, key={}", key, ex);
             throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
         }
         if (parts.size() != state.partCount()) {
@@ -163,32 +171,32 @@ public class DigitalUploadService {
         }
 
         try {
-            gateway.completeMultipart(request.key(), request.uploadId(), parts);
+            gateway.completeMultipart(key, request.uploadId(), parts);
         } catch (RuntimeException ex) {
-            log.error("failed to complete multipart upload, key={}", request.key(), ex);
-            abortQuietly(request.key(), request.uploadId());
+            log.error("failed to complete multipart upload, key={}", key, ex);
+            abortQuietly(key, request.uploadId());
             redis.delete(stateKey(request.uploadId()));
             throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
         }
 
         StoredObject stored;
         try {
-            stored = gateway.stat(request.key());
+            stored = gateway.stat(key);
         } catch (RuntimeException ex) {
-            log.error("failed to stat uploaded object, key={}", request.key(), ex);
-            deleteQuietly(request.key());
+            log.error("failed to stat uploaded object, key={}", key, ex);
+            deleteQuietly(key);
             redis.delete(stateKey(request.uploadId()));
             throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
         }
 
         long actualSize = stored.size();
         if (actualSize <= 0 || actualSize > properties.getMaxDigitalBytes()) {
-            deleteQuietly(request.key());
+            deleteQuietly(key);
             redis.delete(stateKey(request.uploadId()));
             throw new BusinessException(ErrorCode.DIGITAL_FILE_TOO_LARGE);
         }
         if (actualSize != state.sizeBytes()) {
-            deleteQuietly(request.key());
+            deleteQuietly(key);
             redis.delete(stateKey(request.uploadId()));
             throw new BusinessException(ErrorCode.UPLOAD_PART_INVALID);
         }
@@ -197,22 +205,22 @@ public class DigitalUploadService {
         FileObject reusable = fileObjectMapper.findReusable(
                 uploaderId, FileKind.DIGITAL, actualSize, stored.etag());
         if (reusable != null) {
-            deleteQuietly(request.key());
+            deleteQuietly(key);
             if (reusable.getStatus() != null && reusable.getStatus() == 0) {
                 fileObjectMapper.restore(reusable.getId());
             } else {
                 fileObjectMapper.touch(reusable.getId());
             }
             markCompletedQuietly(request.uploadId(), uploaderId,
-                    request.key(), reusable.getId());
+                    key, reusable.getId());
             redis.delete(stateKey(request.uploadId()));
-            cacheDoneQuietly(request.uploadId(), request.key(), reusable.getId());
+            cacheDoneQuietly(request.uploadId(), key, reusable.getId());
             return view(reusable);
         }
 
         FileObject record = new FileObject();
         record.setBucket(properties.getPrivateBucket());
-        record.setObjectKey(request.key());
+        record.setObjectKey(key);
         record.setOriginalName(state.originalName());
         record.setContentType(state.contentType());
         record.setSizeBytes(actualSize);
@@ -224,14 +232,14 @@ public class DigitalUploadService {
             fileObjectMapper.insert(record);
         } catch (RuntimeException ex) {
             // 数据库没记上才删对象；入库成功后不能再因为缓存失败删对象
-            deleteQuietly(request.key());
+            deleteQuietly(key);
             redis.delete(stateKey(request.uploadId()));
             throw ex;
         }
         // DB 是事实源；完成态缓存失败只影响重试加速，不回滚文件
         markCompletedQuietly(request.uploadId(), uploaderId,
-                request.key(), record.getId());
-        cacheDoneQuietly(request.uploadId(), request.key(), record.getId());
+                key, record.getId());
+        cacheDoneQuietly(request.uploadId(), key, record.getId());
         redis.delete(stateKey(request.uploadId()));
         return view(record);
     }
