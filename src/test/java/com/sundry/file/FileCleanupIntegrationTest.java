@@ -71,6 +71,7 @@ class FileCleanupIntegrationTest {
         jdbcTemplate.update("DELETE FROM orders");
         jdbcTemplate.update("DELETE FROM seckill_activity");
         jdbcTemplate.update("DELETE FROM product");
+        jdbcTemplate.update("DELETE FROM upload_session");
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");
         clear(redis.keys("auth:*"));
@@ -156,6 +157,25 @@ class FileCleanupIntegrationTest {
 
         assertThat(fileExists(uploaded.id())).isTrue();
         assertThat(gateway.exists(uploaded.key())).isTrue();
+    }
+
+    @Test
+    void expiredPendingUploadSessionIsCleaned() throws Exception {
+        String token = register(SUPER_PHONE);
+        Long userId = jdbcTemplate.queryForObject(
+                "SELECT id FROM app_user WHERE phone = ?", Long.class, SUPER_PHONE);
+        jdbcTemplate.update("""
+                INSERT INTO upload_session
+                    (upload_id, uploader_id, object_key, status, created_at, updated_at)
+                VALUES ('upload-old', ?, 'digital/old.zip', 'PENDING',
+                        NOW(3) - INTERVAL 2 DAY, NOW(3) - INTERVAL 2 DAY)
+                """, userId);
+
+        cleanupJob.run();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM upload_session WHERE upload_id = 'upload-old'",
+                Long.class)).isZero();
     }
 
     @Test

@@ -47,11 +47,13 @@ public class DigitalUploadService {
     private final com.sundry.order.OrderItemMapper orderItemMapper;
     private final CleanupProperties cleanupProperties;
     private final StringRedisTemplate redis;
+    private final UploadSessionMapper uploadSessionMapper;
 
     public DigitalUploadService(DigitalUploadGateway gateway, StorageProperties properties,
                                 FileObjectMapper fileObjectMapper, ProductMapper productMapper,
                                 com.sundry.order.OrderItemMapper orderItemMapper,
-                                CleanupProperties cleanupProperties, StringRedisTemplate redis) {
+                                CleanupProperties cleanupProperties, StringRedisTemplate redis,
+                                UploadSessionMapper uploadSessionMapper) {
         this.gateway = gateway;
         this.properties = properties;
         this.fileObjectMapper = fileObjectMapper;
@@ -59,6 +61,7 @@ public class DigitalUploadService {
         this.orderItemMapper = orderItemMapper;
         this.cleanupProperties = cleanupProperties;
         this.redis = redis;
+        this.uploadSessionMapper = uploadSessionMapper;
     }
 
     public DigitalUploadView init(Long uploaderId, InitDigitalUploadRequest request) {
@@ -89,6 +92,15 @@ public class DigitalUploadService {
         }
 
         saveState(uploadId, new UploadState(uploaderId, key, size, partCount, contentType, originalName));
+        try {
+            uploadSessionMapper.insert(new UploadSession(
+                    uploadId, uploaderId, key, null, "PENDING"));
+        } catch (RuntimeException ex) {
+            abortQuietly(key, uploadId);
+            redis.delete(stateKey(uploadId));
+            log.error("failed to persist upload session, key={}", key, ex);
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
         List<PresignedPart> parts = new java.util.ArrayList<>(partCount);
         for (int i = 0; i < urls.size(); i++) {
             parts.add(new PresignedPart(i + 1, urls.get(i)));
@@ -103,12 +115,30 @@ public class DigitalUploadService {
             return cached;
         }
 
-        // 完成态缓存丢失时，用对象 key 找回已经入库的记录；重试必须幂等
+        // Redis 完成态丢失时，先按 uploadId 查持久会话；不依赖客户端重新提供对象 key
+        UploadSession session = uploadSessionMapper.findById(request.uploadId());
+        if (session != null) {
+            if (!session.getUploaderId().equals(uploaderId)
+                    || !session.getObjectKey().equals(request.key())) {
+                throw new BusinessException(ErrorCode.UPLOAD_SESSION_NOT_FOUND);
+            }
+            if ("COMPLETED".equals(session.getStatus()) && session.getFileId() != null) {
+                FileObject file = fileObjectMapper.findById(session.getFileId());
+                if (file != null && file.getStatus() != null && file.getStatus() == 1) {
+                    cacheDoneQuietly(request.uploadId(), request.key(), file.getId());
+                    return view(file);
+                }
+            }
+        }
+
+        // 兼容 migration 之前的上传：按对象 key 找回已经入库的记录
         FileObject existing = fileObjectMapper.findByObjectKey(request.key());
         if (existing != null && existing.getStatus() != null && existing.getStatus() == 1) {
             if (!uploaderId.equals(existing.getUploaderId())) {
                 throw new BusinessException(ErrorCode.UPLOAD_SESSION_NOT_FOUND);
             }
+            markCompletedQuietly(request.uploadId(), uploaderId,
+                    request.key(), existing.getId());
             cacheDoneQuietly(request.uploadId(), request.key(), existing.getId());
             redis.delete(stateKey(request.uploadId()));
             return view(existing);
@@ -173,6 +203,8 @@ public class DigitalUploadService {
             } else {
                 fileObjectMapper.touch(reusable.getId());
             }
+            markCompletedQuietly(request.uploadId(), uploaderId,
+                    request.key(), reusable.getId());
             redis.delete(stateKey(request.uploadId()));
             cacheDoneQuietly(request.uploadId(), request.key(), reusable.getId());
             return view(reusable);
@@ -197,6 +229,8 @@ public class DigitalUploadService {
             throw ex;
         }
         // DB 是事实源；完成态缓存失败只影响重试加速，不回滚文件
+        markCompletedQuietly(request.uploadId(), uploaderId,
+                request.key(), record.getId());
         cacheDoneQuietly(request.uploadId(), request.key(), record.getId());
         redis.delete(stateKey(request.uploadId()));
         return view(record);
@@ -306,6 +340,17 @@ public class DigitalUploadService {
 
     private void cacheDone(String uploadId, String key, Long fileId) {
         redis.opsForValue().set(DONE_KEY.formatted(uploadId), key + "|" + fileId, DONE_TTL);
+    }
+
+    private void markCompletedQuietly(String uploadId, Long uploaderId,
+                                      String key, Long fileId) {
+        try {
+            uploadSessionMapper.complete(uploadId, uploaderId, key, fileId);
+        } catch (RuntimeException ex) {
+            // 文件已经落库；会话映射失败只影响“只拿 uploadId 重试”的路径
+            log.warn("failed to persist completed upload session, uploadId={}, fileId={}",
+                    uploadId, fileId, ex);
+        }
     }
 
     private void cacheDoneQuietly(String uploadId, String key, Long fileId) {

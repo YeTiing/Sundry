@@ -60,6 +60,7 @@ class DigitalUploadIntegrationTest {
         jdbcTemplate.update("DELETE FROM orders");
         jdbcTemplate.update("DELETE FROM seckill_activity");
         jdbcTemplate.update("DELETE FROM product");
+        jdbcTemplate.update("DELETE FROM upload_session");
         jdbcTemplate.update("DELETE FROM file_object");
         jdbcTemplate.update("DELETE FROM app_user");
         Set<String> authKeys = redis.keys("auth:*");
@@ -454,6 +455,9 @@ class DigitalUploadIntegrationTest {
         String[] init = initUpload(token, 1024);
         MvcResult first = completeUpload(token, init[0], init[1]);
         long firstId = ((Number) JsonPath.read(body(first), "$.id")).longValue();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT file_id FROM upload_session WHERE upload_id = ?",
+                Long.class, init[0])).isEqualTo(firstId);
 
         // 模拟完成态缓存和上传会话都过期
         redis.delete("upload:digital:done:" + init[0]);

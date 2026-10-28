@@ -2989,7 +2989,7 @@ sundry_seckill_compensation_total = 0
 - 退款金额改为订单粒度：按需 JOIN 明细，退款指标禁止和商品明细指标/维度/筛选混算
 - 退款率改为返回百分比数值
 - 秒杀建单提交后 Redis 失败不再回补库存；结果查询增加 DB 兜底
-- 文件完成态缓存失败不再删对象/留悬挂记录；按 objectKey 支持完成重试
+- 文件完成态缓存失败不再删对象/留悬挂记录；V28 新增 upload_session，完成重试可按 uploadId 找回 fileId
 - 助手按 userId 重置会话和界面，换账号不残留上一账号内容
 - 向量同步改为先 Milvus 后 MySQL，失败后下一轮扫描可重试
 
