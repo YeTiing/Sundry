@@ -122,11 +122,12 @@ public class Nl2sqlPlanValidator {
                                     SemanticLayer layer) {
         boolean refundMetric = metrics.stream()
                 .anyMatch(metric -> layer.metrics().get(metric.key()).conditionalJoin() != null);
-        boolean orderLevelDimension = dimensions.stream()
-                .anyMatch(dimension -> "product".equals(dimension.key())
+        boolean itemLevelDimension = dimensions.stream()
+                .anyMatch(dimension -> "category".equals(dimension.key())
+                        || "product".equals(dimension.key())
                         || "product_type".equals(dimension.key()));
-        if (refundMetric && orderLevelDimension) {
-            throw invalid("INCOMPATIBLE_PAIR", "退款指标不能按商品维度拆分");
+        if (refundMetric && itemLevelDimension) {
+            throw invalid("INCOMPATIBLE_PAIR", "退款指标不能按商品/分类维度拆分");
         }
     }
 

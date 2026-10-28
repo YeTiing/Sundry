@@ -49,14 +49,16 @@ metrics:
     label: 退款金额
     synonyms: [退了多少钱]
     unit: 元
-    expr: "SUM(r.refund_amount)"
+    # 退款是订单粒度，order_item 会复制订单行；按明细数量分摊后再汇总，避免多明细重复累计
+    expr: "SUM(r.refund_amount * oi.quantity / NULLIF((SELECT SUM(oi2.quantity) FROM order_item oi2 WHERE oi2.order_id = o.id), 0))"
     conditional_join: refund_summary
 
   refund_rate:
     label: 退款率
     synonyms: [退货率, 退款占比]
     unit: "%"
-    expr: "COUNT(DISTINCT CASE WHEN r.order_id IS NOT NULL THEN o.id END) * 1.0 / NULLIF(COUNT(DISTINCT o.id), 0)"
+    # 返回百分比数值，前端直接拼 %
+    expr: "COUNT(DISTINCT CASE WHEN r.order_id IS NOT NULL THEN o.id END) * 100.0 / NULLIF(COUNT(DISTINCT o.id), 0)"
     conditional_join: refund_summary
 
   seckill_order_count:

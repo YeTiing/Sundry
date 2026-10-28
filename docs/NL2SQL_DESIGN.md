@@ -107,15 +107,20 @@ metrics:
     label: 退款金额
     synonyms: [退了多少钱]
     unit: 元
-    # r 是 conditional_joins.refund_summary 聚合后的派生表，每单一行
-    expr: SUM(r.refund_amount)
+    # r 是 conditional_joins.refund_summary 聚合后的派生表，每单一行；
+    # order_item 会把订单行放大，按明细数量分摊后再汇总，避免多明细重复累计
+    expr: >
+      SUM(r.refund_amount * oi.quantity
+          / NULLIF((SELECT SUM(oi2.quantity) FROM order_item oi2
+                    WHERE oi2.order_id = o.id), 0))
 
   refund_rate:
     label: 退款率
     synonyms: [退货率, 退款占比]
     unit: "%"
+    # 返回百分比数值，前端直接拼 %
     expr: >
-      COUNT(DISTINCT CASE WHEN r.order_id IS NOT NULL THEN o.id END) * 1.0
+      COUNT(DISTINCT CASE WHEN r.order_id IS NOT NULL THEN o.id END) * 100.0
       / NULLIF(COUNT(DISTINCT o.id), 0)
 
   seckill_order_count:
@@ -226,7 +231,10 @@ conditional_joins:
 
 `orders JOIN order_item` 之后，一个订单变多行。所有"订单级"计数必须 `COUNT(DISTINCT ...)`，否则一单买 3 件会被数成 3 单。
 
-`refund_rate` / `refund_amount` 需要 LEFT JOIN `order_refund`，同样会放大行数，必须 `DISTINCT`。
+`refund_rate` / `refund_amount` 需要 LEFT JOIN `order_refund`，同样会放大行数：
+
+- `refund_rate` / `refund_order_count` 是计数，使用 `COUNT(DISTINCT ...)` 即可。
+- `refund_amount` 是金额求和，不能简单 `DISTINCT`（两笔同额退款会被合并），也不能直接 `SUM`（多明细会重复）。当前按明细数量分摊后再汇总；退款指标不允许按 `category` / `product` / `product_type` 拆分。
 
 **② 时间边界**
 
@@ -363,7 +371,7 @@ POST /internal/nl2sql/summarize
 | enum filter 的值在枚举内 | `INVALID_ENUM_VALUE` |
 | 时间范围 ≤ 365 天、start < end | `INVALID_TIME_RANGE` |
 | `limit` ≤ maxRows | `INVALID_LIMIT` |
-| 指标与维度兼容性（如 `refund_rate` 不可按 `product_type` 分组，视口径而定） | `INCOMPATIBLE_PAIR` |
+| 指标与维度兼容性（退款指标不可按 `category` / `product` / `product_type` 分组，视口径而定） | `INCOMPATIBLE_PAIR` |
 | 角色可见性（ADMIN 不能查超管专属指标） | `FORBIDDEN_METRIC` |
 
 校验失败 **不生成 SQL**，直接返回 400 + 原因，并写审计（status=REJECTED）。

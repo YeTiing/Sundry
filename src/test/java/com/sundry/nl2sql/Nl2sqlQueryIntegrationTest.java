@@ -337,6 +337,68 @@ class Nl2sqlQueryIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    @Test
+    void refundAmountDeduplicatesOrderItemsAndRateUsesPercent() throws Exception {
+        Session admin = register(ADMIN_PHONE);
+        seedOrderData(admin.id());
+        seedRefundOrder(admin.id());
+
+        stubPlan(new Nl2sqlPlanResponse.Plan(
+                List.of("refund_amount"), List.of(), List.of(),
+                new Nl2sqlPlanResponse.Plan.Time("LAST_30D"), "day", List.of(), 10));
+        mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"最近30天退款金额\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows[0].refund_amount").value(100.0));
+
+        stubPlan(new Nl2sqlPlanResponse.Plan(
+                List.of("refund_rate"), List.of(), List.of(),
+                new Nl2sqlPlanResponse.Plan.Time("LAST_30D"), "day", List.of(), 10));
+        mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"最近30天退款率\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows[0].refund_rate").value(50.0));
+
+        // 退款是订单粒度，不能按分类/商品拆分
+        stubPlan(new Nl2sqlPlanResponse.Plan(
+                List.of("refund_amount"), List.of("category"), List.of(),
+                new Nl2sqlPlanResponse.Plan.Time("LAST_30D"), "day", List.of(), 10));
+        mockMvc.perform(post("/api/admin/nl2sql/query")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"最近30天各分类退款金额\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("NL2SQL_PLAN_REJECTED"));
+    }
+
+    private void seedRefundOrder(Long userId) {
+        long productId = jdbcTemplate.queryForObject(
+                "SELECT id FROM product WHERE name = '分析商品'", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO orders
+                    (order_no, user_id, status, total_amount, has_physical, paid_at, created_at)
+                VALUES ('NL-REFUND-001', ?, 'PAID', 30.00, 1,
+                        NOW(3) - INTERVAL 1 DAY, NOW(3) - INTERVAL 1 DAY)
+                """, userId);
+        long orderId = jdbcTemplate.queryForObject(
+                "SELECT id FROM orders WHERE order_no = 'NL-REFUND-001'", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO order_item
+                    (order_id, product_id, product_name, product_type, price, quantity)
+                VALUES (?, ?, '退款商品A', 'PHYSICAL', 10.00, 1),
+                       (?, ?, '退款商品B', 'PHYSICAL', 20.00, 1)
+                """, orderId, productId, orderId, productId);
+        jdbcTemplate.update("""
+                INSERT INTO order_refund
+                    (order_id, user_id, amount, reason, kind, status, prev_status)
+                VALUES (?, ?, 100.00, '测试退款', 'REFUND', 'COMPLETED', 'PAID')
+                """, orderId, userId);
+    }
+
     private void stubPlan(Nl2sqlPlanResponse.Plan plan) {
         when(nl2sqlClient.plan(any(), anyString())).thenReturn(new Nl2sqlPlanResponse(
                 plan, false, null, "deepseek", "nl2sql_plan_v1"));
