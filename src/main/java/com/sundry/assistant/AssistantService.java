@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 
 /**
  * 助手入口：规则快路径优先，未命中再让模型选工具；所有执行与权限都在 Java。
@@ -33,20 +34,17 @@ public class AssistantService {
     private static final String REJECT_ARGS = "我没能理解这个操作。";
 
     private final RouteCatalog catalog;
-    private final AssistantChatLogMapper logMapper;
-    private final AssistantRateLimiter rateLimiter;
+    private final AssistantAuditWriter auditWriter;
     private final AssistantClient client;
     private final AssistantToolRegistry registry;
     private final AssistantSessionStore sessionStore;
     private final ObjectMapper objectMapper;
 
-    public AssistantService(RouteCatalog catalog, AssistantChatLogMapper logMapper,
-                            AssistantRateLimiter rateLimiter, AssistantClient client,
-                            AssistantToolRegistry registry, AssistantSessionStore sessionStore,
-                            ObjectMapper objectMapper) {
+    public AssistantService(RouteCatalog catalog, AssistantAuditWriter auditWriter,
+                            AssistantClient client, AssistantToolRegistry registry,
+                            AssistantSessionStore sessionStore, ObjectMapper objectMapper) {
         this.catalog = catalog;
-        this.logMapper = logMapper;
-        this.rateLimiter = rateLimiter;
+        this.auditWriter = auditWriter;
         this.client = client;
         this.registry = registry;
         this.sessionStore = sessionStore;
@@ -54,7 +52,14 @@ public class AssistantService {
     }
 
     public AssistantReply chat(AuthenticatedUser user, AssistantChatRequest request) {
-        rateLimiter.check(user.id());
+        return chat(user, request, () -> false);
+    }
+
+    public AssistantReply chat(AuthenticatedUser user, AssistantChatRequest request,
+                               BooleanSupplier cancelled) {
+        if (cancelled.getAsBoolean()) {
+            throw new AssistantBusyException("CANCELLED");
+        }
         long start = System.currentTimeMillis();
         String traceId = UUID.randomUUID().toString();
         String message = request.message() == null ? "" : request.message().trim();
@@ -69,13 +74,18 @@ public class AssistantService {
             return remember(user.id(), sessionId, safeMessage, navigate(route, traceId));
         }
         List<Map<String, String>> history = sessionStore.history(user.id(), sessionId);
-        return chatWithModel(user, normalized, message, safeMessage, history, traceId, start);
+        return chatWithModel(user, normalized, message, safeMessage, history,
+                traceId, start, cancelled);
     }
 
     private AssistantReply chatWithModel(AuthenticatedUser user, AssistantChatRequest request,
                                          String message, String safeMessage,
                                          List<Map<String, String>> history,
-                                         String traceId, long start) {
+                                         String traceId, long start,
+                                         BooleanSupplier cancelled) {
+        if (cancelled.getAsBoolean()) {
+            throw new AssistantBusyException("CANCELLED");
+        }
         AssistantLlmResponse response;
         try {
             response = client.chat(new AssistantLlmRequest(message, history,
@@ -121,15 +131,19 @@ public class AssistantService {
             return clarify(REJECT_UNKNOWN, traceId);
         }
         if ("navigate".equals(call.name())) {
-            return handleNavigate(user, request, safeMessage, call, start, traceId);
+            return handleNavigate(user, request, safeMessage, call, start, traceId, cancelled);
         }
-        return handleBusinessTool(user, request, safeMessage, call, start, traceId);
+        return handleBusinessTool(user, request, safeMessage, call, start, traceId, cancelled);
     }
 
     private AssistantReply handleNavigate(AuthenticatedUser user, AssistantChatRequest request,
                                           String safeMessage,
                                           AssistantLlmResponse.ToolCall call,
-                                          long start, String traceId) {
+                                          long start, String traceId,
+                                          BooleanSupplier cancelled) {
+        if (cancelled.getAsBoolean()) {
+            throw new AssistantBusyException("CANCELLED");
+        }
         JsonNode arguments = parseArguments(call.arguments());
         if (arguments == null) {
             audit(user, request, safeMessage, "LLM", "clarify", "navigate", null,
@@ -159,7 +173,11 @@ public class AssistantService {
     private AssistantReply handleBusinessTool(AuthenticatedUser user, AssistantChatRequest request,
                                               String safeMessage,
                                               AssistantLlmResponse.ToolCall call,
-                                              long start, String traceId) {
+                                              long start, String traceId,
+                                              BooleanSupplier cancelled) {
+        if (cancelled.getAsBoolean()) {
+            throw new AssistantBusyException("CANCELLED");
+        }
         AssistantTool tool = registry.find(call.name(), user.role());
         if (tool == null) {
             String reason = registry.exists(call.name()) ? "FORBIDDEN_TOOL" : "UNKNOWN_TOOL";
@@ -172,6 +190,9 @@ public class AssistantService {
             audit(user, request, safeMessage, "LLM", "clarify", call.name(), null,
                     null, "REJECTED", "INVALID_ARGS", start, traceId);
             return clarify(REJECT_ARGS, traceId);
+        }
+        if (cancelled.getAsBoolean()) {
+            throw new AssistantBusyException("CANCELLED");
         }
         try {
             AssistantToolResult result = tool.execute(
@@ -263,7 +284,7 @@ public class AssistantService {
             entry.setRejectReason(rejectReason);
             entry.setLatencyMs((int) Math.min(Integer.MAX_VALUE, System.currentTimeMillis() - start));
             entry.setTraceId(traceId);
-            logMapper.insert(entry);
+            auditWriter.write(entry);
         } catch (RuntimeException ex) {
             log.warn("助手审计写入失败 userId={} action={}", user.id(), action, ex);
         }

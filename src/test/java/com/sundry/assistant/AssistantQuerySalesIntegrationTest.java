@@ -90,10 +90,7 @@ class AssistantQuerySalesIntegrationTest {
         seedOrderData(admin.id());
         stubTools();
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"最近经营情况怎么样\"}"))
+        AsyncAssistantCalls.chat(mockMvc, admin.token(), "{\"message\":\"最近经营情况怎么样\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.action").value("tool"))
                 .andExpect(jsonPath("$.reply", containsString("实物")))
@@ -115,10 +112,7 @@ class AssistantQuerySalesIntegrationTest {
         Session user = register(USER_PHONE);
         stubTools();
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"最近经营情况怎么样\"}"))
+        AsyncAssistantCalls.chat(mockMvc, user.token(), "{\"message\":\"最近经营情况怎么样\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.action").value("clarify"));
 

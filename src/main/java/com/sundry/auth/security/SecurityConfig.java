@@ -1,5 +1,6 @@
 package com.sundry.auth.security;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpMethod;
@@ -56,6 +57,8 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 白名单：登录注册和健康检查不需要令牌，其余请求默认要求已认证
                 .authorizeHttpRequests(auth -> auth
+                        // DeferredResult 的二次派发是已授权请求的内部延续，不再重复鉴权
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers(
                                 "/api/auth/sms-code",
                                 "/api/auth/register",

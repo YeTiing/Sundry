@@ -75,9 +75,19 @@ app:
     rate-limit-per-second: ${SECKILL_RATE_LIMIT:5}
   assistant:
     rate-limit-per-minute: ${ASSISTANT_RATE_LIMIT:10}
-    timeout: ${ASSISTANT_TIMEOUT:8s}
+    # 模型调用超时必须小于 wait-timeout，避免用户已降级后上游还在跑
+    timeout: ${ASSISTANT_TIMEOUT:3s}
     session-ttl: ${ASSISTANT_SESSION_TTL:30m}
     session-max-turns: ${ASSISTANT_SESSION_MAX_TURNS:3}
+    # 并发闸门：固定并发 + 有界短队列；队列满或等待超时返回降级文案
+    concurrency: ${ASSISTANT_CONCURRENCY:32}
+    queue-capacity: ${ASSISTANT_QUEUE_CAPACITY:200}
+    wait-timeout: ${ASSISTANT_WAIT_TIMEOUT:4s}
+    # 上游 429 后暂停调用模型的时间，Redis 共享
+    llm-cooldown: ${ASSISTANT_LLM_COOLDOWN:30s}
+    # 审计默认异步：不占请求线程；队列满时退化为调用线程写入
+    audit-async: ${ASSISTANT_AUDIT_ASYNC:true}
+    audit-queue-capacity: ${ASSISTANT_AUDIT_QUEUE_CAPACITY:1000}
   nl2sql:
     enabled: ${NL2SQL_ENABLED:false}
     free-sql-enabled: ${NL2SQL_FREE_SQL:false}
@@ -147,6 +157,7 @@ app:
     base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
     internal-token: ${AI_INTERNAL_TOKEN:}
     timeout: ${AI_TIMEOUT:30s}
+    connect-timeout: ${AI_CONNECT_TIMEOUT:2s}
     feed-candidate-limit: ${AI_FEED_CANDIDATE_LIMIT:60}
     feed-rerank-limit: ${AI_FEED_RERANK_LIMIT:20}
     feed-queue-ttl: ${AI_FEED_QUEUE_TTL:30m}

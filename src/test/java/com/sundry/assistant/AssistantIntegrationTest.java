@@ -17,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -83,6 +84,7 @@ class AssistantIntegrationTest {
         jdbcTemplate.update("DELETE FROM app_user");
         clear(redis.keys("auth:*"));
         clear(redis.keys("assistant:session:*"));
+        clear(redis.keys("assistant:rate:*"));
         clear(redis.keys("nl2sql:session:*"));
         smsSender.clear();
     }
@@ -91,11 +93,7 @@ class AssistantIntegrationTest {
     void userNavigatesToOwnOrdersAndAudits() throws Exception {
         Session user = register(USER_PHONE);
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的订单在哪\"}"))
-                .andExpect(status().isOk())
+        chat(user, "{\"message\":\"我的订单在哪\"}")
                 .andExpect(jsonPath("$.action").value("navigate"))
                 .andExpect(jsonPath("$.route").value("orders"))
                 .andExpect(jsonPath("$.routeLabel").value("我的订单"));
@@ -119,19 +117,11 @@ class AssistantIntegrationTest {
         Session user = register(USER_PHONE);
         Session admin = register(ADMIN_PHONE);
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"秒杀活动后台\"}"))
-                .andExpect(status().isOk())
+        chat(user, "{\"message\":\"秒杀活动后台\"}")
                 .andExpect(jsonPath("$.action").value("clarify"))
                 .andExpect(jsonPath("$.route").doesNotExist());
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"秒杀活动后台\"}"))
-                .andExpect(status().isOk())
+        chat(admin, "{\"message\":\"秒杀活动后台\"}")
                 .andExpect(jsonPath("$.action").value("navigate"))
                 .andExpect(jsonPath("$.route").value("admin-seckill"));
     }
@@ -140,11 +130,7 @@ class AssistantIntegrationTest {
     void auditMasksPhoneNumbers() throws Exception {
         Session user = register(USER_PHONE);
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的订单 13800138000\"}"))
-                .andExpect(status().isOk())
+        chat(user, "{\"message\":\"我的订单 13800138000\"}")
                 .andExpect(jsonPath("$.action").value("navigate"));
 
         String logged = jdbcTemplate.queryForObject(
@@ -154,17 +140,13 @@ class AssistantIntegrationTest {
 
     @Test
     void anonymousAndOversizedMessagesAreRejected() throws Exception {
-        mockMvc.perform(post("/api/assistant/chat")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的订单在哪\"}"))
+        AsyncAssistantCalls.anonymous(mockMvc, "{\"message\":\"我的订单在哪\"}")
                 .andExpect(status().isUnauthorized());
 
         Session user = register(USER_PHONE);
         String longMessage = "订".repeat(501);
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"" + longMessage + "\"}"))
+        AsyncAssistantCalls.chat(mockMvc, user.token(),
+                        "{\"message\":\"" + longMessage + "\"}")
                 .andExpect(status().isBadRequest());
     }
 
@@ -176,11 +158,7 @@ class AssistantIntegrationTest {
                         "call_1", "navigate", "{\"route\":\"orders\"}")),
                 "", "deepseek", "assistant_v1"));
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的包裹到哪了\"}"))
-                .andExpect(status().isOk())
+        chat(user, "{\"message\":\"我的包裹到哪了\"}")
                 .andExpect(jsonPath("$.action").value("navigate"))
                 .andExpect(jsonPath("$.route").value("orders"));
 
@@ -203,11 +181,7 @@ class AssistantIntegrationTest {
                         "call_1", "navigate", "{\"route\":\"admin-seckill\"}")),
                 "", "deepseek", "assistant_v1"));
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的包裹到哪了\"}"))
-                .andExpect(status().isOk())
+        chat(user, "{\"message\":\"我的包裹到哪了\"}")
                 .andExpect(jsonPath("$.action").value("clarify"))
                 .andExpect(jsonPath("$.route").doesNotExist());
 
@@ -225,10 +199,7 @@ class AssistantIntegrationTest {
                         new AssistantLlmResponse.ToolCall("c2", "navigate", "{\"route\":\"cart\"}")),
                 "", "deepseek", "assistant_v1"));
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的包裹到哪了\"}"))
+        chat(user, "{\"message\":\"我的包裹到哪了\"}")
                 .andExpect(jsonPath("$.action").value("clarify"));
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT reject_reason FROM ai_chat_log WHERE user_id = ?", String.class, user.id()))
@@ -238,10 +209,7 @@ class AssistantIntegrationTest {
         when(assistantClient.chat(any(), anyString())).thenReturn(new AssistantLlmResponse(
                 List.of(new AssistantLlmResponse.ToolCall("c1", "drop_table", "{}")),
                 "", "deepseek", "assistant_v1"));
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的包裹到哪了\"}"))
+        chat(user, "{\"message\":\"我的包裹到哪了\"}")
                 .andExpect(jsonPath("$.action").value("clarify"));
     }
 
@@ -251,20 +219,14 @@ class AssistantIntegrationTest {
         when(assistantClient.chat(any(), anyString())).thenReturn(new AssistantLlmResponse(
                 List.of(), "可以在订单页查看物流。", "deepseek", "assistant_v1"));
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的包裹到哪了\"}"))
+        chat(user, "{\"message\":\"我的包裹到哪了\"}")
                 .andExpect(jsonPath("$.action").value("answer"))
                 .andExpect(jsonPath("$.reply").value("可以在订单页查看物流。"));
 
         reset(assistantClient);
         when(assistantClient.chat(any(), anyString()))
                 .thenThrow(new AssistantException("AI_UNAVAILABLE"));
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的包裹到哪了\"}"))
+        chat(user, "{\"message\":\"我的包裹到哪了\"}")
                 .andExpect(jsonPath("$.action").value("clarify"));
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT status FROM ai_chat_log WHERE user_id = ? ORDER BY id DESC LIMIT 1",
@@ -282,11 +244,7 @@ class AssistantIntegrationTest {
                 List.of(new AssistantLlmResponse.ToolCall("c1", "list_my_orders", "{}")),
                 "", "deepseek", "assistant_v1"));
 
-        MvcResult result = mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我都买过什么\"}"))
-                .andExpect(status().isOk())
+        MvcResult result = chat(user, "{\"message\":\"我都买过什么\"}")
                 .andExpect(jsonPath("$.action").value("tool"))
                 .andExpect(jsonPath("$.reply",
                         org.hamcrest.Matchers.containsString("助手测试商品 ×2")))
@@ -488,22 +446,14 @@ class AssistantIntegrationTest {
                 List.of(new AssistantLlmResponse.ToolCall("c1", "get_product_status", args)),
                 "", "deepseek", "assistant_v1"));
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(admin.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的包裹到哪了\"}"))
-                .andExpect(status().isOk())
+        chat(admin, "{\"message\":\"我的包裹到哪了\"}")
                 .andExpect(jsonPath("$.action").value("tool"))
                 .andExpect(jsonPath("$.reply",
                         org.hamcrest.Matchers.containsString("助手测试商品")))
                 .andExpect(jsonPath("$.reply",
                         org.hamcrest.Matchers.containsString("在售")));
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我的包裹到哪了\"}"))
-                .andExpect(status().isOk())
+        chat(user, "{\"message\":\"我的包裹到哪了\"}")
                 .andExpect(jsonPath("$.action").value("clarify"));
 
         assertThat(jdbcTemplate.queryForObject(
@@ -517,17 +467,10 @@ class AssistantIntegrationTest {
         Session user = register(USER_PHONE);
 
         for (int i = 0; i < 10; i++) {
-            mockMvc.perform(post("/api/assistant/chat")
-                            .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"message\":\"你好\"}"))
-                    .andExpect(status().isOk());
+            chat(user, "{\"message\":\"你好\"}");
         }
 
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"你好\"}"))
+        AsyncAssistantCalls.chat(mockMvc, user.token(), "{\"message\":\"你好\"}")
                 .andExpect(status().isTooManyRequests());
     }
 
@@ -585,19 +528,14 @@ class AssistantIntegrationTest {
     @Test
     void invalidSessionIdIsRejected() throws Exception {
         Session user = register(USER_PHONE);
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"sessionId\":\"bad:key\",\"message\":\"你好\"}"))
+        AsyncAssistantCalls.chat(mockMvc, user.token(),
+                        "{\"sessionId\":\"bad:key\",\"message\":\"你好\"}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
-    private void chat(Session user, String body) throws Exception {
-        mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+    private ResultActions chat(Session user, String body) throws Exception {
+        return AsyncAssistantCalls.chat(mockMvc, user.token(), body)
                 .andExpect(status().isOk());
     }
 
@@ -649,10 +587,8 @@ class AssistantIntegrationTest {
         when(assistantClient.chat(any(), anyString())).thenReturn(new AssistantLlmResponse(
                 List.of(new AssistantLlmResponse.ToolCall("c1", tool, args)),
                 "", "deepseek", "assistant_v1"));
-        return mockMvc.perform(post("/api/assistant/chat")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(user.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"我都买过什么\"}"))
+        return AsyncAssistantCalls.chat(mockMvc, user.token(),
+                        "{\"message\":\"我都买过什么\"}")
                 .andExpect(status().isOk())
                 .andReturn();
     }

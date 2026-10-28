@@ -14,6 +14,9 @@ spring:
       database: 15
 
 app:
+  assistant:
+    # 测试保持同步审计，便于断言；异步写入另有单元测试
+    audit-async: false
   feed:
     # 实验分流会改变既有 Feed 用例的用户路径，测试默认关闭
     experiment-enabled: false

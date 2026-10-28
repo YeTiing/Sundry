@@ -18,12 +18,15 @@ public class AssistantClient {
     private final RestClient restClient;
     private final AiProperties properties;
     private final ObjectMapper objectMapper;
+    private final AssistantLlmGate gate;
 
     public AssistantClient(@Qualifier("assistantRestClient") RestClient restClient,
-                           AiProperties properties, ObjectMapper objectMapper) {
+                           AiProperties properties, ObjectMapper objectMapper,
+                           AssistantLlmGate gate) {
         this.restClient = restClient;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.gate = gate;
     }
 
     public AssistantLlmResponse chat(AssistantLlmRequest request, String traceId) {
@@ -33,6 +36,7 @@ public class AssistantClient {
         if (properties.getInternalToken() == null || properties.getInternalToken().isBlank()) {
             throw new AssistantException("AI_TOKEN_MISSING");
         }
+        gate.ensureReady();
 
         String payload;
         try {
@@ -56,6 +60,9 @@ public class AssistantClient {
             }
             return response;
         } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 429) {
+                gate.coolDown();
+            }
             throw new AssistantException("AI_HTTP_" + ex.getStatusCode().value(), ex);
         } catch (ResourceAccessException ex) {
             throw new AssistantException("AI_UNAVAILABLE", ex);
