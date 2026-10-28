@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { assistantApi } from '@/api/assistant'
 import { ApiError } from '@/api/http'
@@ -35,6 +35,16 @@ const input = ref('')
 const entries = ref<ChatEntry[]>([])
 const listRef = ref<HTMLElement | null>(null)
 const sessionId = ref(getOrCreateSessionId('assistant'))
+
+// 换账号时清空界面并换会话，避免把上一个账号的订单/分析卡片留给下一个用户
+watch(
+  () => auth.user?.id,
+  (id) => {
+    entries.value = []
+    open.value = false
+    sessionId.value = getOrCreateSessionId(`assistant:${id ?? 'anon'}`)
+  },
+)
 
 async function scrollToBottom(): Promise<void> {
   await nextTick()
